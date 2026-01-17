@@ -48,25 +48,26 @@
     function LLMSymphony() {
       const [hoveredCard, setHoveredCard] = useState(null);
 
-      // ============== MOVEMENT I: FOUNDATION (5 files) ==============
-      const foundationDiagrams = [
+      // ============== MOVEMENT I: FOUNDATION (14 files) ==============
+      // Core Architecture
+      const foundationCore = [
         {
-          id: 'scaling',
-          title: 'Scaling Laws',
-          subtitle: 'C = 6ND, Chinchilla',
-          file: 'movement1_foundation/SCALING_LAWS_compute_optimal.html',
-          color: 'amber',
-          icon: '📈',
-          topics: ['Power laws', 'Compute-optimal', 'Token ratios', 'Loss prediction']
+          id: 'tokenization',
+          title: 'Tokenization',
+          subtitle: 'BPE, WordPiece, SentencePiece',
+          file: 'movement1_foundation/TOKENIZATION_bpe_wordpiece_sentencepiece.html',
+          color: 'cyan',
+          icon: '🔤',
+          topics: ['BPE', 'Vocab building', 'Subword', 'Special tokens']
         },
         {
-          id: 'hardware',
-          title: 'Hardware Architecture',
-          subtitle: 'GPUs, Memory, Interconnects',
-          file: 'movement1_foundation/HARDWARE_architecture_gpus_memory.html',
-          color: 'green',
-          icon: '🖥️',
-          topics: ['H100/A100', 'HBM', 'NVLink', 'InfiniBand']
+          id: 'embeddings',
+          title: 'Embeddings & Vectors',
+          subtitle: 'Vector search deep dive',
+          file: 'movement1_foundation/EMBEDDINGS_vector_search_deep_dive.html',
+          color: 'blue',
+          icon: '📊',
+          topics: ['Word2Vec', 'Similarity', 'ANN', 'HNSW']
         },
         {
           id: 'attention',
@@ -86,6 +87,39 @@
           icon: '🔀',
           topics: ['Router', 'Top-k', 'Expert parallel', 'Mixtral']
         },
+      ];
+
+      const foundationScaling = [
+        {
+          id: 'scaling',
+          title: 'Scaling Laws',
+          subtitle: 'C = 6ND, Chinchilla',
+          file: 'movement1_foundation/SCALING_LAWS_compute_optimal.html',
+          color: 'amber',
+          icon: '📈',
+          topics: ['Power laws', 'Compute-optimal', 'Token ratios', 'Loss prediction']
+        },
+        {
+          id: 'hardware',
+          title: 'Hardware Architecture',
+          subtitle: 'GPUs, Memory, Interconnects',
+          file: 'movement1_foundation/HARDWARE_architecture_gpus_memory.html',
+          color: 'green',
+          icon: '🖥️',
+          topics: ['H100/A100', 'HBM', 'NVLink', 'InfiniBand']
+        },
+        {
+          id: 'model-zoo',
+          title: 'Model Zoo',
+          subtitle: 'Architecture comparison',
+          file: 'movement1_foundation/MODEL_ZOO_architecture_comparison.html',
+          color: 'purple',
+          icon: '🦁',
+          topics: ['GPT', 'LLaMA', 'Mistral', 'Falcon', 'Comparison']
+        },
+      ];
+
+      const foundationContext = [
         {
           id: 'context',
           title: 'Context Extension',
@@ -95,9 +129,69 @@
           icon: '📏',
           topics: ['Position interpolation', 'NTK-aware', 'Sliding window']
         },
+        {
+          id: 'long-context',
+          title: 'Long Context',
+          subtitle: 'Extended context techniques',
+          file: 'movement1_foundation/LONG_CONTEXT_techniques.html',
+          color: 'sky',
+          icon: '📜',
+          topics: ['Sparse attention', 'Memory', 'Compression']
+        },
       ];
 
-      // ============== MOVEMENT II: TRAINING (10 files) ==============
+      const foundationModalities = [
+        {
+          id: 'multimodal',
+          title: 'Multimodal VLMs',
+          subtitle: 'Vision-language models',
+          file: 'movement1_foundation/MULTIMODAL_vlm_vision_language.html',
+          color: 'rose',
+          icon: '🖼️',
+          topics: ['CLIP', 'LLaVA', 'Vision encoder', 'Cross-attention']
+        },
+        {
+          id: 'voice',
+          title: 'Voice & Audio',
+          subtitle: 'Speech LLMs',
+          file: 'movement1_foundation/VOICE_AUDIO_llms.html',
+          color: 'pink',
+          icon: '🎤',
+          topics: ['Whisper', 'TTS', 'Audio tokens']
+        },
+      ];
+
+      const foundationPatterns = [
+        {
+          id: 'patterns-core',
+          title: 'Core Interaction Patterns',
+          subtitle: 'Prompting fundamentals',
+          file: 'movement1_foundation/LLM_PATTERNS_core_interaction.html',
+          color: 'teal',
+          icon: '💬',
+          topics: ['Few-shot', 'Zero-shot', 'System prompts', 'Templates']
+        },
+        {
+          id: 'patterns-reasoning',
+          title: 'Reasoning Patterns',
+          subtitle: 'Cognitive architectures',
+          file: 'movement1_foundation/LLM_PATTERNS_reasoning_cognitive.html',
+          color: 'emerald',
+          icon: '🧠',
+          topics: ['CoT', 'Self-consistency', 'Decomposition', 'Verification']
+        },
+        {
+          id: 'patterns-router',
+          title: 'Router & Cascade',
+          subtitle: 'Model selection patterns',
+          file: 'movement1_foundation/LLM_PATTERNS_router_cascade.html',
+          color: 'lime',
+          icon: '🔀',
+          topics: ['Routing', 'Fallback', 'Cost optimization']
+        },
+      ];
+
+      // ============== MOVEMENT II: PRE-TRAINING (12 files) ==============
       const trainingStages = [
         { id: '0', title: 'Data Pipeline', subtitle: 'Cluster, cleaning, tokenization', file: 'movement2_pre_training/STAGE_0_training_data_pipeline.html', color: 'cyan', icon: '📊' },
         { id: '1', title: 'Model Init', subtitle: 'Architecture, DP/TP/PP', file: 'movement2_pre_training/STAGE_1_training_model_init.html', color: 'pink', icon: '🏗️' },
@@ -110,12 +204,14 @@
       ];
 
       const trainingOverviews = [
-        { title: 'AI Training Pipeline', subtitle: 'Complete overview', file: 'movement2_pre_training/AI-Training-Pipeline.html', icon: '🏭' },
-        { title: 'Training Pipeline Flow', subtitle: 'Visual flow diagram', file: 'movement2_pre_training/training-pipeline-flow.html', icon: '🌊' },
+        { id: 'train-overview', title: 'AI Training Pipeline', subtitle: 'Complete overview', file: 'movement2_pre_training/AI-Training-Pipeline.html', icon: '🏭', color: 'slate' },
+        { id: 'train-flow', title: 'Training Pipeline Flow', subtitle: 'Visual flow diagram', file: 'movement2_pre_training/training-pipeline-flow.html', icon: '🌊', color: 'blue' },
+        { id: 'distributed', title: 'Distributed Training', subtitle: 'FSDP, DeepSpeed', file: 'movement2_pre_training/DISTRIBUTED_training_fsdp_deepspeed.html', icon: '🌐', color: 'violet' },
+        { id: 'synthetic', title: 'Synthetic Data', subtitle: 'Distillation techniques', file: 'movement2_pre_training/SYNTHETIC_DATA_distillation.html', icon: '🧪', color: 'teal' },
       ];
 
-      // ============== MOVEMENT III: ALIGNMENT (1 file) ==============
-      const alignmentDiagrams = [
+      // ============== MOVEMENT III: ALIGNMENT (6 files) ==============
+      const alignmentCore = [
         {
           id: 'post-training',
           title: 'Post-Training Pipeline',
@@ -123,28 +219,106 @@
           file: 'movement3_alignment/POST_TRAINING_sft_rlhf_dpo.html',
           color: 'pink',
           icon: '🎯',
-          topics: ['SFT loss', 'Reward model', 'PPO', 'DPO', 'LoRA', 'Red teaming'],
+          topics: ['SFT loss', 'Reward model', 'PPO', 'DPO']
+        },
+        {
+          id: 'alignment-rlhf',
+          title: 'RLHF & Constitutional AI',
+          subtitle: 'Alignment techniques',
+          file: 'movement3_alignment/ALIGNMENT_rlhf_constitutional_ai_dpo.html',
+          color: 'purple',
+          icon: '⚖️',
+          topics: ['Reward modeling', 'PPO', 'Constitutional AI', 'DPO']
+        },
+        {
+          id: 'finetuning',
+          title: 'Fine-tuning Guide',
+          subtitle: 'LoRA, QLoRA, PEFT',
+          file: 'movement3_alignment/FINETUNING_lora_qlora_peft_guide.html',
+          color: 'indigo',
+          icon: '🔧',
+          topics: ['LoRA', 'QLoRA', 'Adapters', 'PEFT']
         },
       ];
 
-      // ============== MOVEMENT IV: INFERENCE (9 files) ==============
+      const alignmentEval = [
+        {
+          id: 'evaluation',
+          title: 'Evaluation & Benchmarks',
+          subtitle: 'MMLU, HumanEval, etc.',
+          file: 'movement3_alignment/EVALUATION_benchmarks_mmlu_humaneval.html',
+          color: 'amber',
+          icon: '📊',
+          topics: ['MMLU', 'HumanEval', 'MT-Bench', 'Leaderboards']
+        },
+        {
+          id: 'safety',
+          title: 'Safety & Guardrails',
+          subtitle: 'Red teaming, filters',
+          file: 'movement3_alignment/SAFETY_guardrails_redteaming.html',
+          color: 'red',
+          icon: '🛡️',
+          topics: ['Red teaming', 'Guardrails', 'Content filters', 'Jailbreaks']
+        },
+        {
+          id: 'merging',
+          title: 'Model Merging',
+          subtitle: 'SLERP, TIES, DARE',
+          file: 'movement3_alignment/MODEL_MERGING_slerp_ties.html',
+          color: 'teal',
+          icon: '🔀',
+          topics: ['SLERP', 'TIES', 'Task vectors', 'Frankenmerging']
+        },
+      ];
+
+      // ============== MOVEMENT IV: INFERENCE (12 files) ==============
       const inferenceStages = [
-        { id: '0', title: 'Pre-Model Setup', subtitle: 'Config, loading, warmup', file: 'movement4_inference/STAGE 0 - pre-model-diagram.html', color: 'slate', icon: '⚙️' },
-        { id: '1-2', title: 'Input & Tokenization', subtitle: 'Normalize, encode, template', file: 'movement4_inference/STAGES 1-2 - input-normalization-tokenization.html', color: 'blue', icon: '📝' },
-        { id: '3-4', title: 'Prompt & Prefill', subtitle: 'Assembly, KV cache build', file: 'movement4_inference/STAGES 3-4-prompt-assembly-prefill.html', color: 'indigo', icon: '📥' },
-        { id: '5-6', title: 'KV Cache & Decode', subtitle: 'Autoregressive loop', file: 'movement4_inference/STAGES 5-6-kv-cache-decode-loop.html', color: 'purple', icon: '🔄' },
-        { id: '7-9', title: 'Sampling & Stopping', subtitle: 'Temp, top-k/p, EOS', file: 'movement4_inference/STAGES 7-9- sampling-stop-conditions.html', color: 'orange', icon: '🎲' },
-        { id: '10-13', title: 'Streaming & Output', subtitle: 'Detokenize, post-process', file: 'movement4_inference/STAGES 10-13-streaming-post-processing.html', color: 'green', icon: '📤' },
+        { id: 'inf-0', title: 'Pre-Model Setup', subtitle: 'Config, loading, warmup', file: 'movement4_inference/STAGE 0 - pre-model-diagram.html', color: 'slate', icon: '⚙️' },
+        { id: 'inf-1-2', title: 'Input & Tokenization', subtitle: 'Normalize, encode, template', file: 'movement4_inference/STAGES 1-2 - input-normalization-tokenization.html', color: 'blue', icon: '📝' },
+        { id: 'inf-3-4', title: 'Prompt & Prefill', subtitle: 'Assembly, KV cache build', file: 'movement4_inference/STAGES 3-4-prompt-assembly-prefill.html', color: 'indigo', icon: '📥' },
+        { id: 'inf-5-6', title: 'KV Cache & Decode', subtitle: 'Autoregressive loop', file: 'movement4_inference/STAGES 5-6-kv-cache-decode-loop.html', color: 'purple', icon: '🔄' },
+        { id: 'inf-7-9', title: 'Sampling & Stopping', subtitle: 'Temp, top-k/p, EOS', file: 'movement4_inference/STAGES 7-9- sampling-stop-conditions.html', color: 'orange', icon: '🎲' },
+        { id: 'inf-10-13', title: 'Streaming & Output', subtitle: 'Detokenize, post-process', file: 'movement4_inference/STAGES 10-13-streaming-post-processing.html', color: 'green', icon: '📤' },
       ];
 
       const inferenceOverviews = [
-        { title: 'Tokenization & Input', subtitle: 'Deep dive into Stage 1', file: 'movement4_inference/INFERENCE_1_tokenization_input.html', icon: '🔤' },
-        { title: 'Inference Lifecycle', subtitle: 'Complete lifecycle diagram', file: 'movement4_inference/inference-lifecycle-diagram.html', icon: '♻️' },
-        { title: 'Inference Pipeline Flow', subtitle: 'Visual flow diagram', file: 'movement4_inference/inference-pipeline-flow.html', icon: '🌊' },
+        { id: 'inf-tok', title: 'Tokenization Deep Dive', subtitle: 'Input processing', file: 'movement4_inference/INFERENCE_1_tokenization_input.html', icon: '🔤', color: 'cyan' },
+        { id: 'inf-lifecycle', title: 'Inference Lifecycle', subtitle: 'Complete diagram', file: 'movement4_inference/inference-lifecycle-diagram.html', icon: '♻️', color: 'teal' },
+        { id: 'inf-flow', title: 'Pipeline Flow', subtitle: 'Visual flow diagram', file: 'movement4_inference/inference-pipeline-flow.html', icon: '🌊', color: 'sky' },
       ];
 
-      // ============== MOVEMENT V: SERVING (2 files) ==============
-      const servingDiagrams = [
+      const inferenceOptimization = [
+        {
+          id: 'quantization',
+          title: 'Quantization',
+          subtitle: 'GPTQ, AWQ, GGUF',
+          file: 'movement4_inference/QUANTIZATION_gptq_awq_gguf.html',
+          color: 'amber',
+          icon: '📦',
+          topics: ['INT8', 'INT4', 'GPTQ', 'AWQ', 'GGUF']
+        },
+        {
+          id: 'speculative',
+          title: 'Speculative Decoding',
+          subtitle: 'Draft & verify',
+          file: 'movement4_inference/SPECULATIVE_DECODING_draft_verify.html',
+          color: 'rose',
+          icon: '🚀',
+          topics: ['Draft model', 'Verification', 'Speedup', 'Acceptance']
+        },
+        {
+          id: 'structured',
+          title: 'Structured Output',
+          subtitle: 'JSON, function calling',
+          file: 'movement4_inference/STRUCTURED_OUTPUT_json_functions.html',
+          color: 'lime',
+          icon: '📋',
+          topics: ['JSON mode', 'Schemas', 'Function calling', 'Constrained']
+        },
+      ];
+
+      // ============== MOVEMENT V: SERVING (7 files) ==============
+      const servingEngines = [
         {
           id: 'serving-engines',
           title: 'vLLM & TensorRT-LLM',
@@ -152,20 +326,71 @@
           file: 'movement5_serving/how-vllm-tensorrt-work.html',
           color: 'emerald',
           icon: '🚀',
-          topics: ['PagedAttention', 'Continuous batching', 'Tensor parallel', 'Optimization']
+          topics: ['PagedAttention', 'Continuous batching', 'Tensor parallel']
         },
         {
-          id: 'inf-overview',
-          title: 'Inference Pipeline Overview',
+          id: 'inf-detailed',
+          title: 'Inference Pipeline',
           subtitle: 'TTFT, TPOT, throughput',
           file: 'movement5_serving/INFERENCE_pipeline_detailed.html',
           color: 'teal',
           icon: '⚡',
-          topics: ['Prefill', 'Decode', 'KV cache', 'Speculative', 'Quantization']
+          topics: ['Prefill', 'Decode', 'Metrics', 'Optimization']
         },
       ];
 
-      // ============== MOVEMENT VI: AGENTS (13 files) ==============
+      const servingOptimization = [
+        {
+          id: 'kv-cache',
+          title: 'KV Cache & Batching',
+          subtitle: 'PagedAttention deep dive',
+          file: 'movement5_serving/KV_CACHE_batching_pagedattention.html',
+          color: 'violet',
+          icon: '🧠',
+          topics: ['PagedAttention', 'Continuous batching', 'Memory management']
+        },
+        {
+          id: 'prompt-cache',
+          title: 'Prompt Caching',
+          subtitle: 'Prefix caching optimization',
+          file: 'movement5_serving/PROMPT_CACHING_optimization.html',
+          color: 'cyan',
+          icon: '💾',
+          topics: ['Prefix cache', 'System prompt', 'Reuse']
+        },
+        {
+          id: 'edge',
+          title: 'Edge Deployment',
+          subtitle: 'Ollama, MLX',
+          file: 'movement5_serving/EDGE_DEPLOYMENT_ollama_mlx.html',
+          color: 'green',
+          icon: '📱',
+          topics: ['Ollama', 'MLX', 'llama.cpp', 'Mobile']
+        },
+      ];
+
+      const servingPatterns = [
+        {
+          id: 'infra-caching',
+          title: 'Infrastructure Caching',
+          subtitle: 'Caching patterns',
+          file: 'movement5_serving/LLM_PATTERNS_infrastructure_caching.html',
+          color: 'blue',
+          icon: '🗄️',
+          topics: ['Semantic cache', 'KV cache', 'Response cache']
+        },
+        {
+          id: 'infra-ops',
+          title: 'Infrastructure Ops',
+          subtitle: 'Operations patterns',
+          file: 'movement5_serving/LLM_PATTERNS_infrastructure_ops.html',
+          color: 'orange',
+          icon: '🔧',
+          topics: ['Load balancing', 'Scaling', 'Monitoring', 'Cost']
+        },
+      ];
+
+      // ============== MOVEMENT VI: AGENTS (16 files) ==============
       // Core Architecture & Pipelines
       const agentCore = [
         {
@@ -175,7 +400,7 @@
           file: 'movement6_agents/agent-architecture-tool-calling.html',
           color: 'cyan',
           icon: '🏗️',
-          topics: ['Tool schemas', 'Function calling', 'Execution flow', 'Error handling']
+          topics: ['Tool schemas', 'Function calling', 'Execution', 'Errors']
         },
         {
           id: 'agent-pipeline',
@@ -193,29 +418,56 @@
           file: 'movement6_agents/llm-router-agent-pipeline.html',
           color: 'violet',
           icon: '🔀',
-          topics: ['Routing logic', 'Cost optimization', 'Fallbacks', 'Cascading']
+          topics: ['Routing logic', 'Cost', 'Fallbacks', 'Cascading']
         },
       ];
 
       // Patterns & Reasoning
       const agentPatterns = [
         {
-          id: 'patterns',
-          title: 'Agentic Patterns',
-          subtitle: 'ReAct, Reflexion, LATS',
-          file: 'movement6_agents/AGENTIC_PATTERNS_react_reflexion.html',
+          id: 'patterns-core',
+          title: 'Core Patterns',
+          subtitle: 'ReAct, Swarm fundamentals',
+          file: 'movement6_agents/AGENTIC_PATTERNS_core_react_swarm.html',
           color: 'purple',
+          icon: '🎯',
+          topics: ['ReAct', 'Swarm', 'Orchestration', 'Handoffs']
+        },
+        {
+          id: 'patterns-react',
+          title: 'ReAct & Reflexion',
+          subtitle: 'Reasoning patterns',
+          file: 'movement6_agents/AGENTIC_PATTERNS_react_reflexion.html',
+          color: 'indigo',
+          icon: '🔄',
+          topics: ['ReAct loop', 'Reflexion', 'Self-critique', 'LATS']
+        },
+        {
+          id: 'patterns-tool',
+          title: 'Tool-Augmented',
+          subtitle: 'Tool use patterns',
+          file: 'movement6_agents/AGENTIC_PATTERNS_tool_augmented.html',
+          color: 'teal',
+          icon: '🔧',
+          topics: ['Tool selection', 'Chaining', 'Parallel tools', 'Retries']
+        },
+        {
+          id: 'patterns-memory',
+          title: 'Advanced Memory',
+          subtitle: 'Memory architectures',
+          file: 'movement6_agents/AGENTIC_PATTERNS_advanced_memory.html',
+          color: 'emerald',
           icon: '🧠',
-          topics: ['ReAct loop', 'Reflexion', 'Self-critique', 'Tree search']
+          topics: ['Episodic', 'Semantic', 'Working memory', 'Retrieval']
         },
         {
           id: 'prompting',
           title: 'Prompt Engineering',
           subtitle: 'Techniques for agents',
           file: 'movement6_agents/PROMPT_ENGINEERING_techniques.html',
-          color: 'indigo',
+          color: 'amber',
           icon: '✍️',
-          topics: ['Few-shot', 'Chain-of-thought', 'System prompts', 'Structured output']
+          topics: ['Few-shot', 'CoT', 'System prompts', 'Structured']
         },
       ];
 
@@ -228,7 +480,7 @@
           file: 'movement6_agents/MCP_model_context_protocol.html',
           color: 'emerald',
           icon: '🔌',
-          topics: ['Tools', 'Resources', 'Prompts', 'Transports', 'SDK']
+          topics: ['Tools', 'Resources', 'Prompts', 'Transports']
         },
         {
           id: 'agui',
@@ -237,7 +489,7 @@
           file: 'movement6_agents/AG_UI_agent_generated_interfaces.html',
           color: 'teal',
           icon: '🖼️',
-          topics: ['Dynamic UI', 'Event streams', 'Component rendering', 'State sync']
+          topics: ['Dynamic UI', 'Events', 'Components', 'State sync']
         },
         {
           id: 'a2a',
@@ -246,7 +498,7 @@
           file: 'movement6_agents/A2A_agent_to_agent_protocol.html',
           color: 'sky',
           icon: '🤝',
-          topics: ['Agent cards', 'Task delegation', 'Discovery', 'Handoffs']
+          topics: ['Agent cards', 'Tasks', 'Discovery', 'Handoffs']
         },
       ];
 
@@ -259,7 +511,7 @@
           file: 'movement6_agents/AGENTIC_CODING_swe_agents.html',
           color: 'green',
           icon: '💻',
-          topics: ['SWE-bench', 'Code editing', 'Testing', 'Debugging loops']
+          topics: ['SWE-bench', 'Code editing', 'Testing', 'Debugging']
         },
         {
           id: 'computer-use',
@@ -268,7 +520,7 @@
           file: 'movement6_agents/COMPUTER_USE_browser_desktop.html',
           color: 'lime',
           icon: '🖥️',
-          topics: ['Screenshots', 'Click/type', 'Browser automation', 'Safety']
+          topics: ['Screenshots', 'Click/type', 'Browser', 'Safety']
         },
       ];
 
@@ -280,8 +532,8 @@
           subtitle: 'State management',
           file: 'movement6_agents/AGENT_MEMORY_state_management.html',
           color: 'amber',
-          icon: '🧠',
-          topics: ['Short-term', 'Long-term', 'Episodic', 'Semantic', 'Working memory']
+          icon: '💾',
+          topics: ['Short-term', 'Long-term', 'Episodic', 'Working']
         },
         {
           id: 'multi-agent',
@@ -290,7 +542,7 @@
           file: 'movement6_agents/MULTI_AGENT_systems_orchestration.html',
           color: 'orange',
           icon: '👥',
-          topics: ['Supervisors', 'Hierarchies', 'Message passing', 'Consensus']
+          topics: ['Supervisors', 'Hierarchies', 'Messages', 'Consensus']
         },
         {
           id: 'observability',
@@ -299,12 +551,12 @@
           file: 'movement6_agents/AGENT_OBSERVABILITY_tracing.html',
           color: 'red',
           icon: '📊',
-          topics: ['LangSmith', 'Traces', 'Spans', 'Cost tracking', 'Evals']
+          topics: ['LangSmith', 'Traces', 'Spans', 'Cost tracking']
         },
       ];
 
-      // ============== MOVEMENT VII: RAG (3 files) ==============
-      const ragDiagrams = [
+      // ============== MOVEMENT VII: RAG (5 files) ==============
+      const ragCore = [
         {
           id: 'rag-intro',
           title: 'RAG Fundamentals',
@@ -312,29 +564,50 @@
           file: 'movement7_rag/RAG_retrieval_augmented_generation.html',
           color: 'rose',
           icon: '📚',
-          topics: ['Embedding', 'Vector DB', 'Retrieval', 'Augmented context']
+          topics: ['Embedding', 'Vector DB', 'Retrieval', 'Context']
         },
         {
           id: 'rag-chunking',
-          title: 'Chunking & Retrieval',
-          subtitle: 'Splitting, embedding, reranking',
+          title: 'Chunking & Reranking',
+          subtitle: 'Splitting, embedding, retrieval',
           file: 'movement7_rag/RAG_chunking_reranking_retrieval.html',
           color: 'pink',
           icon: '✂️',
-          topics: ['Chunk strategies', 'Overlap', 'Semantic search', 'Rerankers']
-        },
-        {
-          id: 'rag-patterns',
-          title: 'Advanced RAG Patterns',
-          subtitle: 'Modular & agentic RAG',
-          file: 'movement7_rag/RAG_PATTERNS_advanced_modular.html',
-          color: 'fuchsia',
-          icon: '🔧',
-          topics: ['Query rewriting', 'Multi-hop', 'Agentic RAG', 'CRAG', 'Self-RAG']
+          topics: ['Chunk strategies', 'Overlap', 'Rerankers']
         },
       ];
 
-      // ============== EXTRAS (1 file) ==============
+      const ragPatterns = [
+        {
+          id: 'rag-core-patterns',
+          title: 'Core Retrieval Patterns',
+          subtitle: 'Retrieval fundamentals',
+          file: 'movement7_rag/RAG_PATTERNS_core_retrieval.html',
+          color: 'fuchsia',
+          icon: '🔍',
+          topics: ['Dense retrieval', 'Hybrid search', 'Filtering']
+        },
+        {
+          id: 'rag-selfrag',
+          title: 'Self-RAG & Adaptive',
+          subtitle: 'Advanced retrieval patterns',
+          file: 'movement7_rag/RAG_PATTERNS_advanced_selfrag.html',
+          color: 'purple',
+          icon: '🔄',
+          topics: ['Self-RAG', 'CRAG', 'Adaptive retrieval']
+        },
+        {
+          id: 'rag-modular',
+          title: 'Modular RAG',
+          subtitle: 'Agentic & modular architectures',
+          file: 'movement7_rag/RAG_PATTERNS_advanced_modular.html',
+          color: 'violet',
+          icon: '🧩',
+          topics: ['Query rewriting', 'Multi-hop', 'Agentic RAG']
+        },
+      ];
+
+      // ============== EXTRAS (2 files) ==============
       const extrasDiagrams = [
         {
           id: 'nemotron',
@@ -344,6 +617,15 @@
           color: 'lime',
           icon: '🟢',
           topics: ['NVIDIA', 'Large models', 'Tutorial']
+        },
+        {
+          id: 'anti-patterns',
+          title: 'LLM Anti-Patterns',
+          subtitle: 'Common mistakes to avoid',
+          file: 'extras/LLM_ANTI_PATTERNS_reference.html',
+          color: 'red',
+          icon: '⚠️',
+          topics: ['Mistakes', 'Pitfalls', 'Best practices']
         },
       ];
 
@@ -375,14 +657,14 @@
           <a
             href={item.file}
             className={`block card-hover rounded-xl ${c.bg} border ${c.border} ${c.glow} shadow-lg overflow-hidden
-                       ${size === 'large' ? 'p-6' : 'p-4'}`}
+                       ${size === 'large' ? 'p-5' : 'p-4'}`}
             onMouseEnter={() => setHoveredCard(item.id)}
             onMouseLeave={() => setHoveredCard(null)}
           >
             <div className="flex items-start gap-3">
-              <span className={`${size === 'large' ? 'text-4xl' : 'text-2xl'}`}>{item.icon}</span>
+              <span className={`${size === 'large' ? 'text-3xl' : 'text-2xl'}`}>{item.icon}</span>
               <div className="flex-1 min-w-0">
-                <div className={`${c.text} font-black ${size === 'large' ? 'text-xl' : 'text-base'} leading-tight`}>
+                <div className={`${c.text} font-black ${size === 'large' ? 'text-lg' : 'text-base'} leading-tight`}>
                   {item.title}
                 </div>
                 <div className="text-white/60 text-sm mt-1">{item.subtitle}</div>
@@ -402,106 +684,100 @@
         );
       };
 
-      const StageCard = ({ stage }) => {
-        const c = colorClasses[stage.color];
+      const StageCard = ({ item }) => {
+        const c = colorClasses[item.color] || colorClasses.slate;
         return (
           <a
-            href={stage.file}
-            className={`block card-hover rounded-lg ${c.bg} border ${c.border} p-3 text-center min-w-[100px]`}
+            href={item.file}
+            className={`block card-hover rounded-lg ${c.bg} border ${c.border} p-3 text-center`}
           >
-            <div className="text-2xl mb-1">{stage.icon}</div>
-            <div className={`${c.text} font-bold text-sm`}>{stage.id}</div>
-            <div className="text-white/50 text-xs truncate">{stage.title}</div>
+            <div className="text-2xl mb-1">{item.icon}</div>
+            <div className={`${c.text} font-bold text-sm`}>{item.title}</div>
+            <div className="text-white/50 text-xs">{item.subtitle}</div>
           </a>
         );
       };
 
-      const OverviewCard = ({ item }) => (
-        <a
-          href={item.file}
-          className="block card-hover rounded-lg bg-slate-800/50 border border-slate-600 p-3"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{item.icon}</span>
-            <div>
-              <div className="text-white/80 font-bold text-sm">{item.title}</div>
-              <div className="text-white/50 text-xs">{item.subtitle}</div>
+      const OverviewCard = ({ item }) => {
+        const c = colorClasses[item.color] || colorClasses.slate;
+        return (
+          <a
+            href={item.file}
+            className={`block card-hover rounded-lg ${c.bg} border ${c.border} p-3`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{item.icon}</span>
+              <div>
+                <div className={`${c.text} font-bold text-sm`}>{item.title}</div>
+                <div className="text-white/50 text-xs">{item.subtitle}</div>
+              </div>
             </div>
-          </div>
-        </a>
-      );
+          </a>
+        );
+      };
 
       const MovementHeader = ({ number, title, subtitle, color, icon, count }) => (
         <div className="flex items-center gap-4 mb-6">
-          <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shadow-lg`}>
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center shadow-lg`}>
             <span className="text-3xl">{icon}</span>
           </div>
           <div className="flex-1">
-            <div className="text-white/40 text-sm font-bold tracking-widest">MOVEMENT {number}</div>
-            <h2 className="text-3xl font-black text-white">{title}</h2>
-            <p className="text-white/60">{subtitle}</p>
+            <div className="flex items-center gap-3">
+              <span className="text-white/40 text-sm font-bold">MOVEMENT {number}</span>
+              <span className="px-2 py-0.5 bg-white/10 rounded text-xs text-white/60">{count} files</span>
+            </div>
+            <h2 className="text-2xl font-black text-white">{title}</h2>
+            <p className="text-white/60 text-sm">{subtitle}</p>
           </div>
-          <div className="text-white/30 text-sm">{count} files</div>
+        </div>
+      );
+
+      const SectionHeader = ({ title, color }) => (
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`${color} text-sm font-bold`}>{title}</span>
+          <div className="flex-1 h-px bg-white/10"></div>
         </div>
       );
 
       const FlowArrow = () => (
-        <div className="flex flex-col py-4 items-center justify-center">
-          <div className="h-8 w-1 bg-gradient-to-b from-white/20 via-white/40 to-white/20 rounded-full" />
-          <div className="text-white/40 mt-1 animate-flow">▼</div>
+        <div className="flex justify-center my-6">
+          <div className="flex items-center gap-2 text-white/30">
+            <div className="w-16 h-px bg-gradient-to-r from-transparent to-white/30"></div>
+            <span className="animate-flow text-xl">▼</span>
+            <div className="w-16 h-px bg-gradient-to-l from-transparent to-white/30"></div>
+          </div>
         </div>
       );
 
       return (
-        <div className="min-h-screen bg-black text-white">
-          {/* Cosmic Background */}
-          <div className="fixed inset-0 pointer-events-none overflow-hidden">
-            <div className="absolute w-[1200px] h-[1200px] -top-96 -left-48 bg-purple-500/5 rounded-full blur-3xl animate-pulse-glow" />
-            <div className="absolute w-[1000px] h-[1000px] top-1/4 right-0 bg-cyan-500/5 rounded-full blur-3xl animate-pulse-glow" style={{animationDelay: '1s'}} />
-            <div className="absolute w-[800px] h-[800px] top-1/2 left-1/4 bg-pink-500/5 rounded-full blur-3xl animate-pulse-glow" style={{animationDelay: '2s'}} />
-            <div className="absolute w-[1000px] h-[1000px] bottom-0 right-1/4 bg-emerald-500/5 rounded-full blur-3xl animate-pulse-glow" style={{animationDelay: '1.5s'}} />
-          </div>
-
-          <div className="relative max-w-7xl mx-auto px-6 py-12">
-            {/* ============== HERO HEADER ============== */}
+        <div className="min-h-screen bg-black text-white" onMouseMove={(e) => {}}>
+          <div className="max-w-7xl mx-auto px-6 py-12">
+            
+            {/* ============== HEADER ============== */}
             <header className="text-center mb-16">
-              <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-600/20 via-pink-600/20 to-cyan-600/20 border border-white/10 rounded-full mb-8">
-                <span className="text-2xl">🎼</span>
-                <span className="text-white/80 font-medium">The Complete Visual Guide</span>
-                <span className="text-2xl">🎼</span>
+              <div className="inline-block px-4 py-1 bg-purple-900/50 border border-purple-500 rounded-full mb-4">
+                <span className="text-purple-300 font-bold text-sm">COMPLETE LIFECYCLE REFERENCE</span>
               </div>
-              
-              <h1 className="text-7xl font-black mb-6">
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400">
-                  The LLM Symphony
-                </span>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-cyan-400">
+                🎼 The LLM Symphony 🎼
               </h1>
-              
-              <p className="text-2xl text-white/60 max-w-3xl mx-auto leading-relaxed mb-8">
-                From <span className="text-purple-300">raw data</span> to <span className="text-pink-300">trained model</span> to <span className="text-cyan-300">deployed agent</span>
-                <br/>
-                <span className="text-white/40">— One continuous flow, six movements, infinite understanding</span>
+              <p className="text-xl text-white/60 max-w-3xl mx-auto">
+                From raw data to production agents — 7 movements, 74 interactive diagrams
               </p>
-
-              {/* Grand Flow */}
-              <div className="flex items-center justify-center gap-2 flex-wrap mt-8 mb-4">
-                {[
-                  { label: 'Foundation', color: 'from-amber-500 to-amber-600', icon: '🏛️' },
-                  { label: 'Training', color: 'from-purple-500 to-purple-600', icon: '🎓' },
-                  { label: 'Alignment', color: 'from-pink-500 to-pink-600', icon: '🎯' },
-                  { label: 'Inference', color: 'from-blue-500 to-blue-600', icon: '⚡' },
-                  { label: 'Serving', color: 'from-emerald-500 to-emerald-600', icon: '🚀' },
-                  { label: 'Agents', color: 'from-cyan-500 to-cyan-600', icon: '🤖' },
-                  { label: 'RAG', color: 'from-rose-500 to-rose-600', icon: '📚' },
-                ].map((item, i, arr) => (
-                  <div key={i} className="flex items-center">
-                    <div className={`px-4 py-2 rounded-lg bg-gradient-to-r ${item.color} flex items-center gap-2`}>
-                      <span>{item.icon}</span>
-                      <span className="font-bold text-white">{item.label}</span>
-                    </div>
-                    {i < arr.length - 1 && <span className="text-white/30 mx-2 text-xl">→</span>}
-                  </div>
-                ))}
+              <div className="flex justify-center gap-8 mt-6 text-sm text-white/40">
+                <span>Foundation</span>
+                <span>→</span>
+                <span>Training</span>
+                <span>→</span>
+                <span>Alignment</span>
+                <span>→</span>
+                <span>Inference</span>
+                <span>→</span>
+                <span>Serving</span>
+                <span>→</span>
+                <span>Agents</span>
+                <span>→</span>
+                <span>RAG</span>
               </div>
             </header>
 
@@ -510,57 +786,59 @@
               <MovementHeader 
                 number="I" 
                 title="Foundation" 
-                subtitle="The theoretical bedrock — scaling, hardware, attention, MoE, context"
+                subtitle="Core building blocks — tokenization, embeddings, attention, scaling laws, hardware"
                 color="from-amber-500 to-orange-600"
                 icon="🏛️"
-                count="5"
+                count="14"
               />
               
-              <div className="grid grid-cols-5 gap-3">
-                {foundationDiagrams.map(d => (
-                  <DiagramCard key={d.id} item={d} />
-                ))}
+              <SectionHeader title="🔤 CORE ARCHITECTURE" color="text-cyan-400" />
+              <div className="grid grid-cols-4 gap-3 mb-6">
+                {foundationCore.map(d => <DiagramCard key={d.id} item={d} />)}
+              </div>
+
+              <SectionHeader title="📈 SCALING & HARDWARE" color="text-amber-400" />
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {foundationScaling.map(d => <DiagramCard key={d.id} item={d} />)}
+              </div>
+
+              <SectionHeader title="📏 CONTEXT & POSITION" color="text-indigo-400" />
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {foundationContext.map(d => <DiagramCard key={d.id} item={d} />)}
+              </div>
+
+              <SectionHeader title="🖼️ MODALITIES" color="text-rose-400" />
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {foundationModalities.map(d => <DiagramCard key={d.id} item={d} />)}
+              </div>
+
+              <SectionHeader title="💬 PATTERNS" color="text-teal-400" />
+              <div className="grid grid-cols-3 gap-3">
+                {foundationPatterns.map(d => <DiagramCard key={d.id} item={d} />)}
               </div>
             </section>
 
             <FlowArrow />
 
-            {/* ============== MOVEMENT II: TRAINING ============== */}
+            {/* ============== MOVEMENT II: PRE-TRAINING ============== */}
             <section className="mb-12">
               <MovementHeader 
                 number="II" 
                 title="Pre-Training" 
-                subtitle="The training loop — 8 stages repeated millions of times"
+                subtitle="The training loop — data pipeline → forward → loss → backward → sync → optimize"
                 color="from-purple-500 to-violet-600"
-                icon="🎓"
-                count="10"
+                icon="🔥"
+                count="12"
               />
               
-              {/* Training Loop */}
-              <div className="bg-slate-900/50 border border-purple-500/30 rounded-2xl p-6 mb-4">
-                <div className="text-center text-white/50 text-sm mb-4">
-                  <span className="text-purple-300">Stage 0-1:</span> Setup → 
-                  <span className="text-pink-300 ml-2">Stages 2-7:</span> Repeat ↻
-                </div>
-                
-                <div className="flex items-center justify-center gap-2 flex-wrap">
-                  {trainingStages.map((stage, i) => (
-                    <div key={stage.id} className="flex items-center">
-                      <StageCard stage={stage} />
-                      {i < trainingStages.length - 1 && (
-                        <span className="text-white/20 mx-1">→</span>
-                      )}
-                    </div>
-                  ))}
-                  <span className="text-purple-400 ml-2">↻</span>
-                </div>
+              <SectionHeader title="📊 TRAINING STAGES (0-7)" color="text-purple-400" />
+              <div className="grid grid-cols-8 gap-2 mb-6">
+                {trainingStages.map(s => <StageCard key={s.id} item={s} />)}
               </div>
 
-              {/* Training Overviews */}
-              <div className="grid grid-cols-2 gap-3">
-                {trainingOverviews.map((item, i) => (
-                  <OverviewCard key={i} item={item} />
-                ))}
+              <SectionHeader title="🏭 OVERVIEWS & DISTRIBUTED" color="text-blue-400" />
+              <div className="grid grid-cols-4 gap-3">
+                {trainingOverviews.map(d => <OverviewCard key={d.id} item={d} />)}
               </div>
             </section>
 
@@ -570,27 +848,21 @@
             <section className="mb-12">
               <MovementHeader 
                 number="III" 
-                title="Post-Training & Alignment" 
-                subtitle="From base model to helpful assistant"
+                title="Alignment" 
+                subtitle="Post-training refinement — SFT, RLHF, DPO, fine-tuning, safety, evaluation"
                 color="from-pink-500 to-rose-600"
                 icon="🎯"
-                count="1"
+                count="6"
               />
               
-              <div className="max-w-2xl mx-auto">
-                {alignmentDiagrams.map(d => (
-                  <DiagramCard key={d.id} item={d} size="large" />
-                ))}
+              <SectionHeader title="🔧 ALIGNMENT TECHNIQUES" color="text-pink-400" />
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                {alignmentCore.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
 
-              {/* Alignment Flow */}
-              <div className="flex items-center justify-center gap-4 mt-6">
-                {['🧠 Base', '📚 SFT', '👥 RLHF/DPO', '🛡️ Safety', '🤖 Assistant'].map((step, i, arr) => (
-                  <div key={i} className="flex items-center">
-                    <div className="text-white/60 text-sm">{step}</div>
-                    {i < arr.length - 1 && <span className="text-pink-400/50 mx-2">→</span>}
-                  </div>
-                ))}
+              <SectionHeader title="📊 EVALUATION & SAFETY" color="text-amber-400" />
+              <div className="grid grid-cols-3 gap-4">
+                {alignmentEval.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
             </section>
 
@@ -600,32 +872,26 @@
             <section className="mb-12">
               <MovementHeader 
                 number="IV" 
-                title="Inference Pipeline" 
-                subtitle="Request to response — tokenize, prefill, decode, output"
+                title="Inference" 
+                subtitle="From prompt to completion — prefill, decode, sample, stream"
                 color="from-blue-500 to-indigo-600"
                 icon="⚡"
-                count="9"
+                count="12"
               />
               
-              {/* Inference Stages */}
-              <div className="bg-slate-900/50 border border-blue-500/30 rounded-2xl p-6 mb-4">
-                <div className="flex items-center justify-center gap-2 flex-wrap">
-                  {inferenceStages.map((stage, i) => (
-                    <div key={stage.id} className="flex items-center">
-                      <StageCard stage={stage} />
-                      {i < inferenceStages.length - 1 && (
-                        <span className="text-blue-400/50 mx-1">→</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+              <SectionHeader title="🔄 INFERENCE STAGES" color="text-blue-400" />
+              <div className="grid grid-cols-6 gap-2 mb-6">
+                {inferenceStages.map(s => <StageCard key={s.id} item={s} />)}
               </div>
 
-              {/* Inference Overviews */}
-              <div className="grid grid-cols-3 gap-3">
-                {inferenceOverviews.map((item, i) => (
-                  <OverviewCard key={i} item={item} />
-                ))}
+              <SectionHeader title="🌊 OVERVIEWS & FLOWS" color="text-cyan-400" />
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {inferenceOverviews.map(d => <OverviewCard key={d.id} item={d} />)}
+              </div>
+
+              <SectionHeader title="🚀 OPTIMIZATION TECHNIQUES" color="text-amber-400" />
+              <div className="grid grid-cols-3 gap-4">
+                {inferenceOptimization.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
             </section>
 
@@ -635,17 +901,26 @@
             <section className="mb-12">
               <MovementHeader 
                 number="V" 
-                title="Production Serving" 
-                subtitle="vLLM, TensorRT-LLM — serving at scale"
+                title="Serving" 
+                subtitle="Production infrastructure — engines, caching, batching, edge deployment"
                 color="from-emerald-500 to-teal-600"
                 icon="🚀"
-                count="2"
+                count="7"
               />
               
+              <SectionHeader title="⚡ SERVING ENGINES" color="text-emerald-400" />
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {servingEngines.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
+              </div>
+
+              <SectionHeader title="💾 OPTIMIZATION" color="text-violet-400" />
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                {servingOptimization.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
+              </div>
+
+              <SectionHeader title="🔧 INFRASTRUCTURE PATTERNS" color="text-blue-400" />
               <div className="grid grid-cols-2 gap-4">
-                {servingDiagrams.map(d => (
-                  <DiagramCard key={d.id} item={d} size="large" />
-                ))}
+                {servingPatterns.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
             </section>
 
@@ -655,76 +930,36 @@
             <section className="mb-12">
               <MovementHeader 
                 number="VI" 
-                title="Agents & Tools" 
-                subtitle="LLMs that act — tool calling, planning, protocols, multi-agent systems"
+                title="Agents" 
+                subtitle="Autonomous systems — tool calling, ReAct, MCP, A2A, multi-agent orchestration"
                 color="from-cyan-500 to-blue-600"
                 icon="🤖"
-                count="13"
+                count="16"
               />
               
-              {/* Core Architecture */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-cyan-400 text-sm font-bold">🏗️ CORE ARCHITECTURE</span>
-                  <div className="flex-1 h-px bg-cyan-500/20"></div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {agentCore.map(d => (
-                    <DiagramCard key={d.id} item={d} size="large" />
-                  ))}
-                </div>
+              <SectionHeader title="🏗️ CORE ARCHITECTURE" color="text-cyan-400" />
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                {agentCore.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
 
-              {/* Patterns & Reasoning */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-purple-400 text-sm font-bold">🧠 PATTERNS & REASONING</span>
-                  <div className="flex-1 h-px bg-purple-500/20"></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {agentPatterns.map(d => (
-                    <DiagramCard key={d.id} item={d} size="large" />
-                  ))}
-                </div>
+              <SectionHeader title="🧠 PATTERNS & REASONING" color="text-purple-400" />
+              <div className="grid grid-cols-5 gap-3 mb-6">
+                {agentPatterns.map(d => <DiagramCard key={d.id} item={d} />)}
               </div>
 
-              {/* Protocols */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-emerald-400 text-sm font-bold">🔌 PROTOCOLS & CONNECTIVITY</span>
-                  <div className="flex-1 h-px bg-emerald-500/20"></div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {agentProtocols.map(d => (
-                    <DiagramCard key={d.id} item={d} size="large" />
-                  ))}
-                </div>
+              <SectionHeader title="🔌 PROTOCOLS & CONNECTIVITY" color="text-emerald-400" />
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                {agentProtocols.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
 
-              {/* Specialized Agents */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-green-400 text-sm font-bold">💻 SPECIALIZED AGENTS</span>
-                  <div className="flex-1 h-px bg-green-500/20"></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {agentSpecialized.map(d => (
-                    <DiagramCard key={d.id} item={d} size="large" />
-                  ))}
-                </div>
+              <SectionHeader title="💻 SPECIALIZED AGENTS" color="text-green-400" />
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {agentSpecialized.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
 
-              {/* State, Memory & Ops */}
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-orange-400 text-sm font-bold">📊 MEMORY, MULTI-AGENT & OPS</span>
-                  <div className="flex-1 h-px bg-orange-500/20"></div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {agentOps.map(d => (
-                    <DiagramCard key={d.id} item={d} size="large" />
-                  ))}
-                </div>
+              <SectionHeader title="📊 MEMORY & OPERATIONS" color="text-orange-400" />
+              <div className="grid grid-cols-3 gap-4">
+                {agentOps.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
             </section>
 
@@ -738,13 +973,17 @@
                 subtitle="Grounding LLMs with external knowledge — chunking, embedding, retrieval, reranking"
                 color="from-rose-500 to-pink-600"
                 icon="📚"
-                count="3"
+                count="5"
               />
               
+              <SectionHeader title="📚 CORE RAG" color="text-rose-400" />
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {ragCore.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
+              </div>
+
+              <SectionHeader title="🔍 RAG PATTERNS" color="text-purple-400" />
               <div className="grid grid-cols-3 gap-4">
-                {ragDiagrams.map(d => (
-                  <DiagramCard key={d.id} item={d} size="large" />
-                ))}
+                {ragPatterns.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
             </section>
 
@@ -758,12 +997,11 @@
                   <h2 className="text-2xl font-black text-white">Extras</h2>
                   <p className="text-white/60">Additional tutorials and resources</p>
                 </div>
+                <span className="px-2 py-0.5 bg-white/10 rounded text-xs text-white/60">2 files</span>
               </div>
               
-              <div className="grid grid-cols-4 gap-3">
-                {extrasDiagrams.map(d => (
-                  <DiagramCard key={d.id} item={d} />
-                ))}
+              <div className="grid grid-cols-2 gap-4">
+                {extrasDiagrams.map(d => <DiagramCard key={d.id} item={d} size="large" />)}
               </div>
             </section>
 
@@ -825,7 +1063,7 @@
             <section className="mb-12">
               <div className="grid grid-cols-4 gap-4 text-center">
                 <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-4">
-                  <div className="text-4xl font-black text-purple-400">41</div>
+                  <div className="text-4xl font-black text-purple-400">74</div>
                   <div className="text-white/50 text-sm">Diagrams</div>
                 </div>
                 <div className="bg-pink-900/20 border border-pink-500/30 rounded-xl p-4">

@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic Core Patterns — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .gradient-text { background: linear-gradient(135deg, #a78bfa, #22d3ee, #4ade80); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .tooltip { position: fixed; z-index: 100; padding: 12px 16px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(167, 139, 250, 0.5); border-radius: 12px; font-size: 13px; color: #e2e8f0; max-width: 320px; box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 20px rgba(167, 139, 250, 0.2); pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const Tooltip = ({ text, x, y }) => { if (!text) return null; return (<div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 340), top: y + 15 }}>{text}</div>); };
+    const GradientDefs = () => (
+      <defs>
+        <linearGradient id="violetGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#8b5cf6" /><stop offset="100%" stopColor="#6d28d9" /></linearGradient>
+        <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+        <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ade80" /><stop offset="100%" stopColor="#16a34a" /></linearGradient>
+        <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient>
+        <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+        <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f472b6" /><stop offset="100%" stopColor="#db2777" /></linearGradient>
+        <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f87171" /><stop offset="100%" stopColor="#dc2626" /></linearGradient>
+        <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient>
+        <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#7c3aed" /></linearGradient>
+        <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#64748b" /><stop offset="100%" stopColor="#475569" /></linearGradient>
+        <linearGradient id="tealGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#2dd4bf" /><stop offset="100%" stopColor="#0d9488" /></linearGradient>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+        <marker id="arrowViolet" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#8b5cf6" /></marker>
+        <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" /></marker>
+        <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4ade80" /></marker>
+        <marker id="arrowYellow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#facc15" /></marker>
+        <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fb923c" /></marker>
+        <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f472b6" /></marker>
+        <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#60a5fa" /></marker>
+        <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" /></marker>
+        <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f87171" /></marker>
+      </defs>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 16: ReAct (Reason + Act)
+    // ═══════════════════════════════════════════════════════════════
+    const ReActDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        <g transform="translate(30, 80)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Task</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">"Find weather</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">in Paris"</text>
+        </g>
+        <path d="M115 110 L155 110" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" strokeDasharray="6 3" className="flow-line" />
+        
+        {/* ReAct Loop */}
+        <g transform="translate(165, 20)">
+          <rect width="380" height="170" rx="12" fill="rgba(167,139,250,0.1)" stroke="#a78bfa" strokeDasharray="6 3" />
+          <text x="190" y="20" textAnchor="middle" fill="#a78bfa" fontSize="10" fontWeight="bold">ReAct Loop: Thought → Action → Observation</text>
+          
+          {/* Thought */}
+          <g transform="translate(20, 40)" onMouseMove={(e) => onHover("Thought: LLM reasons about current state and what to do next. Explicit reasoning trace.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+            <rect width="100" height="55" rx="6" fill="url(#violetGrad)" opacity="0.9" />
+            <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">💭 Thought</text>
+            <text x="50" y="35" textAnchor="middle" fill="white" fontSize="7">"I need to search</text>
+            <text x="50" y="45" textAnchor="middle" fill="white" fontSize="7">for Paris weather"</text>
+          </g>
+          
+          <path d="M125 75 L145 75" stroke="#8b5cf6" strokeWidth="2" markerEnd="url(#arrowViolet)" />
+          
+          {/* Action */}
+          <g transform="translate(150, 40)" onMouseMove={(e) => onHover("Action: LLM emits a tool call. Structured format like JSON function call.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+            <rect width="100" height="55" rx="6" fill="url(#yellowGrad)" opacity="0.9" />
+            <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">⚡ Action</text>
+            <text x="50" y="35" textAnchor="middle" fill="white" fontSize="7" fontFamily="monospace">weather_api</text>
+            <text x="50" y="45" textAnchor="middle" fill="white" fontSize="7" fontFamily="monospace">(city="Paris")</text>
+          </g>
+          
+          <path d="M255 75 L275 75" stroke="#facc15" strokeWidth="2" markerEnd="url(#arrowYellow)" />
+          
+          {/* Observation */}
+          <g transform="translate(280, 40)" onMouseMove={(e) => onHover("Observation: Tool result returned. Fed back into context for next iteration.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+            <rect width="80" height="55" rx="6" fill="url(#cyanGrad)" opacity="0.9" />
+            <text x="40" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">👁️ Observe</text>
+            <text x="40" y="35" textAnchor="middle" fill="white" fontSize="7">"72°F, sunny</text>
+            <text x="40" y="45" textAnchor="middle" fill="white" fontSize="7">in Paris"</text>
+          </g>
+          
+          {/* Loop back */}
+          <path d="M320 100 L320 130 L70 130 L70 100" stroke="#64748b" strokeWidth="1.5" fill="none" strokeDasharray="4 2" markerEnd="url(#arrowPurple)" />
+          <text x="195" y="145" textAnchor="middle" fill="#64748b" fontSize="8">Repeat until task complete</text>
+        </g>
+        
+        <path d="M550 105 L590 105" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+        
+        <g transform="translate(600, 75)">
+          <rect width="80" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Final</text>
+          <text x="40" y="36" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Answer</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7">"Paris is 72°F</text>
+          <text x="40" y="62" textAnchor="middle" fill="white" fontSize="7">and sunny"</text>
+        </g>
+        
+        <g transform="translate(250, 205)"><text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Infinite Loops, Wrong Tool Selection, Observation Misinterpretation</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 17: Supervisor / Orchestrator
+    // ═══════════════════════════════════════════════════════════════
+    const SupervisorDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 260" className="w-full h-auto">
+        <GradientDefs />
+        
+        <g transform="translate(30, 100)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">User Task</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Research and</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">write report"</text>
+        </g>
+        
+        <path d="M115 130 L165 130" stroke="#f87171" strokeWidth="2" markerEnd="url(#arrowRed)" strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Supervisor */}
+        <g transform="translate(175, 70)" onMouseMove={(e) => onHover("Supervisor LLM: Routes tasks to specialized workers. Coordinates execution. Aggregates results.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="140" height="120" rx="12" fill="url(#redGrad)" opacity="0.9" />
+          <text x="70" y="25" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">👔 Supervisor</text>
+          <text x="70" y="45" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">Routes & Coordinates</text>
+          <rect x="15" y="55" width="110" height="50" rx="6" fill="rgba(0,0,0,0.3)" />
+          <text x="70" y="72" textAnchor="middle" fill="white" fontSize="7">Task Decomposition:</text>
+          <text x="70" y="85" textAnchor="middle" fill="#fecaca" fontSize="7">1. Research → Worker A</text>
+          <text x="70" y="97" textAnchor="middle" fill="#fecaca" fontSize="7">2. Write → Worker B</text>
+        </g>
+        
+        {/* Worker agents */}
+        <path d="M320 100 L370 60" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+        <path d="M320 130 L370 130" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+        <path d="M320 160 L370 200" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        
+        {/* Research Agent */}
+        <g transform="translate(380, 20)" onMouseMove={(e) => onHover("Research Worker: Specialized for web search, document retrieval. Has search tools.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="100" height="60" rx="8" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">🔍 Research</text>
+          <text x="50" y="32" textAnchor="middle" fill="white" fontSize="8">Worker</text>
+          <text x="50" y="48" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">web_search, docs</text>
+        </g>
+        
+        {/* Writing Agent */}
+        <g transform="translate(380, 100)" onMouseMove={(e) => onHover("Writing Worker: Specialized for content generation. Different system prompt, maybe different model.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="100" height="60" rx="8" fill="url(#cyanGrad)" opacity="0.9" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">✍️ Writing</text>
+          <text x="50" y="32" textAnchor="middle" fill="white" fontSize="8">Worker</text>
+          <text x="50" y="48" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">draft, edit, format</text>
+        </g>
+        
+        {/* Code Agent */}
+        <g transform="translate(380, 180)" onMouseMove={(e) => onHover("Code Worker: Specialized for code generation. Can run code, test, debug.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="100" height="60" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">💻 Code</text>
+          <text x="50" y="32" textAnchor="middle" fill="white" fontSize="8">Worker</text>
+          <text x="50" y="48" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">execute, test, debug</text>
+        </g>
+        
+        {/* Results back */}
+        <path d="M485 50 L530 80" stroke="#fb923c" strokeWidth="1.5" strokeDasharray="4 2" />
+        <path d="M485 130 L530 110" stroke="#22d3ee" strokeWidth="1.5" strokeDasharray="4 2" />
+        <path d="M485 210 L530 140" stroke="#4ade80" strokeWidth="1.5" strokeDasharray="4 2" />
+        
+        {/* Aggregation */}
+        <g transform="translate(540, 70)">
+          <rect width="80" height="100" rx="8" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Aggregate</text>
+          <text x="40" y="38" textAnchor="middle" fill="white" fontSize="7">Results</text>
+          <rect x="10" y="45" width="60" height="40" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="40" y="60" textAnchor="middle" fill="#c4b5fd" fontSize="7">Research ✓</text>
+          <text x="40" y="72" textAnchor="middle" fill="#c4b5fd" fontSize="7">Report ✓</text>
+        </g>
+        
+        <path d="M625 120 L655 120" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        
+        <g transform="translate(660, 95)">
+          <rect width="30" height="50" rx="6" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="15" y="30" textAnchor="middle" fill="white" fontSize="10">✓</text>
+        </g>
+        
+        <g transform="translate(250, 250)"><text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Coordination Overhead, Worker Selection Errors, State Sync Issues</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 18: Hierarchical Agents (Manager–Worker)
+    // ═══════════════════════════════════════════════════════════════
+    const HierarchicalDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 280" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Top Manager */}
+        <g transform="translate(280, 20)" onMouseMove={(e) => onHover("Top-Level Manager: Highest abstraction. Breaks complex tasks into sub-projects for mid-level managers.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="140" height="60" rx="10" fill="url(#redGrad)" opacity="0.9" />
+          <text x="70" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">🏢 Executive</text>
+          <text x="70" y="38" textAnchor="middle" fill="white" fontSize="8">Manager</text>
+          <text x="70" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">Strategic decisions</text>
+        </g>
+        
+        {/* Lines to mid managers */}
+        <path d="M350 85 L200 120" stroke="#f87171" strokeWidth="2" />
+        <path d="M350 85 L350 120" stroke="#f87171" strokeWidth="2" />
+        <path d="M350 85 L500 120" stroke="#f87171" strokeWidth="2" />
+        
+        {/* Mid-level managers */}
+        <g transform="translate(120, 125)" onMouseMove={(e) => onHover("Research Manager: Manages research sub-team. Can further delegate to specialized searchers.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="110" height="50" rx="8" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📊 Research</text>
+          <text x="55" y="35" textAnchor="middle" fill="white" fontSize="8">Manager</text>
+        </g>
+        
+        <g transform="translate(295, 125)" onMouseMove={(e) => onHover("Engineering Manager: Manages code team. Coordinates coding workers.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="110" height="50" rx="8" fill="url(#cyanGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">⚙️ Engineering</text>
+          <text x="55" y="35" textAnchor="middle" fill="white" fontSize="8">Manager</text>
+        </g>
+        
+        <g transform="translate(470, 125)" onMouseMove={(e) => onHover("QA Manager: Manages testing and review. Ensures quality of outputs.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="110" height="50" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">✅ QA</text>
+          <text x="55" y="35" textAnchor="middle" fill="white" fontSize="8">Manager</text>
+        </g>
+        
+        {/* Lines to workers */}
+        <path d="M175 180 L120 210" stroke="#fb923c" strokeWidth="1.5" />
+        <path d="M175 180 L175 210" stroke="#fb923c" strokeWidth="1.5" />
+        <path d="M350 180 L310 210" stroke="#22d3ee" strokeWidth="1.5" />
+        <path d="M350 180 L390 210" stroke="#22d3ee" strokeWidth="1.5" />
+        <path d="M525 180 L525 210" stroke="#4ade80" strokeWidth="1.5" />
+        
+        {/* Workers */}
+        <g transform="translate(80, 215)">
+          <rect width="60" height="40" rx="6" fill="url(#slateGrad)" opacity="0.7" />
+          <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">🔍</text>
+          <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">Search</text>
+        </g>
+        <g transform="translate(155, 215)">
+          <rect width="60" height="40" rx="6" fill="url(#slateGrad)" opacity="0.7" />
+          <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">📄</text>
+          <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">Docs</text>
+        </g>
+        <g transform="translate(275, 215)">
+          <rect width="60" height="40" rx="6" fill="url(#slateGrad)" opacity="0.7" />
+          <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">💻</text>
+          <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">Coder</text>
+        </g>
+        <g transform="translate(360, 215)">
+          <rect width="60" height="40" rx="6" fill="url(#slateGrad)" opacity="0.7" />
+          <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">🐛</text>
+          <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">Debug</text>
+        </g>
+        <g transform="translate(495, 215)">
+          <rect width="60" height="40" rx="6" fill="url(#slateGrad)" opacity="0.7" />
+          <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">🧪</text>
+          <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">Tester</text>
+        </g>
+        
+        <g transform="translate(250, 270)"><text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Deep Hierarchy Latency, Cascading Failures, Context Loss Between Levels</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 19: Handoff / Delegation
+    // ═══════════════════════════════════════════════════════════════
+    const HandoffDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        <g transform="translate(30, 70)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">User</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Translate and</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">summarize doc"</text>
+        </g>
+        
+        <path d="M115 100 L165 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Agent A */}
+        <g transform="translate(175, 50)" onMouseMove={(e) => onHover("Agent A (Translator): Handles translation, then hands off full context to Agent B. Clean transfer.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="120" height="100" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🌐 Agent A</text>
+          <text x="60" y="38" textAnchor="middle" fill="white" fontSize="8">Translator</text>
+          <rect x="10" y="48" width="100" height="40" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="60" y="65" textAnchor="middle" fill="white" fontSize="7">1. Translate doc</text>
+          <text x="60" y="78" textAnchor="middle" fill="#4ade80" fontSize="7">✓ Complete</text>
+        </g>
+        
+        {/* Handoff arrow */}
+        <g transform="translate(310, 80)">
+          <rect width="80" height="40" rx="6" fill="url(#yellowGrad)" opacity="0.9" />
+          <text x="40" y="17" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">🤝 Handoff</text>
+          <text x="40" y="30" textAnchor="middle" fill="white" fontSize="7">Context transfer</text>
+        </g>
+        
+        <path d="M300 100 L310 100" stroke="#facc15" strokeWidth="2" />
+        <path d="M390 100 L420 100" stroke="#facc15" strokeWidth="2" markerEnd="url(#arrowYellow)" strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Agent B */}
+        <g transform="translate(430, 50)" onMouseMove={(e) => onHover("Agent B (Summarizer): Receives full context from A. No supervisor needed. Direct peer handoff.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="120" height="100" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+          <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📝 Agent B</text>
+          <text x="60" y="38" textAnchor="middle" fill="white" fontSize="8">Summarizer</text>
+          <rect x="10" y="48" width="100" height="40" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="60" y="65" textAnchor="middle" fill="white" fontSize="7">2. Summarize</text>
+          <text x="60" y="78" textAnchor="middle" fill="#4ade80" fontSize="7">✓ Complete</text>
+        </g>
+        
+        <path d="M555 100 L590 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+        
+        <g transform="translate(600, 70)">
+          <rect width="80" height="60" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Result</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="7">Translated +</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7">Summarized</text>
+        </g>
+        
+        <g transform="translate(250, 185)"><text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Context Loss in Handoff, No Backtrack Path, State Serialization Issues</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 20: Parallel Fan-Out / Fan-In
+    // ═══════════════════════════════════════════════════════════════
+    const ParallelFanDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        <g transform="translate(30, 85)">
+          <rect width="80" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text>
+          <text x="40" y="35" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Multi-source"</text>
+        </g>
+        
+        {/* Fan-out */}
+        <g transform="translate(130, 50)" onMouseMove={(e) => onHover("Fan-Out: Dispatcher splits task and sends to multiple workers in parallel. No waiting.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="80" height="120" rx="8" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Fan-Out</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="8">Dispatcher</text>
+          <text x="40" y="70" textAnchor="middle" fill="white" fontSize="20">⟩</text>
+          <text x="40" y="100" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">Parallel split</text>
+        </g>
+        
+        <path d="M115 110 L130 110" stroke="#fb923c" strokeWidth="2" />
+        
+        {/* Parallel workers */}
+        <path d="M215 80 L260 50" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+        <path d="M215 110 L260 110" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+        <path d="M215 140 L260 170" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+        
+        <g transform="translate(270, 25)">
+          <rect width="100" height="45" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Worker 1</text>
+          <text x="50" y="32" textAnchor="middle" fill="white" fontSize="7">Source A search</text>
+        </g>
+        <g transform="translate(270, 88)">
+          <rect width="100" height="45" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Worker 2</text>
+          <text x="50" y="32" textAnchor="middle" fill="white" fontSize="7">Source B search</text>
+        </g>
+        <g transform="translate(270, 150)">
+          <rect width="100" height="45" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Worker 3</text>
+          <text x="50" y="32" textAnchor="middle" fill="white" fontSize="7">Source C search</text>
+        </g>
+        
+        {/* Results to fan-in */}
+        <path d="M375 47 L420 80" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 2" />
+        <path d="M375 110 L420 110" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 2" />
+        <path d="M375 172 L420 140" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 2" />
+        
+        {/* Fan-in */}
+        <g transform="translate(430, 50)" onMouseMove={(e) => onHover("Fan-In: Aggregator waits for all results, merges them. Can implement timeouts, partial results.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="80" height="120" rx="8" fill="url(#tealGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Fan-In</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="8">Aggregator</text>
+          <text x="40" y="70" textAnchor="middle" fill="white" fontSize="20">⟨</text>
+          <text x="40" y="100" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">Merge results</text>
+        </g>
+        
+        <path d="M515 110 L560 110" stroke="#2dd4bf" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+        
+        <g transform="translate(570, 75)">
+          <rect width="100" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="50" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Combined</text>
+          <text x="50" y="38" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Result</text>
+          <text x="50" y="55" textAnchor="middle" fill="white" fontSize="7">All sources merged</text>
+        </g>
+        
+        <g transform="translate(250, 210)"><text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Slow Worker Bottleneck, Partial Result Handling, Memory for All Results</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 21: Human-in-the-Loop (HITL)
+    // ═══════════════════════════════════════════════════════════════
+    const HITLDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        <g transform="translate(30, 80)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Task</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Delete user</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">account #123"</text>
+        </g>
+        
+        <path d="M115 110 L165 110" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Agent processes */}
+        <g transform="translate(175, 60)" onMouseMove={(e) => onHover("Agent identifies high-risk action. Pauses execution and requests human approval before proceeding.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="130" height="100" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🤖 Agent</text>
+          <text x="65" y="40" textAnchor="middle" fill="white" fontSize="8">Processes task</text>
+          <rect x="10" y="50" width="110" height="40" rx="4" fill="rgba(248,113,113,0.3)" stroke="#f87171" />
+          <text x="65" y="68" textAnchor="middle" fill="#fecaca" fontSize="8" fontWeight="bold">⚠️ High-risk</text>
+          <text x="65" y="82" textAnchor="middle" fill="#fecaca" fontSize="7">Needs approval</text>
+        </g>
+        
+        <path d="M310 110 L355 110" stroke="#facc15" strokeWidth="2" markerEnd="url(#arrowYellow)" />
+        
+        {/* Human checkpoint */}
+        <g transform="translate(365, 45)" onMouseMove={(e) => onHover("Human Checkpoint: User reviews proposed action. Can approve, reject, or modify. Breaks automation for safety.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="130" height="130" rx="12" fill="url(#yellowGrad)" opacity="0.9" />
+          <text x="65" y="25" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">👤 Human</text>
+          <text x="65" y="42" textAnchor="middle" fill="white" fontSize="8">Checkpoint</text>
+          
+          <rect x="15" y="55" width="100" height="60" rx="6" fill="rgba(0,0,0,0.2)" />
+          <text x="65" y="72" textAnchor="middle" fill="white" fontSize="7">"Delete account #123?"</text>
+          
+          <g transform="translate(15, 85)">
+            <rect width="45" height="22" rx="4" fill="url(#greenGrad)" opacity="0.9" />
+            <text x="22" y="15" textAnchor="middle" fill="white" fontSize="8">Approve</text>
+          </g>
+          <g transform="translate(70, 85)">
+            <rect width="45" height="22" rx="4" fill="url(#redGrad)" opacity="0.9" />
+            <text x="22" y="15" textAnchor="middle" fill="white" fontSize="8">Reject</text>
+          </g>
+        </g>
+        
+        {/* Approve path */}
+        <path d="M500 90 L550 90" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        <g transform="translate(560, 60)">
+          <rect width="100" height="60" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="50" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">✓ Execute</text>
+          <text x="50" y="40" textAnchor="middle" fill="white" fontSize="7">Action performed</text>
+          <text x="50" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">with audit log</text>
+        </g>
+        
+        {/* Reject path */}
+        <path d="M500 140 L550 140" stroke="#f87171" strokeWidth="2" markerEnd="url(#arrowRed)" />
+        <g transform="translate(560, 120)">
+          <rect width="100" height="45" rx="8" fill="url(#redGrad)" opacity="0.7" />
+          <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">✗ Abort</text>
+          <text x="50" y="33" textAnchor="middle" fill="white" fontSize="7">Action blocked</text>
+        </g>
+        
+        <g transform="translate(250, 205)"><text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Approval Fatigue, Latency Bottleneck, Inconsistent Human Decisions</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // MAIN APP
+    // ═══════════════════════════════════════════════════════════════
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      const handleHover = (text, x, y) => { if (text) { setTooltip({ text, x, y }); } else { setTooltip({ text: null, x: 0, y: 0 }); } };
+
+      const patterns = [
+        { id: 16, title: 'ReAct (Reason + Act)', subtitle: 'Thought → Action → Observation loop. Foundation of tool-using agents.', Diagram: ReActDiagram, color: 'violet', badges: ['Tool Agents', 'Explicit Reasoning', 'Iterative'] },
+        { id: 17, title: 'Supervisor / Orchestrator', subtitle: 'Central coordinator routes tasks to specialized workers.', Diagram: SupervisorDiagram, color: 'red', badges: ['Multi-Skill', 'Coordination', 'Production Pattern'] },
+        { id: 18, title: 'Hierarchical Agents', subtitle: 'Manager → Sub-Manager → Worker tree. Scales to complex organizations.', Diagram: HierarchicalDiagram, color: 'orange', badges: ['Deep Tasks', 'Delegation', 'Enterprise'] },
+        { id: 19, title: 'Handoff / Delegation', subtitle: 'Agent A completes, transfers full context to Agent B. Peer-to-peer.', Diagram: HandoffDiagram, color: 'yellow', badges: ['Sequential', 'Context Transfer', 'Pipeline'] },
+        { id: 20, title: 'Parallel Fan-Out / Fan-In', subtitle: 'Split to N workers in parallel, aggregate results.', Diagram: ParallelFanDiagram, color: 'teal', badges: ['Parallelism', 'Multi-Source', 'Latency Optimization'] },
+        { id: 21, title: 'Human-in-the-Loop (HITL)', subtitle: 'Agent pauses for human approval on high-risk actions.', Diagram: HITLDiagram, color: 'pink', badges: ['Safety', 'Approval Gates', 'Compliance'] },
+      ];
+
+      return (
+        <div className="min-h-screen text-white relative">
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-32 -left-32 bg-violet-500/10 rounded-full blur-3xl pulse-bg" />
+            <div className="absolute w-[500px] h-[500px] top-1/3 -right-32 bg-cyan-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '1s'}} />
+            <div className="absolute w-[400px] h-[400px] bottom-0 left-1/3 bg-green-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '2s'}} />
+          </div>
+          <Tooltip text={tooltip.text} x={tooltip.x} y={tooltip.y} />
+          <div className="relative max-w-5xl mx-auto px-6 py-12">
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-2 glass rounded-full mb-6">
+                <span className="text-violet-300 font-semibold text-sm tracking-wide">SECTION IV: AGENTIC CORE</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 gradient-text">Agentic Core Patterns</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">
+                Multi-step autonomous agents with reasoning and coordination.
+                <span className="block mt-2 text-violet-400 text-base">Patterns 16–21 • ✨ Hover for details</span>
+              </p>
+            </header>
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-violet-400">6</div><div className="text-slate-400 text-sm">Agentic Core</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-cyan-400">🤖</div><div className="text-slate-400 text-sm">Autonomous</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-green-400">∞</div><div className="text-slate-400 text-sm">Loop Iterations</div></div>
+            </div>
+            <div className="space-y-12">
+              {patterns.map((pattern) => (
+                <section key={pattern.id} className="glass rounded-2xl p-8 hover:border-violet-500/30 transition-colors">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-lg bg-violet-500/20 flex items-center justify-center text-lg font-bold text-violet-400">{pattern.id}</div>
+                    <div><h2 className="text-xl font-bold text-violet-300">{pattern.title}</h2><p className="text-slate-400 text-sm">{pattern.subtitle}</p></div>
+                  </div>
+                  <pattern.Diagram onHover={handleHover} />
+                  <div className="mt-4 flex gap-3 flex-wrap">
+                    {pattern.badges.map(badge => (<span key={badge} className="px-3 py-1 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 text-sm">{badge}</span>))}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <footer className="mt-16 text-center pt-8 border-t border-white/10">
+              <p className="text-slate-500">Part of <span className="text-slate-400">The LLM Symphony</span> — Section IV: Agentic Core</p>
+              <p className="text-slate-600 text-sm mt-2">Patterns 16-21 of 55</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

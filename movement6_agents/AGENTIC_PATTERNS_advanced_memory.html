@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic Advanced Patterns — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .gradient-text { background: linear-gradient(135deg, #fbbf24, #f97316, #ef4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .tooltip { position: fixed; z-index: 100; padding: 12px 16px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(251, 191, 36, 0.5); border-radius: 12px; font-size: 13px; color: #e2e8f0; max-width: 320px; box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 20px rgba(251, 191, 36, 0.2); pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const Tooltip = ({ text, x, y }) => { if (!text) return null; return (<div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 340), top: y + 15 }}>{text}</div>); };
+    const GradientDefs = () => (
+      <defs>
+        <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fbbf24" /><stop offset="100%" stopColor="#d97706" /></linearGradient>
+        <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+        <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f87171" /><stop offset="100%" stopColor="#dc2626" /></linearGradient>
+        <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+        <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ade80" /><stop offset="100%" stopColor="#16a34a" /></linearGradient>
+        <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#7c3aed" /></linearGradient>
+        <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient>
+        <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f472b6" /><stop offset="100%" stopColor="#db2777" /></linearGradient>
+        <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#64748b" /><stop offset="100%" stopColor="#475569" /></linearGradient>
+        <linearGradient id="tealGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#2dd4bf" /><stop offset="100%" stopColor="#0d9488" /></linearGradient>
+        <linearGradient id="violetGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#8b5cf6" /><stop offset="100%" stopColor="#6d28d9" /></linearGradient>
+        <linearGradient id="indigoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#4f46e5" /></linearGradient>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+        <marker id="arrowAmber" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fbbf24" /></marker>
+        <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fb923c" /></marker>
+        <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" /></marker>
+        <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4ade80" /></marker>
+        <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" /></marker>
+        <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#60a5fa" /></marker>
+        <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f472b6" /></marker>
+        <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f87171" /></marker>
+        <marker id="arrowViolet" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#8b5cf6" /></marker>
+      </defs>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 22: Agent Memory (Short/Long-term)
+    // ═══════════════════════════════════════════════════════════════
+    const AgentMemoryDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Agent */}
+        <g transform="translate(250, 60)" onMouseMove={(e) => onHover("Agent with dual memory: Working memory in context window, long-term in external store (vector DB, KV store).", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="200" height="100" rx="12" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="100" y="25" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">🤖 Agent</text>
+          <text x="100" y="42" textAnchor="middle" fill="white" fontSize="8">Current Task Processing</text>
+          <rect x="15" y="52" width="170" height="35" rx="6" fill="rgba(0,0,0,0.3)" />
+          <text x="100" y="70" textAnchor="middle" fill="white" fontSize="8">Context Window = Working Memory</text>
+          <text x="100" y="82" textAnchor="middle" fill="#c4b5fd" fontSize="7">Recent turns, scratch state</text>
+        </g>
+        
+        {/* Short-term memory */}
+        <g transform="translate(30, 30)" onMouseMove={(e) => onHover("Short-term Memory: Recent conversation turns, tool results, scratch state. Lives in context window.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="150" height="90" rx="8" fill="url(#cyanGrad)" opacity="0.9" />
+          <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📝 Short-Term</text>
+          <text x="75" y="38" textAnchor="middle" fill="white" fontSize="8">Working Memory</text>
+          <rect x="10" y="48" width="130" height="32" rx="4" fill="rgba(0,0,0,0.2)" />
+          <text x="75" y="62" textAnchor="middle" fill="white" fontSize="7">Last N turns</text>
+          <text x="75" y="74" textAnchor="middle" fill="white" fontSize="7">Current scratchpad</text>
+        </g>
+        
+        {/* Long-term memory */}
+        <g transform="translate(520, 30)" onMouseMove={(e) => onHover("Long-term Memory: Persistent facts, user preferences, past interactions. External storage (vector DB).", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="150" height="90" rx="8" fill="url(#amberGrad)" opacity="0.9" />
+          <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🧠 Long-Term</text>
+          <text x="75" y="38" textAnchor="middle" fill="white" fontSize="8">Persistent Memory</text>
+          <rect x="10" y="48" width="130" height="32" rx="4" fill="rgba(0,0,0,0.2)" />
+          <text x="75" y="62" textAnchor="middle" fill="white" fontSize="7">User preferences</text>
+          <text x="75" y="74" textAnchor="middle" fill="white" fontSize="7">Past interactions</text>
+        </g>
+        
+        {/* Arrows */}
+        <path d="M180 75 L245 90" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+        <path d="M455 90 L520 75" stroke="#fbbf24" strokeWidth="2" />
+        <path d="M520 75 L455 90" stroke="#fbbf24" strokeWidth="2" markerEnd="url(#arrowAmber)" strokeDasharray="4 2" />
+        
+        {/* Memory Store */}
+        <g transform="translate(280, 175)" onMouseMove={(e) => onHover("External Store: Vector database for semantic search, KV store for facts. Retrieved on demand.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="140" height="40" rx="6" fill="url(#slateGrad)" opacity="0.7" />
+          <text x="70" y="17" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">💾 Vector DB / KV Store</text>
+          <text x="70" y="32" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">Persistent external storage</text>
+        </g>
+        
+        <path d="M350 165 L350 175" stroke="#64748b" strokeWidth="1.5" markerEnd="url(#arrowAmber)" />
+        <path d="M595 125 L595 185 L425 185" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="4 2" />
+        
+        <g transform="translate(220, 210)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Memory Bloat, Stale Facts, Retrieval Misses, Privacy Concerns</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 23: LLM-as-Router (Intent Classification)
+    // ═══════════════════════════════════════════════════════════════
+    const LLMRouterDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        <g transform="translate(30, 80)">
+          <rect width="90" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="45" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">User Query</text>
+          <text x="45" y="40" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Book a flight</text>
+          <text x="45" y="50" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">to Paris"</text>
+        </g>
+        
+        <path d="M125 110 L175 110" stroke="#fbbf24" strokeWidth="2" markerEnd="url(#arrowAmber)" strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Router LLM */}
+        <g transform="translate(185, 50)" onMouseMove={(e) => onHover("Router LLM: Classifies intent, does NOT answer. Outputs JSON with route decision. Light model, fast.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="150" height="120" rx="12" fill="url(#amberGrad)" opacity="0.9" />
+          <text x="75" y="25" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">🎯 Router LLM</text>
+          <text x="75" y="42" textAnchor="middle" fill="white" fontSize="8">Intent Classification</text>
+          <rect x="15" y="52" width="120" height="55" rx="6" fill="rgba(0,0,0,0.3)" />
+          <text x="75" y="68" textAnchor="middle" fill="#fef3c7" fontSize="7" fontFamily="monospace">{"{"}"route": "travel",</text>
+          <text x="75" y="80" textAnchor="middle" fill="#fef3c7" fontSize="7" fontFamily="monospace">"confidence": 0.95,</text>
+          <text x="75" y="92" textAnchor="middle" fill="#fef3c7" fontSize="7" fontFamily="monospace">"intent": "book"{"}"}</text>
+        </g>
+        
+        {/* Routes */}
+        <path d="M340 80 L400 50" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+        <path d="M340 110 L400 110" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+        <path d="M340 140 L400 170" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        
+        {/* Specialized agents */}
+        <g transform="translate(410, 20)">
+          <rect width="110" height="50" rx="6" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">✈️ Travel Agent</text>
+          <text x="55" y="35" textAnchor="middle" fill="white" fontSize="7">booking, search</text>
+        </g>
+        <g transform="translate(410, 85)">
+          <rect width="110" height="50" rx="6" fill="url(#cyanGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">💰 Finance Agent</text>
+          <text x="55" y="35" textAnchor="middle" fill="white" fontSize="7">payments, budgets</text>
+        </g>
+        <g transform="translate(410, 150)">
+          <rect width="110" height="50" rx="6" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">📧 Support Agent</text>
+          <text x="55" y="35" textAnchor="middle" fill="white" fontSize="7">help, FAQs</text>
+        </g>
+        
+        {/* Selected route highlight */}
+        <rect x="405" y="15" width="120" height="60" rx="8" fill="none" stroke="#4ade80" strokeWidth="2" strokeDasharray="4 2" />
+        <text x="585" y="45" fill="#4ade80" fontSize="8" fontWeight="bold">← Selected</text>
+        
+        <path d="M525 45 L580 45 L580 110 L620 110" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+        
+        <g transform="translate(630, 85)">
+          <rect width="50" height="50" rx="6" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="25" y="30" textAnchor="middle" fill="white" fontSize="10">✓</text>
+        </g>
+        
+        <g transform="translate(220, 210)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Misrouting, Ambiguous Intents, Cold-Start on New Intents</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 24: Agent-as-a-Service (AaaS)
+    // ═══════════════════════════════════════════════════════════════
+    const AgentServiceDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Multiple clients */}
+        <g transform="translate(30, 40)">
+          <rect width="80" height="40" rx="6" fill="url(#blueGrad)" opacity="0.8" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9">App A</text>
+        </g>
+        <g transform="translate(30, 90)">
+          <rect width="80" height="40" rx="6" fill="url(#blueGrad)" opacity="0.8" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9">App B</text>
+        </g>
+        <g transform="translate(30, 140)">
+          <rect width="80" height="40" rx="6" fill="url(#blueGrad)" opacity="0.8" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9">App C</text>
+        </g>
+        
+        {/* API calls */}
+        <path d="M115 60 L180 90" stroke="#60a5fa" strokeWidth="1.5" markerEnd="url(#arrowBlue)" />
+        <path d="M115 110 L180 110" stroke="#60a5fa" strokeWidth="1.5" markerEnd="url(#arrowBlue)" />
+        <path d="M115 160 L180 130" stroke="#60a5fa" strokeWidth="1.5" markerEnd="url(#arrowBlue)" />
+        
+        {/* API Gateway */}
+        <g transform="translate(190, 70)" onMouseMove={(e) => onHover("API Gateway: Rate limiting, authentication, request routing. Standard REST/gRPC interface.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="100" height="80" rx="8" fill="url(#slateGrad)" opacity="0.9" />
+          <text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🚪 API</text>
+          <text x="50" y="38" textAnchor="middle" fill="white" fontSize="8">Gateway</text>
+          <text x="50" y="55" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">Auth, Rate Limit</text>
+          <text x="50" y="68" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">REST / gRPC</text>
+        </g>
+        
+        <path d="M295 110 L350 110" stroke="#64748b" strokeWidth="2" markerEnd="url(#arrowAmber)" />
+        
+        {/* Agent Service */}
+        <g transform="translate(360, 40)" onMouseMove={(e) => onHover("Agent Service: Managed agent infrastructure. Handles scaling, state, tool execution. Multi-tenant.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="180" height="140" rx="12" fill="url(#amberGrad)" opacity="0.9" />
+          <text x="90" y="25" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">🤖 Agent Service</text>
+          <text x="90" y="42" textAnchor="middle" fill="white" fontSize="8">(Multi-tenant)</text>
+          
+          {/* Internal components */}
+          <g transform="translate(10, 55)">
+            <rect width="75" height="35" rx="4" fill="url(#purpleGrad)" opacity="0.8" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Agent Pool</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">Auto-scale</text>
+          </g>
+          <g transform="translate(95, 55)">
+            <rect width="75" height="35" rx="4" fill="url(#cyanGrad)" opacity="0.8" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">State Store</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">Sessions</text>
+          </g>
+          <g transform="translate(10, 98)">
+            <rect width="75" height="35" rx="4" fill="url(#greenGrad)" opacity="0.8" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Tool Exec</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">Sandboxed</text>
+          </g>
+          <g transform="translate(95, 98)">
+            <rect width="75" height="35" rx="4" fill="url(#orangeGrad)" opacity="0.8" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Monitoring</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">Traces</text>
+          </g>
+        </g>
+        
+        {/* Response back */}
+        <path d="M360 180 L115 180 L115 170" stroke="#4ade80" strokeWidth="1.5" strokeDasharray="4 2" markerEnd="url(#arrowGreen)" />
+        <text x="237" y="195" textAnchor="middle" fill="#4ade80" fontSize="8">Async responses / webhooks</text>
+        
+        <g transform="translate(220, 215)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Cold Start Latency, State Isolation, Vendor Lock-in, Cost Unpredictability</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 25: Agent Observability / Tracing
+    // ═══════════════════════════════════════════════════════════════
+    const ObservabilityDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Agent execution */}
+        <g transform="translate(30, 50)">
+          <rect width="420" height="100" rx="10" fill="rgba(167,139,250,0.15)" stroke="#a78bfa" strokeDasharray="4 2" />
+          <text x="210" y="20" textAnchor="middle" fill="#a78bfa" fontSize="10" fontWeight="bold">Agent Execution (instrumented)</text>
+          
+          {/* Steps with trace points */}
+          <g transform="translate(20, 35)" onMouseMove={(e) => onHover("Trace Point: Start of execution. Logs timestamp, request ID, input tokens.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+            <rect width="80" height="50" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+            <text x="40" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Step 1</text>
+            <text x="40" y="35" textAnchor="middle" fill="white" fontSize="7">Think</text>
+            <circle cx="75" cy="5" r="6" fill="#4ade80" />
+            <text x="75" y="8" textAnchor="middle" fill="white" fontSize="6">📍</text>
+          </g>
+          
+          <path d="M105 60 L125 60" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+          
+          <g transform="translate(130, 35)">
+            <rect width="80" height="50" rx="6" fill="url(#orangeGrad)" opacity="0.8" />
+            <text x="40" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Step 2</text>
+            <text x="40" y="35" textAnchor="middle" fill="white" fontSize="7">Tool Call</text>
+            <circle cx="75" cy="5" r="6" fill="#4ade80" />
+          </g>
+          
+          <path d="M215 60 L235 60" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arrowOrange)" />
+          
+          <g transform="translate(240, 35)">
+            <rect width="80" height="50" rx="6" fill="url(#cyanGrad)" opacity="0.8" />
+            <text x="40" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Step 3</text>
+            <text x="40" y="35" textAnchor="middle" fill="white" fontSize="7">Observe</text>
+            <circle cx="75" cy="5" r="6" fill="#4ade80" />
+          </g>
+          
+          <path d="M325 60 L345 60" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arrowCyan)" />
+          
+          <g transform="translate(350, 35)">
+            <rect width="55" height="50" rx="6" fill="url(#greenGrad)" opacity="0.8" />
+            <text x="27" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Done</text>
+            <text x="27" y="35" textAnchor="middle" fill="white" fontSize="7">✓</text>
+            <circle cx="50" cy="5" r="6" fill="#4ade80" />
+          </g>
+        </g>
+        
+        {/* Traces flow down */}
+        <path d="M100 155 L100 170" stroke="#4ade80" strokeWidth="1.5" />
+        <path d="M210 155 L210 170" stroke="#4ade80" strokeWidth="1.5" />
+        <path d="M320 155 L320 170" stroke="#4ade80" strokeWidth="1.5" />
+        <path d="M405 155 L405 170" stroke="#4ade80" strokeWidth="1.5" />
+        
+        {/* Observability Platform */}
+        <g transform="translate(470, 40)" onMouseMove={(e) => onHover("Observability Platform: Collects traces, metrics, logs. Enables debugging, cost tracking, latency analysis.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="200" height="140" rx="10" fill="url(#tealGrad)" opacity="0.9" />
+          <text x="100" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">📊 Observability</text>
+          <text x="100" y="38" textAnchor="middle" fill="white" fontSize="8">Platform</text>
+          
+          <g transform="translate(15, 50)">
+            <rect width="80" height="35" rx="4" fill="rgba(0,0,0,0.2)" />
+            <text x="40" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Traces</text>
+            <text x="40" y="28" textAnchor="middle" fill="white" fontSize="6">Call graphs</text>
+          </g>
+          <g transform="translate(105, 50)">
+            <rect width="80" height="35" rx="4" fill="rgba(0,0,0,0.2)" />
+            <text x="40" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Metrics</text>
+            <text x="40" y="28" textAnchor="middle" fill="white" fontSize="6">Latency, cost</text>
+          </g>
+          <g transform="translate(15, 95)">
+            <rect width="80" height="35" rx="4" fill="rgba(0,0,0,0.2)" />
+            <text x="40" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Logs</text>
+            <text x="40" y="28" textAnchor="middle" fill="white" fontSize="6">Structured</text>
+          </g>
+          <g transform="translate(105, 95)">
+            <rect width="80" height="35" rx="4" fill="rgba(0,0,0,0.2)" />
+            <text x="40" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Alerts</text>
+            <text x="40" y="28" textAnchor="middle" fill="white" fontSize="6">Anomalies</text>
+          </g>
+        </g>
+        
+        <path d="M420 110 L465 110" stroke="#2dd4bf" strokeWidth="2" markerEnd="url(#arrowCyan)" strokeDasharray="6 3" className="flow-line" />
+        
+        <g transform="translate(220, 210)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Log Volume Explosion, Sensitive Data Leakage, Trace Correlation Issues</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 26: Checkpoint & Resume
+    // ═══════════════════════════════════════════════════════════════
+    const CheckpointDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Execution timeline */}
+        <g transform="translate(30, 50)">
+          <rect width="500" height="80" rx="10" fill="rgba(251,191,36,0.1)" stroke="#fbbf24" strokeDasharray="4 2" />
+          <text x="250" y="18" textAnchor="middle" fill="#fbbf24" fontSize="10" fontWeight="bold">Long-Running Agent Task</text>
+          
+          {/* Steps */}
+          <g transform="translate(20, 30)">
+            <rect width="60" height="40" rx="4" fill="url(#greenGrad)" opacity="0.8" />
+            <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Step 1</text>
+            <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">✓ Done</text>
+          </g>
+          
+          {/* Checkpoint 1 */}
+          <g transform="translate(90, 25)" onMouseMove={(e) => onHover("Checkpoint: Serialized agent state saved to durable storage. Can resume from here if failure occurs.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+            <rect width="30" height="50" rx="4" fill="url(#amberGrad)" opacity="0.9" />
+            <text x="15" y="20" textAnchor="middle" fill="white" fontSize="12">💾</text>
+            <text x="15" y="38" textAnchor="middle" fill="white" fontSize="6">CP1</text>
+          </g>
+          
+          <g transform="translate(130, 30)">
+            <rect width="60" height="40" rx="4" fill="url(#greenGrad)" opacity="0.8" />
+            <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Step 2</text>
+            <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">✓ Done</text>
+          </g>
+          
+          {/* Checkpoint 2 */}
+          <g transform="translate(200, 25)">
+            <rect width="30" height="50" rx="4" fill="url(#amberGrad)" opacity="0.9" />
+            <text x="15" y="20" textAnchor="middle" fill="white" fontSize="12">💾</text>
+            <text x="15" y="38" textAnchor="middle" fill="white" fontSize="6">CP2</text>
+          </g>
+          
+          <g transform="translate(240, 30)">
+            <rect width="60" height="40" rx="4" fill="url(#redGrad)" opacity="0.8" />
+            <text x="30" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Step 3</text>
+            <text x="30" y="30" textAnchor="middle" fill="white" fontSize="7">❌ Fail</text>
+          </g>
+          
+          {/* Failure indicator */}
+          <path d="M270 75 L270 95" stroke="#f87171" strokeWidth="2" strokeDasharray="4 2" />
+          <text x="270" y="108" textAnchor="middle" fill="#f87171" fontSize="8" fontWeight="bold">Crash!</text>
+        </g>
+        
+        {/* Resume flow */}
+        <g transform="translate(350, 100)" onMouseMove={(e) => onHover("Resume: Load state from last checkpoint. Continue execution without losing progress. Idempotency important.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="120" height="60" rx="8" fill="url(#cyanGrad)" opacity="0.9" />
+          <text x="60" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔄 Resume</text>
+          <text x="60" y="38" textAnchor="middle" fill="white" fontSize="8">from CP2</text>
+          <text x="60" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">Retry Step 3</text>
+        </g>
+        
+        <path d="M230 75 L310 130 L345 130" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" strokeDasharray="6 3" className="flow-line" />
+        
+        <path d="M475 130 L520 130" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        
+        <g transform="translate(530, 100)">
+          <rect width="80" height="60" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Complete</text>
+          <text x="40" y="40" textAnchor="middle" fill="white" fontSize="8">✓ No repeat</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.7">work lost</text>
+        </g>
+        
+        <g transform="translate(220, 185)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: State Serialization Complexity, Idempotency Violations, Storage Overhead</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 27: Self-Monitoring / Circuit-Breaker
+    // ═══════════════════════════════════════════════════════════════
+    const CircuitBreakerDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Agent with monitor */}
+        <g transform="translate(30, 50)">
+          <rect width="200" height="110" rx="12" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="100" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">🤖 Agent</text>
+          
+          {/* Self-monitoring component */}
+          <g transform="translate(15, 35)" onMouseMove={(e) => onHover("Self-Monitor: Tracks iterations, token usage, errors. Triggers circuit breaker if thresholds exceeded.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+            <rect width="170" height="60" rx="6" fill="url(#orangeGrad)" opacity="0.9" />
+            <text x="85" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">📊 Self-Monitor</text>
+            <text x="85" y="35" textAnchor="middle" fill="white" fontSize="7">Iterations: 47 / 50 max</text>
+            <text x="85" y="48" textAnchor="middle" fill="white" fontSize="7">Errors: 3 / 5 max</text>
+          </g>
+        </g>
+        
+        {/* Arrow to circuit breaker */}
+        <path d="M235 105 L295 105" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+        <text x="265" y="95" textAnchor="middle" fill="#fb923c" fontSize="7">threshold?</text>
+        
+        {/* Circuit Breaker */}
+        <g transform="translate(305, 35)" onMouseMove={(e) => onHover("Circuit Breaker: Three states - Closed (normal), Open (blocked), Half-Open (testing). Prevents runaway costs.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="160" height="140" rx="10" fill="url(#redGrad)" opacity="0.2" stroke="#f87171" strokeWidth="2" />
+          <text x="80" y="22" textAnchor="middle" fill="#f87171" fontSize="11" fontWeight="bold">⚡ Circuit Breaker</text>
+          
+          {/* States */}
+          <g transform="translate(15, 35)">
+            <rect width="60" height="35" rx="4" fill="url(#greenGrad)" opacity="0.9" />
+            <text x="30" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Closed</text>
+            <text x="30" y="27" textAnchor="middle" fill="white" fontSize="6">Normal</text>
+          </g>
+          <g transform="translate(85, 35)">
+            <rect width="60" height="35" rx="4" fill="url(#redGrad)" opacity="0.9" stroke="#fef2f2" strokeWidth="2" />
+            <text x="30" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Open</text>
+            <text x="30" y="27" textAnchor="middle" fill="white" fontSize="6">Blocked!</text>
+          </g>
+          <g transform="translate(50, 80)">
+            <rect width="60" height="35" rx="4" fill="url(#amberGrad)" opacity="0.9" />
+            <text x="30" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Half</text>
+            <text x="30" y="27" textAnchor="middle" fill="white" fontSize="6">Testing</text>
+          </g>
+          
+          {/* State arrows */}
+          <path d="M55 70 L85 78" stroke="#64748b" strokeWidth="1" />
+          <path d="M115 70 L85 90" stroke="#64748b" strokeWidth="1" />
+          <path d="M65 115 L45 90" stroke="#64748b" strokeWidth="1" />
+        </g>
+        
+        {/* Open state actions */}
+        <path d="M470 75 L520 55" stroke="#f87171" strokeWidth="2" markerEnd="url(#arrowRed)" />
+        <path d="M470 105 L520 125" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        
+        <g transform="translate(530, 30)">
+          <rect width="130" height="45" rx="6" fill="url(#redGrad)" opacity="0.7" />
+          <text x="65" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">🛑 Stop Agent</text>
+          <text x="65" y="33" textAnchor="middle" fill="white" fontSize="7">Return error to user</text>
+        </g>
+        
+        <g transform="translate(530, 100)">
+          <rect width="130" height="45" rx="6" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="65" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">✓ Graceful Exit</text>
+          <text x="65" y="33" textAnchor="middle" fill="white" fontSize="7">Partial results ok</text>
+        </g>
+        
+        <g transform="translate(220, 185)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: False Positives (premature stop), Threshold Tuning, Recovery Strategy</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 28: Ensemble / Committee Agents
+    // ═══════════════════════════════════════════════════════════════
+    const EnsembleDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        <g transform="translate(30, 70)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Task</text>
+          <text x="40" y="42" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Classify risk</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">level"</text>
+        </g>
+        
+        {/* Fan out to agents */}
+        <path d="M115 85 L175 50" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+        <path d="M115 100 L175 100" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+        <path d="M115 115 L175 150" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+        
+        {/* Multiple agents */}
+        <g transform="translate(185, 25)" onMouseMove={(e) => onHover("Agent 1: Conservative approach. Different prompt, different model, or different temperature.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="110" height="45" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+          <text x="55" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Agent 1</text>
+          <text x="55" y="32" textAnchor="middle" fill="white" fontSize="7">→ "High Risk"</text>
+        </g>
+        <g transform="translate(185, 78)" onMouseMove={(e) => onHover("Agent 2: Balanced approach. May use different reasoning strategy.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="110" height="45" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+          <text x="55" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Agent 2</text>
+          <text x="55" y="32" textAnchor="middle" fill="white" fontSize="7">→ "Medium Risk"</text>
+        </g>
+        <g transform="translate(185, 130)" onMouseMove={(e) => onHover("Agent 3: Aggressive approach. Different perspective on same task.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="110" height="45" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+          <text x="55" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Agent 3</text>
+          <text x="55" y="32" textAnchor="middle" fill="white" fontSize="7">→ "High Risk"</text>
+        </g>
+        
+        {/* Results to aggregator */}
+        <path d="M300 47 L360 80" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 2" />
+        <path d="M300 100 L360 100" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 2" />
+        <path d="M300 152 L360 120" stroke="#a78bfa" strokeWidth="1.5" strokeDasharray="4 2" />
+        
+        {/* Aggregator */}
+        <g transform="translate(370, 55)" onMouseMove={(e) => onHover("Aggregator: Combines results via voting, weighted average, or meta-LLM synthesis.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="130" height="90" rx="10" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🗳️ Aggregator</text>
+          <rect x="15" y="35" width="100" height="45" rx="4" fill="rgba(0,0,0,0.2)" />
+          <text x="65" y="52" textAnchor="middle" fill="white" fontSize="8">Vote / Weighted Avg</text>
+          <text x="65" y="68" textAnchor="middle" fill="#fef3c7" fontSize="8">High: 2, Med: 1</text>
+        </g>
+        
+        <path d="M505 100 L555 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+        
+        <g transform="translate(565, 65)">
+          <rect width="110" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="55" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Consensus</text>
+          <text x="55" y="42" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">"High Risk"</text>
+          <text x="55" y="58" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">confidence: 0.67</text>
+        </g>
+        
+        <g transform="translate(220, 190)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: N× Cost, Disagreement Handling, Aggregation Strategy Selection</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 29: Protocol Agents (A2A, MCP)
+    // ═══════════════════════════════════════════════════════════════
+    const ProtocolAgentsDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Agent 1 */}
+        <g transform="translate(30, 60)" onMouseMove={(e) => onHover("Agent A: Speaks standard protocol (A2A, MCP). Can discover and communicate with any compatible agent.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="130" height="100" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="65" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">🤖 Agent A</text>
+          <text x="65" y="40" textAnchor="middle" fill="white" fontSize="8">(Any vendor)</text>
+          <rect x="15" y="50" width="100" height="40" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="65" y="68" textAnchor="middle" fill="#c4b5fd" fontSize="8">Capabilities:</text>
+          <text x="65" y="82" textAnchor="middle" fill="#c4b5fd" fontSize="7">search, analyze</text>
+        </g>
+        
+        {/* Protocol layer */}
+        <g transform="translate(200, 30)" onMouseMove={(e) => onHover("Protocol Layer: Standardized communication (A2A = Agent-to-Agent, MCP = Model Context Protocol). JSON-RPC style.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="300" height="160" rx="12" fill="url(#indigoGrad)" opacity="0.3" stroke="#818cf8" strokeWidth="2" />
+          <text x="150" y="25" textAnchor="middle" fill="#818cf8" fontSize="11" fontWeight="bold">📡 Protocol Layer (A2A / MCP)</text>
+          
+          {/* Discovery */}
+          <g transform="translate(20, 45)">
+            <rect width="120" height="45" rx="6" fill="url(#amberGrad)" opacity="0.9" />
+            <text x="60" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">🔍 Discovery</text>
+            <text x="60" y="33" textAnchor="middle" fill="white" fontSize="7">Find capabilities</text>
+          </g>
+          
+          {/* Messages */}
+          <g transform="translate(160, 45)">
+            <rect width="120" height="45" rx="6" fill="url(#cyanGrad)" opacity="0.9" />
+            <text x="60" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">💬 Messages</text>
+            <text x="60" y="33" textAnchor="middle" fill="white" fontSize="7">JSON-RPC calls</text>
+          </g>
+          
+          {/* Tools */}
+          <g transform="translate(90, 100)">
+            <rect width="120" height="45" rx="6" fill="url(#greenGrad)" opacity="0.9" />
+            <text x="60" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">🔧 Tools</text>
+            <text x="60" y="33" textAnchor="middle" fill="white" fontSize="7">Shared tool schemas</text>
+          </g>
+        </g>
+        
+        {/* Agent 2 */}
+        <g transform="translate(540, 60)" onMouseMove={(e) => onHover("Agent B: Different vendor, same protocol. Automatic interoperability. No custom integration needed.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="130" height="100" rx="10" fill="url(#tealGrad)" opacity="0.9" />
+          <text x="65" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">🤖 Agent B</text>
+          <text x="65" y="40" textAnchor="middle" fill="white" fontSize="8">(Different vendor)</text>
+          <rect x="15" y="50" width="100" height="40" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="65" y="68" textAnchor="middle" fill="#99f6e4" fontSize="8">Capabilities:</text>
+          <text x="65" y="82" textAnchor="middle" fill="#99f6e4" fontSize="7">code, execute</text>
+        </g>
+        
+        {/* Bidirectional arrows */}
+        <path d="M165 110 L195 110" stroke="#818cf8" strokeWidth="2" markerEnd="url(#arrowViolet)" />
+        <path d="M505 110 L535 110" stroke="#818cf8" strokeWidth="2" markerEnd="url(#arrowViolet)" />
+        
+        {/* Example message */}
+        <g transform="translate(260, 195)">
+          <text x="90" y="0" textAnchor="middle" fill="#818cf8" fontSize="8" fontFamily="monospace">{"{"}"method": "tools/call", "params": {"{"}"name": "search"{"}}{"}"}</text>
+        </g>
+        
+        <g transform="translate(220, 215)"><text x="130" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Protocol Version Mismatch, Capability Negotiation, Trust/Auth Between Agents</text></g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // MAIN APP
+    // ═══════════════════════════════════════════════════════════════
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      const handleHover = (text, x, y) => { if (text) { setTooltip({ text, x, y }); } else { setTooltip({ text: null, x: 0, y: 0 }); } };
+
+      const patterns = [
+        { id: 22, title: 'Agent Memory (Short/Long-term)', subtitle: 'Working memory in context + persistent store for long-term facts.', Diagram: AgentMemoryDiagram, color: 'amber', badges: ['Context Window', 'Vector DB', 'User Prefs'] },
+        { id: 23, title: 'LLM-as-Router (Intent Classification)', subtitle: 'First LLM classifies intent, routes to specialized agents.', Diagram: LLMRouterDiagram, color: 'orange', badges: ['Intent Routing', 'Specialized Agents', 'Fast Classification'] },
+        { id: 24, title: 'Agent-as-a-Service (AaaS)', subtitle: 'Managed agent infrastructure. Multi-tenant, auto-scaling.', Diagram: AgentServiceDiagram, color: 'cyan', badges: ['Managed', 'Multi-tenant', 'API-first'] },
+        { id: 25, title: 'Agent Observability / Tracing', subtitle: 'Instrumented execution with traces, metrics, logs.', Diagram: ObservabilityDiagram, color: 'teal', badges: ['Traces', 'Metrics', 'Debugging', 'Cost Tracking'] },
+        { id: 26, title: 'Checkpoint & Resume', subtitle: 'Save state periodically. Resume from last checkpoint on failure.', Diagram: CheckpointDiagram, color: 'yellow', badges: ['Fault Tolerance', 'Long Tasks', 'Durability'] },
+        { id: 27, title: 'Self-Monitoring / Circuit-Breaker', subtitle: 'Agent monitors itself. Stops if thresholds exceeded.', Diagram: CircuitBreakerDiagram, color: 'red', badges: ['Cost Control', 'Runaway Prevention', 'Graceful Degradation'] },
+        { id: 28, title: 'Ensemble / Committee Agents', subtitle: 'Multiple agents vote on same task. Increased reliability.', Diagram: EnsembleDiagram, color: 'purple', badges: ['Voting', 'Consensus', 'Diversity'] },
+        { id: 29, title: 'Protocol Agents (A2A, MCP)', subtitle: 'Standardized inter-agent communication protocols.', Diagram: ProtocolAgentsDiagram, color: 'indigo', badges: ['A2A', 'MCP', 'Interoperability'] },
+      ];
+
+      return (
+        <div className="min-h-screen text-white relative">
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-32 -left-32 bg-amber-500/10 rounded-full blur-3xl pulse-bg" />
+            <div className="absolute w-[500px] h-[500px] top-1/3 -right-32 bg-orange-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '1s'}} />
+            <div className="absolute w-[400px] h-[400px] bottom-0 left-1/3 bg-red-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '2s'}} />
+          </div>
+          <Tooltip text={tooltip.text} x={tooltip.x} y={tooltip.y} />
+          <div className="relative max-w-5xl mx-auto px-6 py-12">
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-2 glass rounded-full mb-6">
+                <span className="text-amber-300 font-semibold text-sm tracking-wide">SECTION V: AGENTIC ADVANCED</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 gradient-text">Agentic Advanced Patterns</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">
+                Memory, routing, observability, and production-hardening patterns.
+                <span className="block mt-2 text-amber-400 text-base">Patterns 22–29 • ✨ Hover for details</span>
+              </p>
+            </header>
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-amber-400">8</div><div className="text-slate-400 text-sm">Advanced Patterns</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-orange-400">🏭</div><div className="text-slate-400 text-sm">Production-Ready</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-red-400">🛡️</div><div className="text-slate-400 text-sm">Reliability</div></div>
+            </div>
+            <div className="space-y-12">
+              {patterns.map((pattern) => (
+                <section key={pattern.id} className="glass rounded-2xl p-8 hover:border-amber-500/30 transition-colors">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-lg font-bold text-amber-400">{pattern.id}</div>
+                    <div><h2 className="text-xl font-bold text-amber-300">{pattern.title}</h2><p className="text-slate-400 text-sm">{pattern.subtitle}</p></div>
+                  </div>
+                  <pattern.Diagram onHover={handleHover} />
+                  <div className="mt-4 flex gap-3 flex-wrap">
+                    {pattern.badges.map(badge => (<span key={badge} className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-sm">{badge}</span>))}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <footer className="mt-16 text-center pt-8 border-t border-white/10">
+              <p className="text-slate-500">Part of <span className="text-slate-400">The LLM Symphony</span> — Section V: Agentic Advanced</p>
+              <p className="text-slate-600 text-sm mt-2">Patterns 22-29 of 55</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

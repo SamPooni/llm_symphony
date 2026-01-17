@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Advanced Patterns — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .gradient-text { background: linear-gradient(135deg, #818cf8, #f472b6, #fb923c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .tooltip { position: fixed; z-index: 100; padding: 12px 16px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(129, 140, 248, 0.5); border-radius: 12px; font-size: 13px; color: #e2e8f0; max-width: 320px; pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const Tooltip = ({ text, x, y }) => { if (!text) return null; return <div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 340), top: y + 15 }}>{text}</div>; };
+    const GradientDefs = () => (<defs>
+      <linearGradient id="indigoGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#4f46e5" /></linearGradient>
+      <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f472b6" /><stop offset="100%" stopColor="#db2777" /></linearGradient>
+      <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+      <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+      <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ade80" /><stop offset="100%" stopColor="#16a34a" /></linearGradient>
+      <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#7c3aed" /></linearGradient>
+      <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient>
+      <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient>
+      <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#34d399" /><stop offset="100%" stopColor="#059669" /></linearGradient>
+      <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#64748b" /><stop offset="100%" stopColor="#475569" /></linearGradient>
+      <marker id="arrowIndigo" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#818cf8" /></marker>
+      <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f472b6" /></marker>
+      <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fb923c" /></marker>
+      <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" /></marker>
+      <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4ade80" /></marker>
+      <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" /></marker>
+    </defs>);
+
+    // Pattern 38: Self-RAG
+    const SelfRAGDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 70)"><rect width="70" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text></g>
+      <path d="M105 95 L145 95" stroke="#818cf8" strokeWidth="2" markerEnd="url(#arrowIndigo)" />
+      <g transform="translate(150, 35)" onMouseMove={(e) => onHover("Self-RAG: Model decides IF retrieval is needed. Generates special tokens: [Retrieve], [IsRel], [IsSup], [IsUse].", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="180" height="130" rx="10" fill="url(#indigoGrad)" opacity="0.9" /><text x="90" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Self-RAG LLM</text>
+        <rect x="10" y="35" width="160" height="30" rx="4" fill="rgba(0,0,0,0.2)" /><text x="90" y="52" textAnchor="middle" fill="white" fontSize="7">1. [Retrieve] needed? → Yes/No</text>
+        <rect x="10" y="70" width="160" height="25" rx="4" fill="rgba(74,222,128,0.3)" /><text x="90" y="86" textAnchor="middle" fill="#4ade80" fontSize="7">2. [IsRel] relevant? → filter</text>
+        <rect x="10" y="100" width="160" height="22" rx="4" fill="rgba(34,211,238,0.3)" /><text x="90" y="114" textAnchor="middle" fill="#22d3ee" fontSize="7">3. [IsSup] supported? → cite</text>
+      </g>
+      <path d="M335 100 L375 60" stroke="#4ade80" strokeWidth="1.5" strokeDasharray="4 2" /><path d="M335 100 L375 140" stroke="#f87171" strokeWidth="1.5" strokeDasharray="4 2" />
+      <g transform="translate(380, 35)"><rect width="90" height="50" rx="6" fill="url(#greenGrad)" opacity="0.9" /><text x="45" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Retrieve</text><text x="45" y="36" textAnchor="middle" fill="white" fontSize="7">If needed</text></g>
+      <g transform="translate(380, 115)"><rect width="90" height="50" rx="6" fill="url(#orangeGrad)" opacity="0.7" /><text x="45" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Skip</text><text x="45" y="36" textAnchor="middle" fill="white" fontSize="7">If not needed</text></g>
+      <path d="M475 60 L515 90" stroke="#4ade80" strokeWidth="1.5" /><path d="M475 140 L515 110" stroke="#fb923c" strokeWidth="1.5" />
+      <g transform="translate(520, 60)"><rect width="120" height="80" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Generate</text><text x="60" y="42" textAnchor="middle" fill="white" fontSize="7">+ Self-critique</text><text x="60" y="58" textAnchor="middle" fill="white" fontSize="7">[IsUse] useful?</text><text x="60" y="72" textAnchor="middle" fill="#c4b5fd" fontSize="6">Adaptive retrieval</text></g>
+      <text x="350" y="185" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Requires special fine-tuning, Complex implementation</text>
+    </svg>);
+
+    // Pattern 39: CRAG (Corrective RAG)
+    const CRAGDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 70)"><rect width="70" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text></g>
+      <path d="M105 95 L145 95" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      <g transform="translate(150, 55)"><rect width="90" height="80" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="45" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Retrieve</text><text x="45" y="42" textAnchor="middle" fill="white" fontSize="7">Get docs</text><text x="45" y="60" textAnchor="middle" fill="white" fontSize="7">k = 5-10</text></g>
+      <path d="M245 95 L285 95" stroke="#f472b6" strokeWidth="2" markerEnd="url(#arrowPink)" />
+      <g transform="translate(290, 35)" onMouseMove={(e) => onHover("CRAG: Evaluate retrieval quality. If CORRECT → use. If AMBIGUOUS → refine. If INCORRECT → web search fallback.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="150" height="130" rx="10" fill="url(#pinkGrad)" opacity="0.9" /><text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Evaluator</text>
+        <rect x="10" y="35" width="130" height="28" rx="4" fill="rgba(74,222,128,0.3)" /><text x="75" y="52" textAnchor="middle" fill="#4ade80" fontSize="7" fontWeight="bold">CORRECT → Use</text>
+        <rect x="10" y="68" width="130" height="28" rx="4" fill="rgba(250,204,21,0.3)" /><text x="75" y="85" textAnchor="middle" fill="#facc15" fontSize="7" fontWeight="bold">AMBIGUOUS → Refine</text>
+        <rect x="10" y="101" width="130" height="28" rx="4" fill="rgba(248,113,113,0.3)" /><text x="75" y="118" textAnchor="middle" fill="#f87171" fontSize="7" fontWeight="bold">INCORRECT → Web</text>
+      </g>
+      <path d="M445 100 L485 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(490, 55)"><rect width="110" height="90" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="55" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Generate</text><text x="55" y="42" textAnchor="middle" fill="white" fontSize="7">With corrected</text><text x="55" y="56" textAnchor="middle" fill="white" fontSize="7">retrieval</text><text x="55" y="75" textAnchor="middle" fill="#86efac" fontSize="6">Self-correcting!</text></g>
+      <text x="350" y="185" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Added latency for evaluation, Needs web search fallback</text>
+    </svg>);
+
+    // Pattern 40: Agentic RAG
+    const AgenticRAGDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 85)"><rect width="70" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text></g>
+      <path d="M105 110 L145 110" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(150, 30)" onMouseMove={(e) => onHover("Agentic RAG: LLM as reasoning controller. Decides WHAT to retrieve, WHEN, and HOW MUCH. Iterates until satisfied.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="400" height="160" rx="12" fill="rgba(167,139,250,0.1)" stroke="#a78bfa" strokeDasharray="6 3" /><text x="200" y="20" textAnchor="middle" fill="#a78bfa" fontSize="10" fontWeight="bold">Agent Loop (iterates until done)</text>
+        <g transform="translate(20, 35)"><rect width="100" height="60" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="50" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Reason</text><text x="50" y="38" textAnchor="middle" fill="white" fontSize="7">What info</text><text x="50" y="50" textAnchor="middle" fill="white" fontSize="7">do I need?</text></g>
+        <path d="M125 65 L155 65" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+        <g transform="translate(160, 35)"><rect width="100" height="60" rx="8" fill="url(#emeraldGrad)" opacity="0.9" /><text x="50" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Retrieve</text><text x="50" y="38" textAnchor="middle" fill="white" fontSize="7">Vector / SQL /</text><text x="50" y="50" textAnchor="middle" fill="white" fontSize="7">Web search</text></g>
+        <path d="M265 65 L295 65" stroke="#34d399" strokeWidth="1.5" markerEnd="url(#arrowGreen)" />
+        <g transform="translate(300, 35)"><rect width="80" height="60" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="40" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Evaluate</text><text x="40" y="38" textAnchor="middle" fill="white" fontSize="7">Enough?</text><text x="40" y="50" textAnchor="middle" fill="white" fontSize="7">Quality?</text></g>
+        <path d="M340 100 L340 130 L70 130 L70 100" stroke="#64748b" strokeWidth="1" strokeDasharray="4 2" markerEnd="url(#arrowPurple)" /><text x="200" y="145" textAnchor="middle" fill="#64748b" fontSize="7">Loop back if not satisfied</text>
+      </g>
+      <path d="M555 110 L595 110" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(600, 75)"><rect width="70" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Answer</text><text x="35" y="40" textAnchor="middle" fill="white" fontSize="7">Multi-hop</text><text x="35" y="52" textAnchor="middle" fill="white" fontSize="7">synthesized</text></g>
+      <text x="350" y="210" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Runaway loops, High latency (multiple rounds), Cost of N iterations</text>
+    </svg>);
+
+    // Pattern 41: Graph RAG
+    const GraphRAGDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 70)"><rect width="70" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text></g>
+      <path d="M105 95 L145 95" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+      <g transform="translate(150, 25)" onMouseMove={(e) => onHover("Graph RAG: Knowledge graph + vector retrieval. Entities, relations, communities. Better for global questions.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="180" height="150" rx="10" fill="url(#orangeGrad)" opacity="0.9" /><text x="90" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Knowledge Graph</text>
+        <g transform="translate(30, 35)">
+          <circle cx="30" cy="20" r="15" fill="rgba(96,165,250,0.8)" /><text x="30" y="24" textAnchor="middle" fill="white" fontSize="6">Entity A</text>
+          <circle cx="90" cy="20" r="15" fill="rgba(74,222,128,0.8)" /><text x="90" y="24" textAnchor="middle" fill="white" fontSize="6">Entity B</text>
+          <circle cx="60" cy="70" r="15" fill="rgba(244,114,182,0.8)" /><text x="60" y="74" textAnchor="middle" fill="white" fontSize="6">Entity C</text>
+          <line x1="45" y1="20" x2="75" y2="20" stroke="white" strokeWidth="1" /><line x1="30" y1="35" x2="60" y2="55" stroke="white" strokeWidth="1" /><line x1="90" y1="35" x2="60" y2="55" stroke="white" strokeWidth="1" />
+        </g>
+        <rect x="10" y="115" width="160" height="25" rx="4" fill="rgba(0,0,0,0.2)" /><text x="90" y="132" textAnchor="middle" fill="white" fontSize="7">+ Community summaries</text>
+      </g>
+      <path d="M335 100 L375 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(380, 45)"><rect width="130" height="110" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Hybrid Search</text><rect x="10" y="35" width="110" height="28" rx="4" fill="rgba(34,211,238,0.3)" /><text x="65" y="52" textAnchor="middle" fill="#22d3ee" fontSize="7">Vector (local)</text><rect x="10" y="68" width="110" height="28" rx="4" fill="rgba(251,146,60,0.3)" /><text x="65" y="85" textAnchor="middle" fill="#fb923c" fontSize="7">Graph (global)</text></g>
+      <path d="M515 100 L555 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(560, 55)"><rect width="100" height="90" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Answer</text><text x="50" y="42" textAnchor="middle" fill="white" fontSize="7">Global + Local</text><text x="50" y="58" textAnchor="middle" fill="white" fontSize="7">reasoning</text><text x="50" y="75" textAnchor="middle" fill="#86efac" fontSize="6">Best for "why"</text></g>
+      <text x="350" y="190" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Complex indexing (entity extraction), High build cost</text>
+    </svg>);
+
+    // Pattern 42: Multi-Modal RAG
+    const MultiModalRAGDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 30)"><rect width="100" height="140" rx="8" fill="url(#slateGrad)" opacity="0.5" /><text x="50" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Multi-Modal</text>
+        <rect x="10" y="32" width="80" height="30" rx="4" fill="url(#blueGrad)" opacity="0.7" /><text x="50" y="50" textAnchor="middle" fill="white" fontSize="7">📝 Text</text>
+        <rect x="10" y="67" width="80" height="30" rx="4" fill="url(#pinkGrad)" opacity="0.7" /><text x="50" y="85" textAnchor="middle" fill="white" fontSize="7">🖼️ Images</text>
+        <rect x="10" y="102" width="80" height="30" rx="4" fill="url(#cyanGrad)" opacity="0.7" /><text x="50" y="120" textAnchor="middle" fill="white" fontSize="7">📊 Tables</text>
+      </g>
+      <path d="M135 100 L175 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(180, 30)" onMouseMove={(e) => onHover("Multi-modal RAG: Text + images in same index. Vision models for image understanding. CLIP embeddings.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="150" height="140" rx="10" fill="url(#purpleGrad)" opacity="0.9" /><text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Multi-Modal Index</text>
+        <rect x="10" y="35" width="130" height="45" rx="4" fill="rgba(0,0,0,0.2)" /><text x="75" y="52" textAnchor="middle" fill="white" fontSize="7">Text embeddings</text><text x="75" y="66" textAnchor="middle" fill="#c4b5fd" fontSize="6">(text-embedding-3)</text>
+        <rect x="10" y="85" width="130" height="45" rx="4" fill="rgba(0,0,0,0.2)" /><text x="75" y="102" textAnchor="middle" fill="white" fontSize="7">Image embeddings</text><text x="75" y="116" textAnchor="middle" fill="#c4b5fd" fontSize="6">(CLIP / Vision)</text>
+      </g>
+      <path d="M335 100 L375 100" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      <g transform="translate(380, 40)"><rect width="130" height="120" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Cross-Modal</text><text x="65" y="40" textAnchor="middle" fill="white" fontSize="8">Search</text>
+        <rect x="10" y="50" width="110" height="25" rx="4" fill="rgba(0,0,0,0.2)" /><text x="65" y="67" textAnchor="middle" fill="white" fontSize="7">Text → Images</text>
+        <rect x="10" y="80" width="110" height="25" rx="4" fill="rgba(0,0,0,0.2)" /><text x="65" y="97" textAnchor="middle" fill="white" fontSize="7">Image → Text</text>
+      </g>
+      <path d="M515 100 L555 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(560, 50)"><rect width="100" height="100" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">VLM</text><text x="50" y="42" textAnchor="middle" fill="white" fontSize="7">GPT-4V / Gemini</text><text x="50" y="58" textAnchor="middle" fill="white" fontSize="7">Claude Vision</text><text x="50" y="78" textAnchor="middle" fill="#86efac" fontSize="6">Rich context</text></g>
+      <text x="350" y="190" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Image embedding quality, Alignment between modalities</text>
+    </svg>);
+
+    // Pattern 43: Adaptive Retrieval
+    const AdaptiveRetrievalDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 70)"><rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text><text x="40" y="40" textAnchor="middle" fill="white" fontSize="7">(any type)</text></g>
+      <path d="M115 100 L155 100" stroke="#818cf8" strokeWidth="2" markerEnd="url(#arrowIndigo)" />
+      <g transform="translate(160, 30)" onMouseMove={(e) => onHover("Query classifier: Determines query type → Routes to best retrieval strategy. Factual vs analytical vs creative.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="140" height="140" rx="10" fill="url(#indigoGrad)" opacity="0.9" /><text x="70" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Query Classifier</text>
+        <rect x="10" y="38" width="120" height="28" rx="4" fill="rgba(74,222,128,0.3)" /><text x="70" y="55" textAnchor="middle" fill="#4ade80" fontSize="7">Factual → Vector</text>
+        <rect x="10" y="71" width="120" height="28" rx="4" fill="rgba(251,146,60,0.3)" /><text x="70" y="88" textAnchor="middle" fill="#fb923c" fontSize="7">Analytical → Graph</text>
+        <rect x="10" y="104" width="120" height="28" rx="4" fill="rgba(244,114,182,0.3)" /><text x="70" y="121" textAnchor="middle" fill="#f472b6" fontSize="7">Creative → Skip RAG</text>
+      </g>
+      <path d="M305 60 L345 60" stroke="#4ade80" strokeWidth="1.5" /><path d="M305 100 L345 100" stroke="#fb923c" strokeWidth="1.5" /><path d="M305 140 L345 140" stroke="#f472b6" strokeWidth="1.5" />
+      <g transform="translate(350, 35)"><rect width="90" height="50" rx="6" fill="url(#greenGrad)" opacity="0.8" /><text x="45" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Vector DB</text><text x="45" y="36" textAnchor="middle" fill="white" fontSize="6">Semantic search</text></g>
+      <g transform="translate(350, 95)"><rect width="90" height="50" rx="6" fill="url(#orangeGrad)" opacity="0.8" /><text x="45" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Graph DB</text><text x="45" y="36" textAnchor="middle" fill="white" fontSize="6">Relationship query</text></g>
+      <g transform="translate(350, 155)"><rect width="90" height="35" rx="6" fill="url(#pinkGrad)" opacity="0.7" /><text x="45" y="22" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">No Retrieval</text></g>
+      <path d="M445 60 L485 90" stroke="#4ade80" strokeWidth="1.5" /><path d="M445 120 L485 105" stroke="#fb923c" strokeWidth="1.5" /><path d="M445 172 L485 115" stroke="#f472b6" strokeWidth="1.5" />
+      <g transform="translate(490, 60)"><rect width="110" height="80" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="55" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">LLM</text><text x="55" y="42" textAnchor="middle" fill="white" fontSize="7">Right context</text><text x="55" y="58" textAnchor="middle" fill="white" fontSize="7">for query type</text></g>
+      <text x="350" y="205" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Classifier accuracy, Routing errors</text>
+    </svg>);
+
+    // Pattern 44: Context Caching for RAG
+    const ContextCachingDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 65)"><rect width="90" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="45" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Queries</text><text x="45" y="40" textAnchor="middle" fill="white" fontSize="7">Q1, Q2, Q3...</text><text x="45" y="55" textAnchor="middle" fill="white" fontSize="6">Same corpus</text></g>
+      <path d="M125 100 L165 100" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      <g transform="translate(170, 30)" onMouseMove={(e) => onHover("Context cache: Pre-compute KV cache for common context. Reuse across queries. Major latency savings.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="200" height="140" rx="10" fill="url(#cyanGrad)" opacity="0.9" /><text x="100" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Context Cache Layer</text>
+        <rect x="10" y="38" width="180" height="45" rx="6" fill="rgba(0,0,0,0.2)" /><text x="100" y="55" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Cached Context (KV)</text><text x="100" y="70" textAnchor="middle" fill="#cffafe" fontSize="6">System prompt + common docs</text>
+        <rect x="10" y="90" width="180" height="40" rx="6" fill="rgba(74,222,128,0.2)" /><text x="100" y="107" textAnchor="middle" fill="#4ade80" fontSize="7" fontWeight="bold">Cache hit → Skip prefill</text><text x="100" y="120" textAnchor="middle" fill="#4ade80" fontSize="6">50-90% latency reduction</text>
+      </g>
+      <path d="M375 100 L415 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(420, 45)"><rect width="130" height="110" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">LLM</text><text x="65" y="42" textAnchor="middle" fill="white" fontSize="7">Append query to</text><text x="65" y="56" textAnchor="middle" fill="white" fontSize="7">cached context</text><rect x="10" y="68" width="110" height="32" rx="4" fill="rgba(0,0,0,0.2)" /><text x="65" y="85" textAnchor="middle" fill="#c4b5fd" fontSize="6">Only new tokens</text><text x="65" y="95" textAnchor="middle" fill="#c4b5fd" fontSize="6">need processing</text></g>
+      <path d="M555 100 L595 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(600, 60)"><rect width="70" height="80" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="35" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Fast!</text><text x="35" y="45" textAnchor="middle" fill="white" fontSize="7">⚡ Low</text><text x="35" y="58" textAnchor="middle" fill="white" fontSize="7">latency</text></g>
+      <text x="350" y="190" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Cache invalidation, Memory costs for cache storage</text>
+    </svg>);
+
+    // Pattern 45: Citation & Attribution
+    const CitationDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 45)"><rect width="100" height="110" rx="8" fill="url(#emeraldGrad)" opacity="0.9" /><text x="50" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Retrieved</text><text x="50" y="36" textAnchor="middle" fill="white" fontSize="8">Docs</text>
+        <rect x="8" y="45" width="84" height="22" rx="3" fill="rgba(0,0,0,0.2)" /><text x="50" y="60" textAnchor="middle" fill="white" fontSize="6">[1] source_a.pdf</text>
+        <rect x="8" y="70" width="84" height="22" rx="3" fill="rgba(0,0,0,0.2)" /><text x="50" y="85" textAnchor="middle" fill="white" fontSize="6">[2] source_b.html</text>
+      </g>
+      <path d="M135 100 L175 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(180, 30)" onMouseMove={(e) => onHover("Citation generation: LLM adds inline citations. Each claim linked to source. Verifiable, trustworthy.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="200" height="140" rx="10" fill="url(#purpleGrad)" opacity="0.9" /><text x="100" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">LLM + Citation</text>
+        <rect x="10" y="38" width="180" height="90" rx="6" fill="rgba(0,0,0,0.2)" /><text x="100" y="55" textAnchor="middle" fill="white" fontSize="8">"The study found that</text><text x="100" y="70" textAnchor="middle" fill="white" fontSize="8">X increases Y by 25%</text><text x="100" y="85" textAnchor="middle" fill="#4ade80" fontSize="8" fontWeight="bold">[1]</text><text x="100" y="100" textAnchor="middle" fill="white" fontSize="8">while Z decreases</text><text x="100" y="115" textAnchor="middle" fill="#22d3ee" fontSize="8" fontWeight="bold">[2]</text>
+      </g>
+      <path d="M385 100 L425 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(430, 35)"><rect width="180" height="130" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="90" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Attributed Output</text>
+        <rect x="10" y="38" width="160" height="35" rx="4" fill="rgba(0,0,0,0.2)" /><text x="90" y="52" textAnchor="middle" fill="white" fontSize="7">Answer text with</text><text x="90" y="65" textAnchor="middle" fill="white" fontSize="7">inline citations [1][2]</text>
+        <rect x="10" y="80" width="160" height="40" rx="4" fill="rgba(0,0,0,0.2)" /><text x="90" y="95" textAnchor="middle" fill="#86efac" fontSize="7" fontWeight="bold">✓ Verifiable</text><text x="90" y="110" textAnchor="middle" fill="#86efac" fontSize="7">✓ Trustworthy</text>
+      </g>
+      <text x="350" y="190" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Citation accuracy, Hallucinated citations</text>
+    </svg>);
+
+    // Pattern 46: Evaluation & Feedback Loop
+    const EvaluationDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(150, 30)"><rect width="400" height="160" rx="12" fill="rgba(250,204,21,0.1)" stroke="#facc15" strokeDasharray="6 3" /><text x="200" y="20" textAnchor="middle" fill="#facc15" fontSize="10" fontWeight="bold">RAG Evaluation Loop</text>
+        <g transform="translate(20, 35)"><rect width="100" height="50" rx="6" fill="url(#blueGrad)" opacity="0.9" /><text x="50" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">RAG System</text><text x="50" y="36" textAnchor="middle" fill="white" fontSize="6">Retrieve + Generate</text></g>
+        <path d="M125 60 L165 60" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+        <g transform="translate(170, 35)" onMouseMove={(e) => onHover("RAGAS metrics: Faithfulness (grounded?), Answer relevancy, Context relevancy, Context recall.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="110" height="50" rx="6" fill="url(#purpleGrad)" opacity="0.9" /><text x="55" y="20" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">RAGAS Eval</text><text x="55" y="36" textAnchor="middle" fill="white" fontSize="6">Faithfulness, Relevancy</text></g>
+        <path d="M285 60 L315 60" stroke="#4ade80" strokeWidth="1.5" markerEnd="url(#arrowGreen)" />
+        <g transform="translate(320, 30)"><rect width="60" height="60" rx="6" fill="url(#greenGrad)" opacity="0.9" /><text x="30" y="22" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Score</text><text x="30" y="40" textAnchor="middle" fill="white" fontSize="7">0.85</text><text x="30" y="52" textAnchor="middle" fill="#86efac" fontSize="6">↑ or ↓?</text></g>
+        <g transform="translate(20, 100)"><rect width="360" height="45" rx="6" fill="rgba(0,0,0,0.2)" /><text x="180" y="18" textAnchor="middle" fill="#facc15" fontSize="8" fontWeight="bold">Metrics: Faithfulness | Answer Relevancy | Context Recall</text><text x="180" y="35" textAnchor="middle" fill="#fef3c7" fontSize="7">+ Human feedback integration</text></g>
+      </g>
+      <path d="M350 195 L350 210 L50 210 L50 110 L145 110" stroke="#64748b" strokeWidth="1.5" strokeDasharray="4 2" markerEnd="url(#arrowOrange)" /><text x="100" y="175" fill="#64748b" fontSize="7">Feedback → Improve chunks, prompts, retrieval</text>
+      <text x="350" y="230" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Metric gaming, Evaluation cost, Ground truth availability</text>
+    </svg>);
+
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      const handleHover = (text, x, y) => { setTooltip(text ? { text, x, y } : { text: null, x: 0, y: 0 }); };
+
+      const patterns = [
+        { id: 38, title: 'Self-RAG', subtitle: 'Model decides IF retrieval needed. Self-critique with special tokens.', Diagram: SelfRAGDiagram, badges: ['Adaptive', 'Special Training', 'Self-Critique'] },
+        { id: 39, title: 'CRAG (Corrective RAG)', subtitle: 'Evaluate retrieval quality → Correct/Ambiguous/Incorrect → Act accordingly', Diagram: CRAGDiagram, badges: ['Self-Correcting', 'Web Fallback', 'Quality Check'] },
+        { id: 40, title: 'Agentic RAG', subtitle: 'LLM controls what/when/how to retrieve. Multi-hop reasoning loop.', Diagram: AgenticRAGDiagram, badges: ['Autonomous', 'Multi-Hop', 'Iterative'] },
+        { id: 41, title: 'Graph RAG', subtitle: 'Knowledge graph + vectors. Entities, relations, communities.', Diagram: GraphRAGDiagram, badges: ['Global Questions', 'Relationships', 'Microsoft'] },
+        { id: 42, title: 'Multi-Modal RAG', subtitle: 'Text + images in same index. Cross-modal search with VLMs.', Diagram: MultiModalRAGDiagram, badges: ['Images', 'Tables', 'CLIP', 'GPT-4V'] },
+        { id: 43, title: 'Adaptive Retrieval', subtitle: 'Classify query type → Route to best retrieval strategy.', Diagram: AdaptiveRetrievalDiagram, badges: ['Router', 'Query-Aware', 'Efficient'] },
+        { id: 44, title: 'Context Caching for RAG', subtitle: 'Pre-compute KV cache for common context. 50-90% latency reduction.', Diagram: ContextCachingDiagram, badges: ['Prompt Caching', 'Low Latency', 'Anthropic/OpenAI'] },
+        { id: 45, title: 'Citation & Attribution', subtitle: 'Inline citations linking claims to sources. Verifiable outputs.', Diagram: CitationDiagram, badges: ['Trustworthy', 'Verifiable', 'Enterprise'] },
+        { id: 46, title: 'Evaluation & Feedback Loop', subtitle: 'RAGAS metrics + human feedback. Continuous improvement.', Diagram: EvaluationDiagram, badges: ['RAGAS', 'Faithfulness', 'Iteration'] },
+      ];
+
+      return (
+        <div className="min-h-screen text-white relative">
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-32 -left-32 bg-indigo-500/10 rounded-full blur-3xl pulse-bg" />
+            <div className="absolute w-[500px] h-[500px] top-1/3 -right-32 bg-pink-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '1s'}} />
+          </div>
+          <Tooltip text={tooltip.text} x={tooltip.x} y={tooltip.y} />
+          <div className="relative max-w-5xl mx-auto px-6 py-12">
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-2 glass rounded-full mb-6">
+                <span className="text-indigo-300 font-semibold text-sm tracking-wide">SECTION VII: RAG ADVANCED</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 gradient-text">RAG Advanced Patterns</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">Self-correcting, agentic, and enterprise RAG patterns.<span className="block mt-2 text-indigo-400 text-base">Patterns 38–46 • ✨ Hover for details</span></p>
+            </header>
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-indigo-400">9</div><div className="text-slate-400 text-sm">Advanced RAG</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-pink-400">🔄</div><div className="text-slate-400 text-sm">Self-Correcting</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-orange-400">🤖</div><div className="text-slate-400 text-sm">Agentic</div></div>
+            </div>
+            <div className="space-y-12">
+              {patterns.map((p) => (
+                <section key={p.id} className="glass rounded-2xl p-8 hover:border-indigo-500/30 transition-colors">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-lg font-bold text-indigo-400">{p.id}</div>
+                    <div><h2 className="text-xl font-bold text-indigo-300">{p.title}</h2><p className="text-slate-400 text-sm">{p.subtitle}</p></div>
+                  </div>
+                  <p.Diagram onHover={handleHover} />
+                  <div className="mt-4 flex gap-3 flex-wrap">{p.badges.map(b => <span key={b} className="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-sm">{b}</span>)}</div>
+                </section>
+              ))}
+            </div>
+            <footer className="mt-16 text-center pt-8 border-t border-white/10"><p className="text-slate-500">Part of <span className="text-slate-400">The LLM Symphony</span> — Section VII: RAG Advanced</p><p className="text-slate-600 text-sm mt-2">Patterns 38-46 of 55</p></footer>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

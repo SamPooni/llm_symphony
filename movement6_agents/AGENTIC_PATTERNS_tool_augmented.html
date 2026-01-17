@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tool-Augmented LLM Patterns — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes gear { to { transform: rotate(360deg); } }
+    
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .gear { animation: gear 4s linear infinite; transform-origin: center; }
+    
+    .gradient-text {
+      background: linear-gradient(135deg, #22d3ee, #4ade80, #facc15);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .glass {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .tooltip {
+      position: fixed;
+      z-index: 100;
+      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(34, 211, 238, 0.5);
+      border-radius: 12px;
+      font-size: 13px;
+      color: #e2e8f0;
+      max-width: 320px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 20px rgba(34, 211, 238, 0.2);
+      pointer-events: none;
+      animation: fadeIn 0.2s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    const Tooltip = ({ text, x, y }) => {
+      if (!text) return null;
+      return (
+        <div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 340), top: y + 15 }}>
+          {text}
+        </div>
+      );
+    };
+
+    const GradientDefs = () => (
+      <defs>
+        <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#22d3ee" />
+          <stop offset="100%" stopColor="#0891b2" />
+        </linearGradient>
+        <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#4ade80" />
+          <stop offset="100%" stopColor="#16a34a" />
+        </linearGradient>
+        <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#facc15" />
+          <stop offset="100%" stopColor="#ca8a04" />
+        </linearGradient>
+        <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#60a5fa" />
+          <stop offset="100%" stopColor="#2563eb" />
+        </linearGradient>
+        <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#a78bfa" />
+          <stop offset="100%" stopColor="#7c3aed" />
+        </linearGradient>
+        <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fb923c" />
+          <stop offset="100%" stopColor="#ea580c" />
+        </linearGradient>
+        <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f472b6" />
+          <stop offset="100%" stopColor="#db2777" />
+        </linearGradient>
+        <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f87171" />
+          <stop offset="100%" stopColor="#dc2626" />
+        </linearGradient>
+        <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#64748b" />
+          <stop offset="100%" stopColor="#475569" />
+        </linearGradient>
+        <linearGradient id="tealGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#2dd4bf" />
+          <stop offset="100%" stopColor="#0d9488" />
+        </linearGradient>
+        
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        
+        <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" />
+        </marker>
+        <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#4ade80" />
+        </marker>
+        <marker id="arrowYellow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#facc15" />
+        </marker>
+        <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#60a5fa" />
+        </marker>
+        <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" />
+        </marker>
+        <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#fb923c" />
+        </marker>
+        <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#f472b6" />
+        </marker>
+      </defs>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 12: Tool Calling (Single-Step)
+    // ═══════════════════════════════════════════════════════════════
+    const SingleStepToolDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* User Query */}
+        <g transform="translate(30, 65)">
+          <rect width="100" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">User Query</text>
+          <text x="50" y="42" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">"What's the</text>
+          <text x="50" y="54" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">weather in SF?"</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M135 100 L180 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* LLM decides tool */}
+        <g transform="translate(190, 45)"
+           onMouseMove={(e) => onHover("LLM analyzes query and decides which tool to call with what arguments. Emits structured tool call.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="140" height="110" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="70" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">LLM</text>
+          <text x="70" y="40" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">Decides tool + args</text>
+          
+          {/* Tool call output */}
+          <rect x="10" y="50" width="120" height="50" rx="6" fill="rgba(250,204,21,0.2)" stroke="#facc15" />
+          <text x="70" y="68" textAnchor="middle" fill="#facc15" fontSize="8" fontFamily="monospace">{"{"}"tool": "weather",</text>
+          <text x="70" y="82" textAnchor="middle" fill="#facc15" fontSize="8" fontFamily="monospace">"city": "SF"{"}"}</text>
+        </g>
+        
+        {/* Arrow to tool */}
+        <path d="M335 100 L380 100" stroke="#facc15" strokeWidth="2" markerEnd="url(#arrowYellow)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Tool Execution */}
+        <g transform="translate(390, 50)"
+           onMouseMove={(e) => onHover("External tool executes: API call, database query, calculation, code execution. Returns structured result.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="100" height="100" rx="10" fill="url(#yellowGrad)" opacity="0.9" />
+          <text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔧 Tool</text>
+          <text x="50" y="38" textAnchor="middle" fill="white" fontSize="8">Weather API</text>
+          
+          <rect x="10" y="48" width="80" height="40" rx="4" fill="rgba(0,0,0,0.2)" />
+          <text x="50" y="65" textAnchor="middle" fill="white" fontSize="7" fontFamily="monospace">Execute...</text>
+          <text x="50" y="78" textAnchor="middle" fill="#4ade80" fontSize="8">→ 72°F, Sunny</text>
+        </g>
+        
+        {/* Arrow back (result) */}
+        <path d="M440 155 L440 175 L260 175 L260 160" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        <text x="350" y="188" textAnchor="middle" fill="#4ade80" fontSize="8">Tool result returned</text>
+        
+        {/* Final LLM + Response */}
+        <g transform="translate(540, 55)">
+          <rect width="130" height="90" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Response</text>
+          <text x="65" y="42" textAnchor="middle" fill="white" fontSize="8">"The weather in</text>
+          <text x="65" y="54" textAnchor="middle" fill="white" fontSize="8">SF is 72°F and</text>
+          <text x="65" y="66" textAnchor="middle" fill="white" fontSize="8">sunny!"</text>
+          <text x="65" y="82" textAnchor="middle" fill="#86efac" fontSize="7">Natural language</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(300, 200)">
+          <text x="50" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Argument Hallucination (wrong params), Tool Selection Errors</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 13: Tool Calling (Multi-Step)
+    // ═══════════════════════════════════════════════════════════════
+    const MultiStepToolDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 250" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* User Query */}
+        <g transform="translate(30, 90)">
+          <rect width="90" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="45" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Complex</text>
+          <text x="45" y="33" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text>
+          <text x="45" y="50" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Book a flight</text>
+          <text x="45" y="61" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">and hotel..."</text>
+        </g>
+        
+        {/* Multi-step loop */}
+        <g transform="translate(140, 20)">
+          <rect width="450" height="180" rx="12" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" strokeDasharray="6 3" />
+          <text x="225" y="20" textAnchor="middle" fill="#22d3ee" fontSize="10" fontWeight="bold">Multi-Step Tool Loop (maintains scratch state)</text>
+          
+          {/* Step 1 */}
+          <g transform="translate(20, 35)"
+             onMouseMove={(e) => onHover("Step 1: LLM decides first action. Search for flights. Maintains intermediate state between calls.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="120" height="55" rx="6" fill="url(#purpleGrad)" opacity="0.8" />
+            <text x="60" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Step 1: LLM</text>
+            <text x="60" y="35" textAnchor="middle" fill="#facc15" fontSize="7" fontFamily="monospace">search_flights()</text>
+            <text x="60" y="48" textAnchor="middle" fill="white" fontSize="7">→ Found 5 options</text>
+          </g>
+          
+          {/* Arrow */}
+          <path d="M145 75 L160 75" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arrowCyan)" />
+          
+          {/* Step 2 */}
+          <g transform="translate(165, 35)"
+             onMouseMove={(e) => onHover("Step 2: Use result from step 1. Select best flight and book. State accumulates.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="120" height="55" rx="6" fill="url(#purpleGrad)" opacity="0.85" />
+            <text x="60" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Step 2: LLM</text>
+            <text x="60" y="35" textAnchor="middle" fill="#facc15" fontSize="7" fontFamily="monospace">book_flight(#3)</text>
+            <text x="60" y="48" textAnchor="middle" fill="white" fontSize="7">→ Booked ✓</text>
+          </g>
+          
+          {/* Arrow */}
+          <path d="M290 75 L305 75" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arrowCyan)" />
+          
+          {/* Step 3 */}
+          <g transform="translate(310, 35)"
+             onMouseMove={(e) => onHover("Step 3: Continue with hotel search. Each step builds on previous results.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="120" height="55" rx="6" fill="url(#purpleGrad)" opacity="0.9" />
+            <text x="60" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Step 3: LLM</text>
+            <text x="60" y="35" textAnchor="middle" fill="#facc15" fontSize="7" fontFamily="monospace">search_hotels()</text>
+            <text x="60" y="48" textAnchor="middle" fill="white" fontSize="7">→ Found 8 hotels</text>
+          </g>
+          
+          {/* State/Scratchpad */}
+          <g transform="translate(20, 105)">
+            <rect width="410" height="55" rx="6" fill="rgba(100,116,139,0.3)" stroke="#64748b" />
+            <text x="205" y="18" textAnchor="middle" fill="#94a3b8" fontSize="9" fontWeight="bold">📝 Scratch State (persists across steps)</text>
+            <text x="205" y="35" textAnchor="middle" fill="#64748b" fontSize="8">flight_booked: UA123 | check_in: 2024-03-15 | budget_remaining: $500</text>
+            <text x="205" y="48" textAnchor="middle" fill="#64748b" fontSize="7">Context grows with each tool result</text>
+          </g>
+        </g>
+        
+        {/* Arrow to final */}
+        <path d="M595 110 L630 110" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Final Response */}
+        <g transform="translate(600, 70)">
+          <rect width="80" height="80" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="40" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Done!</text>
+          <text x="40" y="38" textAnchor="middle" fill="white" fontSize="7">Flight: ✓</text>
+          <text x="40" y="50" textAnchor="middle" fill="white" fontSize="7">Hotel: ✓</text>
+          <text x="40" y="65" textAnchor="middle" fill="#86efac" fontSize="7">All booked!</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(300, 230)">
+          <text x="50" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Runaway Loops, State Corruption, Error Propagation, Cost Blowups</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 14: Planner–Executor Split
+    // ═══════════════════════════════════════════════════════════════
+    const PlannerExecutorDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 250" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* User Query */}
+        <g transform="translate(30, 90)">
+          <rect width="80" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Task</text>
+          <text x="40" y="40" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Analyze sales</text>
+          <text x="40" y="52" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">data and create</text>
+          <text x="40" y="64" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">a report"</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M115 125 L155 125" stroke="#f472b6" strokeWidth="2" markerEnd="url(#arrowPink)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Planner LLM */}
+        <g transform="translate(165, 30)"
+           onMouseMove={(e) => onHover("Planner LLM: High-level reasoning. Breaks task into steps. Often a larger, more capable model.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="150" height="130" rx="10" fill="url(#pinkGrad)" opacity="0.9" />
+          <text x="75" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">🧠 Planner LLM</text>
+          <text x="75" y="40" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">(High-level reasoning)</text>
+          
+          {/* Plan output */}
+          <rect x="10" y="50" width="130" height="70" rx="6" fill="rgba(0,0,0,0.3)" />
+          <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Plan:</text>
+          <text x="20" y="82" fill="#fce7f3" fontSize="7">1. Load sales data</text>
+          <text x="20" y="94" fill="#fce7f3" fontSize="7">2. Calculate metrics</text>
+          <text x="20" y="106" fill="#fce7f3" fontSize="7">3. Generate charts</text>
+          <text x="20" y="118" fill="#fce7f3" fontSize="7">4. Write summary</text>
+        </g>
+        
+        {/* Arrow to executor */}
+        <path d="M320 95 L365 95" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Executor */}
+        <g transform="translate(375, 20)"
+           onMouseMove={(e) => onHover("Executor: Can be smaller LLM or code. Follows plan step-by-step. Faster, cheaper, more focused.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="180" height="150" rx="10" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="90" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">⚡ Executor</text>
+          <text x="90" y="40" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">(LLM or Code)</text>
+          
+          {/* Execution steps */}
+          <g transform="translate(10, 50)">
+            <rect width="75" height="35" rx="4" fill="url(#yellowGrad)" opacity="0.7" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Step 1</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">load_data()</text>
+          </g>
+          
+          <g transform="translate(95, 50)">
+            <rect width="75" height="35" rx="4" fill="url(#yellowGrad)" opacity="0.7" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Step 2</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">calc_metrics()</text>
+          </g>
+          
+          <g transform="translate(10, 95)">
+            <rect width="75" height="35" rx="4" fill="url(#yellowGrad)" opacity="0.7" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Step 3</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">make_charts()</text>
+          </g>
+          
+          <g transform="translate(95, 95)">
+            <rect width="75" height="35" rx="4" fill="url(#greenGrad)" opacity="0.9" />
+            <text x="37" y="15" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Step 4 ✓</text>
+            <text x="37" y="27" textAnchor="middle" fill="white" fontSize="6">write_report()</text>
+          </g>
+        </g>
+        
+        {/* Arrow to output */}
+        <path d="M560 95 L600 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Output */}
+        <g transform="translate(610, 55)">
+          <rect width="70" height="80" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Report</text>
+          <text x="35" y="40" textAnchor="middle" fill="white" fontSize="7">📊 Charts</text>
+          <text x="35" y="52" textAnchor="middle" fill="white" fontSize="7">📝 Summary</text>
+          <text x="35" y="64" textAnchor="middle" fill="white" fontSize="7">📈 Insights</text>
+        </g>
+        
+        {/* Feedback loop (optional) */}
+        <path d="M465 175 L465 200 L240 200 L240 165" stroke="#64748b" strokeWidth="1" strokeDasharray="4 2" markerEnd="url(#arrowPink)" />
+        <text x="350" y="215" textAnchor="middle" fill="#64748b" fontSize="7">Optional: Replan if execution fails</text>
+        
+        {/* Failure modes */}
+        <g transform="translate(300, 240)">
+          <text x="50" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Planner–Executor Mismatch, Stale Plans, Executor Can't Interpret Plan</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 15: Function-as-Policy
+    // ═══════════════════════════════════════════════════════════════
+    const FunctionAsPolicyDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* User Query */}
+        <g transform="translate(30, 75)">
+          <rect width="90" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="45" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Request</text>
+          <text x="45" y="42" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Transfer $500</text>
+          <text x="45" y="54" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">to savings"</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M125 110 L165 110" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* LLM */}
+        <g transform="translate(175, 55)"
+           onMouseMove={(e) => onHover("LLM only selects from predefined safe functions. Cannot construct arbitrary actions. Hard guardrails.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="140" height="110" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="70" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">LLM</text>
+          <text x="70" y="40" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">Selects from</text>
+          <text x="70" y="52" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">allowed actions only</text>
+          
+          {/* Selection indicator */}
+          <rect x="15" y="60" width="110" height="40" rx="6" fill="rgba(74,222,128,0.2)" stroke="#4ade80" />
+          <text x="70" y="78" textAnchor="middle" fill="#4ade80" fontSize="8" fontWeight="bold">→ transfer_funds</text>
+          <text x="70" y="92" textAnchor="middle" fill="#4ade80" fontSize="7">(from allowed list)</text>
+        </g>
+        
+        {/* Arrow to policy layer */}
+        <path d="M320 110 L360 110" stroke="#facc15" strokeWidth="2" markerEnd="url(#arrowYellow)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Policy Layer - Allowed Functions */}
+        <g transform="translate(370, 25)"
+           onMouseMove={(e) => onHover("Policy Layer: Pre-defined safe functions only. Each encodes business rules, validation, limits. LLM can't bypass.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="180" height="170" rx="10" fill="rgba(250,204,21,0.2)" stroke="#facc15" strokeWidth="2" />
+          <text x="90" y="22" textAnchor="middle" fill="#facc15" fontSize="10" fontWeight="bold">🔒 Policy Layer</text>
+          <text x="90" y="38" textAnchor="middle" fill="#fef3c7" fontSize="8">Allowed Functions (Hard Constraints)</text>
+          
+          {/* Function list */}
+          <g transform="translate(10, 50)">
+            <rect width="160" height="30" rx="4" fill="url(#greenGrad)" opacity="0.7" />
+            <text x="80" y="13" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">✓ transfer_funds()</text>
+            <text x="80" y="24" textAnchor="middle" fill="white" fontSize="6">max: $10k, own accounts only</text>
+          </g>
+          
+          <g transform="translate(10, 85)">
+            <rect width="160" height="30" rx="4" fill="url(#tealGrad)" opacity="0.7" />
+            <text x="80" y="13" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">✓ check_balance()</text>
+            <text x="80" y="24" textAnchor="middle" fill="white" fontSize="6">read-only, no limits</text>
+          </g>
+          
+          <g transform="translate(10, 120)">
+            <rect width="160" height="30" rx="4" fill="url(#cyanGrad)" opacity="0.7" />
+            <text x="80" y="13" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">✓ set_alert()</text>
+            <text x="80" y="24" textAnchor="middle" fill="white" fontSize="6">notifications only</text>
+          </g>
+        </g>
+        
+        {/* Blocked action example */}
+        <g transform="translate(560, 25)">
+          <rect width="110" height="80" rx="8" fill="rgba(248,113,113,0.2)" stroke="#f87171" strokeDasharray="4 2" />
+          <text x="55" y="20" textAnchor="middle" fill="#f87171" fontSize="9" fontWeight="bold">🚫 Blocked</text>
+          <text x="55" y="38" textAnchor="middle" fill="#f87171" fontSize="7">delete_account()</text>
+          <text x="55" y="52" textAnchor="middle" fill="#f87171" fontSize="7">wire_external()</text>
+          <text x="55" y="66" textAnchor="middle" fill="#f87171" fontSize="7">modify_limits()</text>
+        </g>
+        
+        {/* Arrow to execution */}
+        <path d="M460 200 L460 210 L600 210 L600 130" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+        
+        {/* Safe Execution */}
+        <g transform="translate(560, 115)">
+          <rect width="110" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">✓ Executed</text>
+          <text x="55" y="38" textAnchor="middle" fill="white" fontSize="7">Transfer complete</text>
+          <text x="55" y="52" textAnchor="middle" fill="white" fontSize="7">Within limits</text>
+          <text x="55" y="64" textAnchor="middle" fill="#86efac" fontSize="6">Safe by design</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(300, 210)">
+          <text x="50" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Limited Expressiveness, Can't Handle Edge Cases, Rigid</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // MAIN APP
+    // ═══════════════════════════════════════════════════════════════
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      
+      const handleHover = (text, x, y) => {
+        if (text) {
+          setTooltip({ text, x, y });
+        } else {
+          setTooltip({ text: null, x: 0, y: 0 });
+        }
+      };
+
+      const patterns = [
+        { id: 12, title: 'Tool Calling (Single-Step)', subtitle: 'LLM emits structured call → Tool executes → Result returned.', Diagram: SingleStepToolDiagram, color: 'yellow', badges: ['APIs', 'Search', 'Calculator', 'Foundation'] },
+        { id: 13, title: 'Tool Calling (Multi-Step)', subtitle: 'LLM chains multiple tool calls. Maintains scratch state between steps.', Diagram: MultiStepToolDiagram, color: 'cyan', badges: ['Complex Tasks', 'State Management', 'Agentic Foundation'] },
+        { id: 14, title: 'Planner–Executor Split', subtitle: 'Planner LLM decides steps. Executor LLM or code executes.', Diagram: PlannerExecutorDiagram, color: 'pink', badges: ['Separation of Concerns', 'Cost Optimization', 'Reliability'] },
+        { id: 15, title: 'Function-as-Policy', subtitle: 'Tools encode hard constraints. LLM only chooses among allowed actions.', Diagram: FunctionAsPolicyDiagram, color: 'green', badges: ['Safety', 'Guardrails', 'Banking/Finance', 'Compliance'] },
+      ];
+
+      return (
+        <div className="min-h-screen text-white relative">
+          {/* Background */}
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-32 -left-32 bg-cyan-500/10 rounded-full blur-3xl pulse-bg" />
+            <div className="absolute w-[500px] h-[500px] top-1/3 -right-32 bg-green-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '1s'}} />
+            <div className="absolute w-[400px] h-[400px] bottom-0 left-1/3 bg-yellow-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '2s'}} />
+          </div>
+          
+          <Tooltip text={tooltip.text} x={tooltip.x} y={tooltip.y} />
+          
+          <div className="relative max-w-5xl mx-auto px-6 py-12">
+            {/* Header */}
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-2 glass rounded-full mb-6">
+                <span className="text-cyan-300 font-semibold text-sm tracking-wide">SECTION III: TOOL-AUGMENTED LLM</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 gradient-text">Tool-Augmented Patterns</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">
+                LLM + external function calls. The bridge to real-world actions.
+                <span className="block mt-2 text-cyan-400 text-base">Patterns 12–15 • ✨ Hover for details</span>
+              </p>
+            </header>
+
+            {/* Pattern Count */}
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="glass rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-cyan-400">4</div>
+                <div className="text-slate-400 text-sm">Tool Patterns</div>
+              </div>
+              <div className="glass rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-yellow-400">🔧</div>
+                <div className="text-slate-400 text-sm">External Actions</div>
+              </div>
+              <div className="glass rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-green-400">∞</div>
+                <div className="text-slate-400 text-sm">Capabilities</div>
+              </div>
+            </div>
+
+            {/* Diagrams */}
+            <div className="space-y-12">
+              {patterns.map((pattern) => (
+                <section key={pattern.id} className={`glass rounded-2xl p-8 hover:border-${pattern.color}-500/30 transition-colors`}>
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className={`w-10 h-10 rounded-lg bg-${pattern.color}-500/20 flex items-center justify-center text-lg font-bold text-${pattern.color}-400`}>
+                      {pattern.id}
+                    </div>
+                    <div>
+                      <h2 className={`text-xl font-bold text-${pattern.color}-300`}>{pattern.title}</h2>
+                      <p className="text-slate-400 text-sm">{pattern.subtitle}</p>
+                    </div>
+                  </div>
+                  <pattern.Diagram onHover={handleHover} />
+                  <div className="mt-4 flex gap-3 flex-wrap">
+                    {pattern.badges.map(badge => (
+                      <span key={badge} className={`px-3 py-1 rounded-full bg-${pattern.color}-500/10 text-${pattern.color}-400 border border-${pattern.color}-500/20 text-sm`}>
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            {/* Summary */}
+            <section className="mt-16 glass rounded-2xl p-8">
+              <h2 className="text-2xl font-bold text-center mb-6 gradient-text">🎯 Tool Pattern Selection</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+                  <div className="text-yellow-300 font-bold mb-2">Simple API call?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-yellow-300">Single-Step Tool</span> — weather, search, calculate. Fast and simple.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                  <div className="text-cyan-300 font-bold mb-2">Complex workflow?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-cyan-300">Multi-Step Tool</span> — chains of actions, state between calls.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-pink-500/10 border border-pink-500/20">
+                  <div className="text-pink-300 font-bold mb-2">Need reliability?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-pink-300">Planner–Executor</span> — separate reasoning from execution.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+                  <div className="text-green-300 font-bold mb-2">Safety critical?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-green-300">Function-as-Policy</span> — hard guardrails, compliant by design.</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Footer */}
+            <footer className="mt-16 text-center pt-8 border-t border-white/10">
+              <p className="text-slate-500">
+                Part of <span className="text-slate-400">The LLM Symphony</span> — Section III: Tool-Augmented LLM
+              </p>
+              <p className="text-slate-600 text-sm mt-2">Patterns 12-15 of 55</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

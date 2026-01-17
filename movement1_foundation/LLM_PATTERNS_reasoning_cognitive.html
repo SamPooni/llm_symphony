@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reasoning & Cognitive Patterns — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes think { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .think { animation: think 2s ease-in-out infinite; }
+    
+    .gradient-text {
+      background: linear-gradient(135deg, #a78bfa, #f472b6, #fb923c);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .glass {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .tooltip {
+      position: fixed;
+      z-index: 100;
+      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(167, 139, 250, 0.5);
+      border-radius: 12px;
+      font-size: 13px;
+      color: #e2e8f0;
+      max-width: 320px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 20px rgba(167, 139, 250, 0.2);
+      pointer-events: none;
+      animation: fadeIn 0.2s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    const Tooltip = ({ text, x, y }) => {
+      if (!text) return null;
+      return (
+        <div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 340), top: y + 15 }}>
+          {text}
+        </div>
+      );
+    };
+
+    const GradientDefs = () => (
+      <defs>
+        <linearGradient id="violetGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#8b5cf6" />
+          <stop offset="100%" stopColor="#6d28d9" />
+        </linearGradient>
+        <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#a78bfa" />
+          <stop offset="100%" stopColor="#7c3aed" />
+        </linearGradient>
+        <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f472b6" />
+          <stop offset="100%" stopColor="#db2777" />
+        </linearGradient>
+        <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fb923c" />
+          <stop offset="100%" stopColor="#ea580c" />
+        </linearGradient>
+        <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#60a5fa" />
+          <stop offset="100%" stopColor="#2563eb" />
+        </linearGradient>
+        <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#22d3ee" />
+          <stop offset="100%" stopColor="#0891b2" />
+        </linearGradient>
+        <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#4ade80" />
+          <stop offset="100%" stopColor="#16a34a" />
+        </linearGradient>
+        <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#facc15" />
+          <stop offset="100%" stopColor="#ca8a04" />
+        </linearGradient>
+        <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f87171" />
+          <stop offset="100%" stopColor="#dc2626" />
+        </linearGradient>
+        <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#64748b" />
+          <stop offset="100%" stopColor="#475569" />
+        </linearGradient>
+        
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        
+        <marker id="arrowViolet" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#8b5cf6" />
+        </marker>
+        <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" />
+        </marker>
+        <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#f472b6" />
+        </marker>
+        <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#fb923c" />
+        </marker>
+        <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#4ade80" />
+        </marker>
+        <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" />
+        </marker>
+        <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#60a5fa" />
+        </marker>
+        <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#f87171" />
+        </marker>
+      </defs>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 7: Chain-of-Thought (CoT)
+    // ═══════════════════════════════════════════════════════════════
+    const ChainOfThoughtDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Problem */}
+        <g transform="translate(30, 60)"
+           onMouseMove={(e) => onHover("Complex problem requiring multi-step reasoning. Math, logic, coding, planning tasks.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="100" height="80" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="50" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Problem</text>
+          <text x="50" y="45" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">"If John has 3x</text>
+          <text x="50" y="57" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">apples and..."</text>
+          <text x="50" y="72" textAnchor="middle" fill="#bfdbfe" fontSize="7">+ "Think step by step"</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M135 100 L170 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Chain of thought steps */}
+        <g transform="translate(180, 30)">
+          <text x="140" y="0" textAnchor="middle" fill="#a78bfa" fontSize="10" fontWeight="bold">Explicit Reasoning Chain</text>
+          
+          {/* Step 1 */}
+          <g transform="translate(0, 15)" className="think"
+             onMouseMove={(e) => onHover("Step 1: Break down the problem. Identify what we know and what we need to find.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="85" height="55" rx="6" fill="url(#violetGrad)" opacity="0.8" />
+            <text x="42" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Step 1</text>
+            <text x="42" y="32" textAnchor="middle" fill="white" fontSize="7">"First, let me</text>
+            <text x="42" y="42" textAnchor="middle" fill="white" fontSize="7">identify what</text>
+            <text x="42" y="52" textAnchor="middle" fill="white" fontSize="7">we know..."</text>
+          </g>
+          
+          {/* Arrow */}
+          <path d="M90 55 L105 55" stroke="#8b5cf6" strokeWidth="2" markerEnd="url(#arrowViolet)" />
+          
+          {/* Step 2 */}
+          <g transform="translate(110, 15)" className="think" style={{animationDelay: '0.3s'}}
+             onMouseMove={(e) => onHover("Step 2: Apply reasoning. Calculate intermediate results.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="85" height="55" rx="6" fill="url(#violetGrad)" opacity="0.85" />
+            <text x="42" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Step 2</text>
+            <text x="42" y="32" textAnchor="middle" fill="white" fontSize="7">"Now I'll</text>
+            <text x="42" y="42" textAnchor="middle" fill="white" fontSize="7">calculate</text>
+            <text x="42" y="52" textAnchor="middle" fill="white" fontSize="7">3 × 5 = 15..."</text>
+          </g>
+          
+          {/* Arrow */}
+          <path d="M200 55 L215 55" stroke="#8b5cf6" strokeWidth="2" markerEnd="url(#arrowViolet)" />
+          
+          {/* Step 3 */}
+          <g transform="translate(220, 15)" className="think" style={{animationDelay: '0.6s'}}
+             onMouseMove={(e) => onHover("Step 3: Continue reasoning. Combine results.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="85" height="55" rx="6" fill="url(#violetGrad)" opacity="0.9" />
+            <text x="42" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Step 3</text>
+            <text x="42" y="32" textAnchor="middle" fill="white" fontSize="7">"Since we have</text>
+            <text x="42" y="42" textAnchor="middle" fill="white" fontSize="7">15 + 7 = 22</text>
+            <text x="42" y="52" textAnchor="middle" fill="white" fontSize="7">apples..."</text>
+          </g>
+          
+          {/* Benefit annotation */}
+          <g transform="translate(0, 90)">
+            <rect width="305" height="35" rx="6" fill="rgba(74,222,128,0.15)" stroke="#4ade80" strokeWidth="1" strokeDasharray="4 2" />
+            <text x="152" y="15" textAnchor="middle" fill="#4ade80" fontSize="9" fontWeight="bold">+40-60% accuracy on reasoning tasks</text>
+            <text x="152" y="28" textAnchor="middle" fill="#4ade80" fontSize="8">2-4x more tokens (cost tradeoff)</text>
+          </g>
+        </g>
+        
+        {/* Arrow to final */}
+        <path d="M495 55 L530 55" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Final Answer */}
+        <g transform="translate(540, 30)"
+           onMouseMove={(e) => onHover("Final answer with reasoning trace. Can be verified step-by-step. Interpretable output.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="120" height="80" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Final Answer</text>
+          <text x="60" y="40" textAnchor="middle" fill="white" fontSize="9">"Therefore,</text>
+          <text x="60" y="52" textAnchor="middle" fill="white" fontSize="9">the answer is</text>
+          <text x="60" y="66" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">22 apples"</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(300, 175)">
+          <text x="50" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Verbosity, Error Propagation, Reasoning Leakage in Sensitive Contexts</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 8: Hidden / Implicit CoT
+    // ═══════════════════════════════════════════════════════════════
+    const HiddenCoTDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 200" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Problem */}
+        <g transform="translate(30, 60)">
+          <rect width="100" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="50" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Problem</text>
+          <text x="50" y="45" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">"Calculate the</text>
+          <text x="50" y="57" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">compound interest..."</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M135 95 L180 95" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* LLM with hidden reasoning */}
+        <g transform="translate(190, 25)"
+           onMouseMove={(e) => onHover("Model reasons internally but only outputs final answer. Used by Claude, GPT-4 in some modes. Cleaner UX but opaque.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="280" height="140" rx="12" fill="url(#purpleGrad)" opacity="0.9" />
+          <text x="140" y="25" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">LLM (Internal Reasoning)</text>
+          
+          {/* Hidden thinking box */}
+          <g transform="translate(15, 40)">
+            <rect width="250" height="75" rx="8" fill="rgba(0,0,0,0.3)" stroke="#64748b" strokeDasharray="4 2" />
+            <text x="125" y="18" textAnchor="middle" fill="#64748b" fontSize="9" fontWeight="bold">🔒 Hidden Thinking (not exposed)</text>
+            
+            {/* Internal steps */}
+            <g transform="translate(10, 28)" opacity="0.5">
+              <rect width="70" height="25" rx="4" fill="url(#slateGrad)" opacity="0.5" />
+              <text x="35" y="16" textAnchor="middle" fill="#94a3b8" fontSize="7">Step 1...</text>
+            </g>
+            <g transform="translate(85, 28)" opacity="0.5">
+              <rect width="70" height="25" rx="4" fill="url(#slateGrad)" opacity="0.5" />
+              <text x="35" y="16" textAnchor="middle" fill="#94a3b8" fontSize="7">Step 2...</text>
+            </g>
+            <g transform="translate(160, 28)" opacity="0.5">
+              <rect width="70" height="25" rx="4" fill="url(#slateGrad)" opacity="0.5" />
+              <text x="35" y="16" textAnchor="middle" fill="#94a3b8" fontSize="7">Step 3...</text>
+            </g>
+            
+            <text x="125" y="65" textAnchor="middle" fill="#64748b" fontSize="8">Internal scratchpad / thinking tokens</text>
+          </g>
+          
+          <text x="140" y="130" textAnchor="middle" fill="#f472b6" fontSize="9">Only final answer emitted</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M475 95 L520 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Clean output */}
+        <g transform="translate(530, 55)"
+           onMouseMove={(e) => onHover("Clean output: User sees only the answer. No reasoning trace. Better for production UX.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="130" height="80" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Clean Output</text>
+          <text x="65" y="42" textAnchor="middle" fill="white" fontSize="9">"The compound</text>
+          <text x="65" y="54" textAnchor="middle" fill="white" fontSize="9">interest is</text>
+          <text x="65" y="70" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">$1,628.89"</text>
+        </g>
+        
+        {/* Comparison */}
+        <g transform="translate(200, 175)">
+          <text x="0" y="0" fill="#22d3ee" fontSize="9">✓ Cleaner UX, No reasoning leakage</text>
+          <text x="250" y="0" fill="#f87171" fontSize="9">⚠️ Harder to debug, Opaque failures</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 9: Self-Consistency
+    // ═══════════════════════════════════════════════════════════════
+    const SelfConsistencyDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Problem */}
+        <g transform="translate(30, 70)">
+          <rect width="90" height="70" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="45" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Problem</text>
+          <text x="45" y="42" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">"What is</text>
+          <text x="45" y="54" textAnchor="middle" fill="white" fontSize="8" opacity="0.8">15% of 240?"</text>
+        </g>
+        
+        {/* Multiple samples */}
+        <g transform="translate(150, 20)"
+           onMouseMove={(e) => onHover("Sample N independent reasoning paths with temperature > 0. Each path may reach different answers.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <text x="100" y="0" textAnchor="middle" fill="#f472b6" fontSize="10" fontWeight="bold">Sample N Paths (temp > 0)</text>
+          
+          {/* Path 1 */}
+          <g transform="translate(0, 15)">
+            <rect width="90" height="75" rx="6" fill="url(#pinkGrad)" opacity="0.7" />
+            <text x="45" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Path 1</text>
+            <text x="45" y="35" textAnchor="middle" fill="white" fontSize="7">"15/100 × 240</text>
+            <text x="45" y="47" textAnchor="middle" fill="white" fontSize="7">= 0.15 × 240</text>
+            <text x="45" y="62" textAnchor="middle" fill="#4ade80" fontSize="9" fontWeight="bold">= 36"</text>
+          </g>
+          
+          {/* Path 2 */}
+          <g transform="translate(100, 15)">
+            <rect width="90" height="75" rx="6" fill="url(#pinkGrad)" opacity="0.7" />
+            <text x="45" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Path 2</text>
+            <text x="45" y="35" textAnchor="middle" fill="white" fontSize="7">"10% = 24,</text>
+            <text x="45" y="47" textAnchor="middle" fill="white" fontSize="7">5% = 12</text>
+            <text x="45" y="62" textAnchor="middle" fill="#4ade80" fontSize="9" fontWeight="bold">= 36"</text>
+          </g>
+          
+          {/* Path 3 - Wrong */}
+          <g transform="translate(200, 15)">
+            <rect width="90" height="75" rx="6" fill="url(#pinkGrad)" opacity="0.7" />
+            <text x="45" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Path 3</text>
+            <text x="45" y="35" textAnchor="middle" fill="white" fontSize="7">"240 / 15</text>
+            <text x="45" y="47" textAnchor="middle" fill="white" fontSize="7">= 16..." (wrong)</text>
+            <text x="45" y="62" textAnchor="middle" fill="#f87171" fontSize="9" fontWeight="bold">= 16"</text>
+          </g>
+          
+          {/* Path 4 */}
+          <g transform="translate(300, 15)">
+            <rect width="90" height="75" rx="6" fill="url(#pinkGrad)" opacity="0.7" />
+            <text x="45" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Path 4</text>
+            <text x="45" y="35" textAnchor="middle" fill="white" fontSize="7">"240 × 15%</text>
+            <text x="45" y="47" textAnchor="middle" fill="white" fontSize="7">= 240 × 0.15</text>
+            <text x="45" y="62" textAnchor="middle" fill="#4ade80" fontSize="9" fontWeight="bold">= 36"</text>
+          </g>
+        </g>
+        
+        {/* Arrows down to voting */}
+        <g transform="translate(150, 100)">
+          <path d="M45 10 L195 50" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+          <path d="M145 10 L195 50" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+          <path d="M245 10 L205 50" stroke="#f87171" strokeWidth="1.5" strokeDasharray="4 2" />
+          <path d="M345 10 L215 50" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arrowPurple)" />
+        </g>
+        
+        {/* Majority Vote */}
+        <g transform="translate(300, 145)"
+           onMouseMove={(e) => onHover("Majority vote: Most common answer wins. Simple, robust, parallelizable. No training required.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          <rect width="140" height="55" rx="8" fill="url(#orangeGrad)" opacity="0.9" />
+          <text x="70" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Majority Vote</text>
+          <text x="70" y="38" textAnchor="middle" fill="white" fontSize="9">36: 3 votes ✓</text>
+          <text x="70" y="50" textAnchor="middle" fill="white" fontSize="8" opacity="0.7">16: 1 vote ✗</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M445 172 L490 172" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Final Answer */}
+        <g transform="translate(500, 145)">
+          <rect width="100" height="55" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Answer</text>
+          <text x="50" y="42" textAnchor="middle" fill="white" fontSize="14" fontWeight="bold">36</text>
+        </g>
+        
+        {/* Cost annotation */}
+        <g transform="translate(500, 40)">
+          <rect width="150" height="50" rx="6" fill="rgba(251,146,60,0.15)" stroke="#fb923c" strokeWidth="1" strokeDasharray="4 2" />
+          <text x="75" y="18" textAnchor="middle" fill="#fb923c" fontSize="9" fontWeight="bold">Cost: N × single call</text>
+          <text x="75" y="32" textAnchor="middle" fill="#fb923c" fontSize="8">But parallelizable!</text>
+          <text x="75" y="44" textAnchor="middle" fill="#4ade80" fontSize="8">+10-20% accuracy</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(250, 210)">
+          <text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Cost Explosion (N calls), Only works for discrete answers</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 10: Tree-of-Thought (ToT)
+    // ═══════════════════════════════════════════════════════════════
+    const TreeOfThoughtDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 250" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Problem */}
+        <g transform="translate(30, 90)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Problem</text>
+          <text x="40" y="38" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">Complex</text>
+          <text x="40" y="50" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">reasoning task</text>
+        </g>
+        
+        {/* Arrow */}
+        <path d="M115 120 L145 120" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+        
+        {/* Tree structure */}
+        <g transform="translate(155, 10)"
+           onMouseMove={(e) => onHover("Tree-structured reasoning: Branch at each step, evaluate partial solutions, prune bad paths. Search-based cognition.", e.clientX, e.clientY)}
+           onMouseLeave={() => onHover(null)}>
+          
+          {/* Root */}
+          <g transform="translate(150, 100)">
+            <rect width="70" height="40" rx="6" fill="url(#violetGrad)" opacity="0.9" />
+            <text x="35" y="17" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Root</text>
+            <text x="35" y="30" textAnchor="middle" fill="white" fontSize="7">Initial state</text>
+          </g>
+          
+          {/* Level 1 branches */}
+          <path d="M185 100 L100 60" stroke="#a78bfa" strokeWidth="1.5" />
+          <path d="M185 100 L185 60" stroke="#a78bfa" strokeWidth="1.5" />
+          <path d="M185 100 L270 60" stroke="#a78bfa" strokeWidth="1.5" />
+          
+          {/* Thought A */}
+          <g transform="translate(55, 20)">
+            <rect width="70" height="35" rx="5" fill="url(#pinkGrad)" opacity="0.8" />
+            <text x="35" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Thought A</text>
+            <text x="35" y="27" textAnchor="middle" fill="white" fontSize="7">score: 0.7</text>
+          </g>
+          
+          {/* Thought B - best */}
+          <g transform="translate(150, 20)">
+            <rect width="70" height="35" rx="5" fill="url(#greenGrad)" opacity="0.9" stroke="#4ade80" strokeWidth="2" />
+            <text x="35" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Thought B</text>
+            <text x="35" y="27" textAnchor="middle" fill="white" fontSize="7">score: 0.9 ★</text>
+          </g>
+          
+          {/* Thought C - pruned */}
+          <g transform="translate(245, 20)">
+            <rect width="70" height="35" rx="5" fill="url(#redGrad)" opacity="0.4" strokeDasharray="4 2" stroke="#f87171" />
+            <text x="35" y="15" textAnchor="middle" fill="#f87171" fontSize="8" fontWeight="bold">Thought C</text>
+            <text x="35" y="27" textAnchor="middle" fill="#f87171" fontSize="7">score: 0.2 ✗</text>
+          </g>
+          
+          {/* Level 2 - expand from B */}
+          <path d="M185 20 L120 -20" stroke="#4ade80" strokeWidth="1.5" />
+          <path d="M185 20 L185 -20" stroke="#4ade80" strokeWidth="1.5" />
+          <path d="M185 20 L250 -20" stroke="#4ade80" strokeWidth="1.5" />
+          
+          {/* B's children */}
+          <g transform="translate(85, -55)">
+            <rect width="60" height="30" rx="4" fill="url(#cyanGrad)" opacity="0.7" />
+            <text x="30" y="13" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">B.1</text>
+            <text x="30" y="24" textAnchor="middle" fill="white" fontSize="6">score: 0.8</text>
+          </g>
+          
+          <g transform="translate(155, -55)">
+            <rect width="60" height="30" rx="4" fill="url(#greenGrad)" opacity="0.9" stroke="#4ade80" strokeWidth="2" />
+            <text x="30" y="13" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">B.2 ★</text>
+            <text x="30" y="24" textAnchor="middle" fill="white" fontSize="6">score: 0.95</text>
+          </g>
+          
+          <g transform="translate(225, -55)">
+            <rect width="60" height="30" rx="4" fill="url(#cyanGrad)" opacity="0.5" />
+            <text x="30" y="13" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">B.3</text>
+            <text x="30" y="24" textAnchor="middle" fill="white" fontSize="6">score: 0.6</text>
+          </g>
+          
+          {/* Evaluator annotation */}
+          <g transform="translate(320, 50)">
+            <rect width="100" height="60" rx="6" fill="rgba(251,146,60,0.2)" stroke="#fb923c" />
+            <text x="50" y="18" textAnchor="middle" fill="#fb923c" fontSize="8" fontWeight="bold">Evaluator</text>
+            <text x="50" y="32" textAnchor="middle" fill="#fb923c" fontSize="7">Scores each</text>
+            <text x="50" y="44" textAnchor="middle" fill="#fb923c" fontSize="7">partial solution</text>
+            <text x="50" y="56" textAnchor="middle" fill="#fb923c" fontSize="6">(LLM or heuristic)</text>
+          </g>
+          
+          {/* Search strategy */}
+          <g transform="translate(320, 120)">
+            <rect width="100" height="50" rx="6" fill="rgba(34,211,238,0.2)" stroke="#22d3ee" />
+            <text x="50" y="16" textAnchor="middle" fill="#22d3ee" fontSize="8" fontWeight="bold">Search</text>
+            <text x="50" y="30" textAnchor="middle" fill="#22d3ee" fontSize="7">BFS / DFS /</text>
+            <text x="50" y="42" textAnchor="middle" fill="#22d3ee" fontSize="7">Beam Search</text>
+          </g>
+        </g>
+        
+        {/* Arrow to final */}
+        <path d="M505 120 L550 120" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Best Path */}
+        <g transform="translate(560, 85)">
+          <rect width="110" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="55" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Best Path</text>
+          <text x="55" y="38" textAnchor="middle" fill="white" fontSize="8">Root → B → B.2</text>
+          <text x="55" y="55" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">Optimal solution</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(250, 230)">
+          <text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Combinatorial Explosion, 10-100× Cost, Complex Implementation</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // PATTERN 11: Reflection / Self-Critique
+    // ═══════════════════════════════════════════════════════════════
+    const ReflectionDiagram = ({ onHover }) => (
+      <svg viewBox="0 0 700 220" className="w-full h-auto">
+        <GradientDefs />
+        
+        {/* Problem */}
+        <g transform="translate(30, 80)">
+          <rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Task</text>
+          <text x="40" y="38" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">"Write code</text>
+          <text x="40" y="50" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">to sort..."</text>
+        </g>
+        
+        {/* Main loop */}
+        <g transform="translate(130, 20)">
+          {/* Iteration box */}
+          <rect width="420" height="160" rx="12" fill="rgba(167,139,250,0.1)" stroke="#a78bfa" strokeDasharray="6 3" />
+          <text x="210" y="20" textAnchor="middle" fill="#a78bfa" fontSize="10" fontWeight="bold">Iterative Refinement Loop</text>
+          
+          {/* Generate */}
+          <g transform="translate(20, 40)"
+             onMouseMove={(e) => onHover("Generate: LLM produces initial output. May contain errors or suboptimal solutions.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="100" height="55" rx="6" fill="url(#purpleGrad)" opacity="0.9" />
+            <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">1. Generate</text>
+            <text x="50" y="35" textAnchor="middle" fill="white" fontSize="7">Produce output</text>
+            <text x="50" y="48" textAnchor="middle" fill="white" fontSize="7">(may have errors)</text>
+          </g>
+          
+          {/* Arrow */}
+          <path d="M125 67 L155 67" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+          
+          {/* Evaluate */}
+          <g transform="translate(160, 40)"
+             onMouseMove={(e) => onHover("Evaluate: Model critiques its own output. Identifies errors, weaknesses, areas for improvement.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="100" height="55" rx="6" fill="url(#orangeGrad)" opacity="0.9" />
+            <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">2. Evaluate</text>
+            <text x="50" y="35" textAnchor="middle" fill="white" fontSize="7">Self-critique</text>
+            <text x="50" y="48" textAnchor="middle" fill="white" fontSize="7">"This has bug..."</text>
+          </g>
+          
+          {/* Arrow */}
+          <path d="M265 67 L295 67" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" />
+          
+          {/* Refine */}
+          <g transform="translate(300, 40)"
+             onMouseMove={(e) => onHover("Refine: Incorporate feedback to improve. Iterates until satisfactory or max iterations.", e.clientX, e.clientY)}
+             onMouseLeave={() => onHover(null)}>
+            <rect width="100" height="55" rx="6" fill="url(#cyanGrad)" opacity="0.9" />
+            <text x="50" y="18" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">3. Refine</text>
+            <text x="50" y="35" textAnchor="middle" fill="white" fontSize="7">Improve based</text>
+            <text x="50" y="48" textAnchor="middle" fill="white" fontSize="7">on critique</text>
+          </g>
+          
+          {/* Loop back arrow */}
+          <path d="M350 100 L350 130 L70 130 L70 100" stroke="#64748b" strokeWidth="1.5" fill="none" strokeDasharray="4 2" markerEnd="url(#arrowPurple)" />
+          <text x="210" y="145" textAnchor="middle" fill="#64748b" fontSize="8">Repeat until satisfactory</text>
+        </g>
+        
+        {/* Arrow to output */}
+        <path d="M555 100 L590 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)"
+              strokeDasharray="6 3" className="flow-line" />
+        
+        {/* Final Output */}
+        <g transform="translate(600, 60)">
+          <rect width="80" height="80" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+          <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Refined</text>
+          <text x="40" y="36" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Output</text>
+          <text x="40" y="55" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">Improved</text>
+          <text x="40" y="67" textAnchor="middle" fill="white" fontSize="7" opacity="0.8">after N iter</text>
+        </g>
+        
+        {/* Examples */}
+        <g transform="translate(130, 190)">
+          <text x="0" y="0" fill="#22d3ee" fontSize="9">Use cases: Code generation + testing, Writing + editing, Math proofs</text>
+        </g>
+        
+        {/* Failure modes */}
+        <g transform="translate(250, 210)">
+          <text x="100" y="0" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Oscillation (flip-flopping), Self-reinforcing errors, Overconfident wrong fixes</text>
+        </g>
+      </svg>
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // MAIN APP
+    // ═══════════════════════════════════════════════════════════════
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      
+      const handleHover = (text, x, y) => {
+        if (text) {
+          setTooltip({ text, x, y });
+        } else {
+          setTooltip({ text: null, x: 0, y: 0 });
+        }
+      };
+
+      const patterns = [
+        { id: 7, title: 'Chain-of-Thought (CoT)', subtitle: 'Explicit intermediate reasoning steps. +40-60% accuracy on reasoning tasks.', Diagram: ChainOfThoughtDiagram, color: 'violet', badges: ['Math', 'Logic', 'Coding', '2-4x Tokens'] },
+        { id: 8, title: 'Hidden / Implicit CoT', subtitle: 'Internal reasoning without exposing steps. Cleaner output, opaque process.', Diagram: HiddenCoTDiagram, color: 'purple', badges: ['Production', 'Clean UX', 'Harder Debugging'] },
+        { id: 9, title: 'Self-Consistency', subtitle: 'Sample multiple reasoning paths, majority vote. Parallelizable.', Diagram: SelfConsistencyDiagram, color: 'pink', badges: ['+10-20% Accuracy', 'N× Cost', 'Discrete Answers'] },
+        { id: 10, title: 'Tree-of-Thought (ToT)', subtitle: 'Branching reasoning paths with search. Evaluate, prune, backtrack.', Diagram: TreeOfThoughtDiagram, color: 'cyan', badges: ['+10-30% over CoT', 'Search-Based', '10-100× Cost'] },
+        { id: 11, title: 'Reflection / Self-Critique', subtitle: 'Model evaluates and refines its own output iteratively.', Diagram: ReflectionDiagram, color: 'orange', badges: ['Iterative', 'Code+Tests', 'Writing+Editing'] },
+      ];
+
+      return (
+        <div className="min-h-screen text-white relative">
+          {/* Background */}
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-32 -left-32 bg-violet-500/10 rounded-full blur-3xl pulse-bg" />
+            <div className="absolute w-[500px] h-[500px] top-1/3 -right-32 bg-pink-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '1s'}} />
+            <div className="absolute w-[400px] h-[400px] bottom-0 left-1/3 bg-orange-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '2s'}} />
+          </div>
+          
+          <Tooltip text={tooltip.text} x={tooltip.x} y={tooltip.y} />
+          
+          <div className="relative max-w-5xl mx-auto px-6 py-12">
+            {/* Header */}
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-2 glass rounded-full mb-6">
+                <span className="text-violet-300 font-semibold text-sm tracking-wide">SECTION II: REASONING & COGNITIVE</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 gradient-text">Reasoning Patterns</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">
+                Cognitively richer patterns for enhanced LLM reasoning.
+                <span className="block mt-2 text-violet-400 text-base">Patterns 7–11 • ✨ Hover for details</span>
+              </p>
+            </header>
+
+            {/* Pattern Count */}
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="glass rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-violet-400">5</div>
+                <div className="text-slate-400 text-sm">Reasoning Patterns</div>
+              </div>
+              <div className="glass rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-pink-400">+60%</div>
+                <div className="text-slate-400 text-sm">Max Accuracy Boost</div>
+              </div>
+              <div className="glass rounded-xl p-4 text-center">
+                <div className="text-3xl font-bold text-orange-400">100×</div>
+                <div className="text-slate-400 text-sm">Max Cost Increase</div>
+              </div>
+            </div>
+
+            {/* Diagrams */}
+            <div className="space-y-12">
+              {patterns.map((pattern) => (
+                <section key={pattern.id} className={`glass rounded-2xl p-8 hover:border-${pattern.color}-500/30 transition-colors`}>
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className={`w-10 h-10 rounded-lg bg-${pattern.color}-500/20 flex items-center justify-center text-lg font-bold text-${pattern.color}-400`}>
+                      {pattern.id}
+                    </div>
+                    <div>
+                      <h2 className={`text-xl font-bold text-${pattern.color}-300`}>{pattern.title}</h2>
+                      <p className="text-slate-400 text-sm">{pattern.subtitle}</p>
+                    </div>
+                  </div>
+                  <pattern.Diagram onHover={handleHover} />
+                  <div className="mt-4 flex gap-3 flex-wrap">
+                    {pattern.badges.map(badge => (
+                      <span key={badge} className={`px-3 py-1 rounded-full bg-${pattern.color}-500/10 text-${pattern.color}-400 border border-${pattern.color}-500/20 text-sm`}>
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            {/* Summary */}
+            <section className="mt-16 glass rounded-2xl p-8">
+              <h2 className="text-2xl font-bold text-center mb-6 gradient-text">🎯 When to Use Each Pattern</h2>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-violet-500/10 border border-violet-500/20">
+                  <div className="text-violet-300 font-bold mb-2">Need better reasoning?</div>
+                  <div className="text-slate-400 text-sm">Start with <span className="text-violet-300">CoT</span> — simple, effective, 2-4x tokens.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                  <div className="text-purple-300 font-bold mb-2">Clean production output?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-purple-300">Hidden CoT</span> — reasoning without leakage.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-pink-500/10 border border-pink-500/20">
+                  <div className="text-pink-300 font-bold mb-2">Discrete answers?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-pink-300">Self-Consistency</span> — sample & vote, parallelizable.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                  <div className="text-cyan-300 font-bold mb-2">Complex exploration?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-cyan-300">ToT</span> — search-based, high cost but thorough.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20">
+                  <div className="text-orange-300 font-bold mb-2">Iterative improvement?</div>
+                  <div className="text-slate-400 text-sm"><span className="text-orange-300">Reflection</span> — generate, critique, refine.</div>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-500/10 border border-slate-500/20">
+                  <div className="text-slate-300 font-bold mb-2">Cost-constrained?</div>
+                  <div className="text-slate-400 text-sm">CoT or Hidden CoT — minimal overhead.</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Footer */}
+            <footer className="mt-16 text-center pt-8 border-t border-white/10">
+              <p className="text-slate-500">
+                Part of <span className="text-slate-400">The LLM Symphony</span> — Section II: Reasoning & Cognitive
+              </p>
+              <p className="text-slate-600 text-sm mt-2">Patterns 7-11 of 55</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

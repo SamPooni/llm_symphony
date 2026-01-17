@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Core Patterns — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .gradient-text { background: linear-gradient(135deg, #34d399, #22d3ee, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .tooltip { position: fixed; z-index: 100; padding: 12px 16px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(52, 211, 153, 0.5); border-radius: 12px; font-size: 13px; color: #e2e8f0; max-width: 320px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const Tooltip = ({ text, x, y }) => { if (!text) return null; return <div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 340), top: y + 15 }}>{text}</div>; };
+    const GradientDefs = () => (<defs>
+      <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#34d399" /><stop offset="100%" stopColor="#059669" /></linearGradient>
+      <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+      <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#7c3aed" /></linearGradient>
+      <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient>
+      <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+      <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f472b6" /><stop offset="100%" stopColor="#db2777" /></linearGradient>
+      <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ade80" /><stop offset="100%" stopColor="#16a34a" /></linearGradient>
+      <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient>
+      <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#64748b" /><stop offset="100%" stopColor="#475569" /></linearGradient>
+      <marker id="arrowEmerald" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#34d399" /></marker>
+      <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" /></marker>
+      <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" /></marker>
+      <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4ade80" /></marker>
+      <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fb923c" /></marker>
+      <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f472b6" /></marker>
+    </defs>);
+
+    const BasicRAGDiagram = ({ onHover }) => (<svg viewBox="0 0 700 180" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 60)"><rect width="90" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="45" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Query</text><text x="45" y="42" textAnchor="middle" fill="white" fontSize="8">"What is X?"</text></g>
+      <path d="M125 90 L165 90" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(170, 55)" onMouseMove={(e) => onHover("Embed query using same model as documents. Dense vector for similarity search.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="80" height="70" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Embed</text><text x="40" y="40" textAnchor="middle" fill="white" fontSize="7">Query → Vec</text></g>
+      <path d="M255 90 L295 90" stroke="#34d399" strokeWidth="2" markerEnd="url(#arrowEmerald)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(300, 45)" onMouseMove={(e) => onHover("Vector similarity search: Find top-k most similar chunks. ANN index (HNSW, IVF) for speed.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="100" height="90" rx="10" fill="url(#emeraldGrad)" opacity="0.9" /><text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Vector DB</text><text x="50" y="40" textAnchor="middle" fill="white" fontSize="8">Similarity Search</text><rect x="10" y="50" width="80" height="30" rx="4" fill="rgba(0,0,0,0.2)" /><text x="50" y="70" textAnchor="middle" fill="#86efac" fontSize="7">Top-k chunks</text></g>
+      <path d="M405 90 L445 90" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(450, 50)" onMouseMove={(e) => onHover("Context assembly: Query + retrieved chunks → prompt for LLM generation.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="100" height="80" rx="10" fill="url(#purpleGrad)" opacity="0.9" /><text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">LLM</text><text x="50" y="40" textAnchor="middle" fill="white" fontSize="7">[chunks] + query</text><text x="50" y="55" textAnchor="middle" fill="white" fontSize="7">→ Generate</text></g>
+      <path d="M555 90 L595 90" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(600, 60)"><rect width="70" height="60" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="35" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Answer</text><text x="35" y="45" textAnchor="middle" fill="white" fontSize="7">Grounded</text></g>
+      <text x="350" y="160" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Retrieval Miss, Chunk Boundaries, Context Overflow</text>
+    </svg>);
+
+    const ChunkEmbedDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 40)"><rect width="100" height="120" rx="8" fill="url(#slateGrad)" opacity="0.6" /><text x="50" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Documents</text><rect x="10" y="35" width="80" height="22" rx="4" fill="url(#blueGrad)" opacity="0.6" /><text x="50" y="50" textAnchor="middle" fill="white" fontSize="7">PDFs</text><rect x="10" y="62" width="80" height="22" rx="4" fill="url(#blueGrad)" opacity="0.6" /><text x="50" y="77" textAnchor="middle" fill="white" fontSize="7">Web pages</text><rect x="10" y="89" width="80" height="22" rx="4" fill="url(#blueGrad)" opacity="0.6" /><text x="50" y="104" textAnchor="middle" fill="white" fontSize="7">Code files</text></g>
+      <path d="M135 100 L175 100" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(180, 30)" onMouseMove={(e) => onHover("Chunking: Fixed-size (512 tok), Semantic (sentences), Recursive (structure), Overlapping (sliding window).", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="140" height="140" rx="10" fill="url(#orangeGrad)" opacity="0.9" /><text x="70" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Chunking</text><rect x="10" y="35" width="120" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="70" y="50" textAnchor="middle" fill="white" fontSize="7">Fixed-size (512 tok)</text><rect x="10" y="62" width="120" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="70" y="77" textAnchor="middle" fill="white" fontSize="7">Semantic (sentences)</text><rect x="10" y="89" width="120" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="70" y="104" textAnchor="middle" fill="white" fontSize="7">Recursive (structure)</text><rect x="10" y="116" width="120" height="18" rx="4" fill="rgba(74,222,128,0.3)" /><text x="70" y="128" textAnchor="middle" fill="#4ade80" fontSize="6">+ Overlap for context</text></g>
+      <path d="M325 100 L365 100" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(370, 40)" onMouseMove={(e) => onHover("Embedding models: text-embedding-3-large, BGE, E5, Cohere. 768-3072 dimensions.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="120" height="120" rx="10" fill="url(#cyanGrad)" opacity="0.9" /><text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Embed Model</text><g transform="translate(10, 35)"><rect width="45" height="30" rx="4" fill="rgba(0,0,0,0.2)" /><text x="22" y="12" textAnchor="middle" fill="white" fontSize="6">Chunk 1</text><text x="22" y="24" textAnchor="middle" fill="#cffafe" fontSize="5">[vec₁]</text></g><g transform="translate(60, 35)"><rect width="45" height="30" rx="4" fill="rgba(0,0,0,0.2)" /><text x="22" y="12" textAnchor="middle" fill="white" fontSize="6">Chunk 2</text><text x="22" y="24" textAnchor="middle" fill="#cffafe" fontSize="5">[vec₂]</text></g><g transform="translate(10, 72)"><rect width="45" height="30" rx="4" fill="rgba(0,0,0,0.2)" /><text x="22" y="12" textAnchor="middle" fill="white" fontSize="6">Chunk 3</text><text x="22" y="24" textAnchor="middle" fill="#cffafe" fontSize="5">[vec₃]</text></g><g transform="translate(60, 72)"><rect width="45" height="30" rx="4" fill="rgba(0,0,0,0.2)" /><text x="22" y="18" textAnchor="middle" fill="white" fontSize="8">...</text></g></g>
+      <path d="M495 100 L535 100" stroke="#34d399" strokeWidth="2" markerEnd="url(#arrowEmerald)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(540, 40)" onMouseMove={(e) => onHover("Vector stores: Pinecone, Weaviate, Qdrant, Chroma, pgvector. ANN indexes: HNSW, IVF.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="120" height="120" rx="10" fill="url(#emeraldGrad)" opacity="0.9" /><text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Vector Store</text><text x="60" y="40" textAnchor="middle" fill="white" fontSize="8">+ Metadata</text><rect x="10" y="50" width="100" height="55" rx="6" fill="rgba(0,0,0,0.2)" /><text x="60" y="68" textAnchor="middle" fill="#86efac" fontSize="7">Pinecone / Weaviate</text><text x="60" y="82" textAnchor="middle" fill="#86efac" fontSize="7">Qdrant / Chroma</text><text x="60" y="96" textAnchor="middle" fill="#86efac" fontSize="7">pgvector / FAISS</text></g>
+      <text x="350" y="185" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Failure: Bad Chunk Size, Embedding Mismatch, No Overlap</text>
+    </svg>);
+
+    const HybridRetrievalDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 75)"><rect width="80" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text></g>
+      <g transform="translate(140, 25)" onMouseMove={(e) => onHover("Dense: Semantic similarity via embeddings. Good for conceptual matches, synonyms.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="130" height="60" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="65" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Dense (Vectors)</text><text x="65" y="38" textAnchor="middle" fill="white" fontSize="7">Semantic similarity</text><text x="65" y="52" textAnchor="middle" fill="#67e8f9" fontSize="6">Embeddings + Cosine</text></g>
+      <g transform="translate(140, 115)" onMouseMove={(e) => onHover("Sparse: Keyword/lexical matching. BM25, TF-IDF. Good for exact terms, names, codes.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="130" height="60" rx="8" fill="url(#orangeGrad)" opacity="0.9" /><text x="65" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Sparse (BM25)</text><text x="65" y="38" textAnchor="middle" fill="white" fontSize="7">Keyword matching</text><text x="65" y="52" textAnchor="middle" fill="#fed7aa" fontSize="6">TF-IDF, BM25</text></g>
+      <path d="M115 100 L138 55" stroke="#22d3ee" strokeWidth="1.5" /><path d="M115 100 L138 145" stroke="#fb923c" strokeWidth="1.5" />
+      <path d="M275 55 L320 90" stroke="#22d3ee" strokeWidth="1.5" /><path d="M275 145 L320 110" stroke="#fb923c" strokeWidth="1.5" />
+      <g transform="translate(325, 65)" onMouseMove={(e) => onHover("Hybrid: Combine dense + sparse with RRF (Reciprocal Rank Fusion). Best of both!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="120" height="70" rx="10" fill="url(#greenGrad)" opacity="0.9" stroke="#4ade80" strokeWidth="2" /><text x="60" y="22" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">Hybrid ⭐</text><text x="60" y="40" textAnchor="middle" fill="white" fontSize="8">Dense + Sparse</text><text x="60" y="55" textAnchor="middle" fill="#86efac" fontSize="7">RRF Fusion = Best!</text></g>
+      <path d="M450 100 L490 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" strokeDasharray="6 3" className="flow-line" />
+      <g transform="translate(495, 65)"><rect width="130" height="70" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Ranked Results</text><text x="65" y="40" textAnchor="middle" fill="white" fontSize="7">Semantic + Keywords</text><text x="65" y="55" textAnchor="middle" fill="white" fontSize="7">Combined ranking</text></g>
+      <text x="350" y="185" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Dense misses exact terms, Sparse misses semantics — Hybrid wins!</text>
+    </svg>);
+
+    const RerankingDiagram = ({ onHover }) => (<svg viewBox="0 0 700 180" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 60)"><rect width="70" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="35" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text></g>
+      <path d="M105 85 L145 85" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      <g transform="translate(150, 45)" onMouseMove={(e) => onHover("Stage 1: Fast bi-encoder retrieval. O(1) per doc (precomputed). Get top-100 candidates.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="130" height="80" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="65" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Stage 1: Bi-Encoder</text><text x="65" y="38" textAnchor="middle" fill="white" fontSize="7">Fast retrieval O(1)</text><rect x="15" y="48" width="100" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="65" y="63" textAnchor="middle" fill="#cffafe" fontSize="7">→ Top-100 candidates</text></g>
+      <path d="M285 85 L325 85" stroke="#f472b6" strokeWidth="2" markerEnd="url(#arrowPink)" />
+      <g transform="translate(330, 35)" onMouseMove={(e) => onHover("Stage 2: Cross-encoder reranker. Sees query + doc together. Slower but much more accurate.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="150" height="100" rx="10" fill="url(#pinkGrad)" opacity="0.9" /><text x="75" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Stage 2: Cross-Encoder</text><text x="75" y="38" textAnchor="middle" fill="white" fontSize="8">Reranker</text><rect x="10" y="48" width="130" height="40" rx="6" fill="rgba(0,0,0,0.2)" /><text x="75" y="65" textAnchor="middle" fill="white" fontSize="7">[CLS] Query [SEP] Doc [SEP]</text><text x="75" y="80" textAnchor="middle" fill="#fce7f3" fontSize="6">Cohere, BGE-reranker</text></g>
+      <path d="M485 85 L525 85" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(530, 50)"><rect width="120" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="60" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Final Top-k</text><text x="60" y="40" textAnchor="middle" fill="white" fontSize="8">Precision-optimized</text><text x="60" y="58" textAnchor="middle" fill="#86efac" fontSize="7">+15-25% accuracy</text></g>
+      <text x="350" y="160" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Added Latency (50-200ms), Cost of reranker API</text>
+    </svg>);
+
+    const QueryExpansionDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 75)"><rect width="80" height="50" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="40" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Original</text><text x="40" y="36" textAnchor="middle" fill="white" fontSize="7">"best laptop"</text></g>
+      <path d="M115 100 L155 100" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(160, 35)" onMouseMove={(e) => onHover("LLM generates multiple query variants: synonyms, related terms, different phrasings.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="150" height="130" rx="10" fill="url(#purpleGrad)" opacity="0.9" /><text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Query Expansion</text><text x="75" y="40" textAnchor="middle" fill="white" fontSize="7">(LLM generates variants)</text><rect x="10" y="50" width="130" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="75" y="65" textAnchor="middle" fill="white" fontSize="7">"top laptops 2024"</text><rect x="10" y="77" width="130" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="75" y="92" textAnchor="middle" fill="white" fontSize="7">"laptop recommendations"</text><rect x="10" y="104" width="130" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="75" y="119" textAnchor="middle" fill="white" fontSize="7">"notebook computer reviews"</text></g>
+      <path d="M315 100 L355 60" stroke="#34d399" strokeWidth="1.5" /><path d="M315 100 L355 100" stroke="#34d399" strokeWidth="1.5" /><path d="M315 100 L355 140" stroke="#34d399" strokeWidth="1.5" />
+      <g transform="translate(360, 40)"><rect width="70" height="30" rx="6" fill="url(#emeraldGrad)" opacity="0.8" /><text x="35" y="20" textAnchor="middle" fill="white" fontSize="7">Retrieve 1</text></g>
+      <g transform="translate(360, 85)"><rect width="70" height="30" rx="6" fill="url(#emeraldGrad)" opacity="0.8" /><text x="35" y="20" textAnchor="middle" fill="white" fontSize="7">Retrieve 2</text></g>
+      <g transform="translate(360, 130)"><rect width="70" height="30" rx="6" fill="url(#emeraldGrad)" opacity="0.8" /><text x="35" y="20" textAnchor="middle" fill="white" fontSize="7">Retrieve 3</text></g>
+      <path d="M435 55 L475 90" stroke="#facc15" strokeWidth="1.5" /><path d="M435 100 L475 95" stroke="#facc15" strokeWidth="1.5" /><path d="M435 145 L475 105" stroke="#facc15" strokeWidth="1.5" />
+      <g transform="translate(480, 60)" onMouseMove={(e) => onHover("RAG Fusion: Merge results from all queries using RRF. More diverse results.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="80" height="80" rx="8" fill="url(#yellowGrad)" opacity="0.9" /><text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Fusion</text><text x="40" y="40" textAnchor="middle" fill="white" fontSize="7">RRF merge</text><text x="40" y="55" textAnchor="middle" fill="white" fontSize="7">Deduplicate</text><text x="40" y="72" textAnchor="middle" fill="#fef3c7" fontSize="6">Better recall</text></g>
+      <path d="M565 100 L605 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(610, 65)"><rect width="60" height="70" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="30" y="25" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Results</text><text x="30" y="42" textAnchor="middle" fill="white" fontSize="6">Diverse</text><text x="30" y="55" textAnchor="middle" fill="white" fontSize="6">Complete</text></g>
+      <text x="350" y="185" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Query Drift (bad expansions), Increased Latency (N retrievals)</text>
+    </svg>);
+
+    const HyDEDiagram = ({ onHover }) => (<svg viewBox="0 0 700 180" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 60)"><rect width="80" height="60" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="40" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Query</text><text x="40" y="38" textAnchor="middle" fill="white" fontSize="7">"How does X</text><text x="40" y="50" textAnchor="middle" fill="white" fontSize="7">work?"</text></g>
+      <path d="M115 90 L155 90" stroke="#a78bfa" strokeWidth="2" markerEnd="url(#arrowPurple)" />
+      <g transform="translate(160, 40)" onMouseMove={(e) => onHover("LLM generates hypothetical ideal answer (without retrieval). Captures semantic space of good answers.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="140" height="100" rx="10" fill="url(#purpleGrad)" opacity="0.9" /><text x="70" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">LLM: Generate</text><text x="70" y="38" textAnchor="middle" fill="white" fontSize="8">Hypothetical Answer</text><rect x="10" y="48" width="120" height="40" rx="6" fill="rgba(0,0,0,0.2)" /><text x="70" y="65" textAnchor="middle" fill="#c4b5fd" fontSize="7">"X works by using</text><text x="70" y="78" textAnchor="middle" fill="#c4b5fd" fontSize="7">mechanism Y..."</text></g>
+      <path d="M305 90 L345 90" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      <g transform="translate(350, 50)" onMouseMove={(e) => onHover("Embed the hypothetical. This vector is closer to actual good answers than original query.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="90" height="80" rx="8" fill="url(#cyanGrad)" opacity="0.9" /><text x="45" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Embed</text><text x="45" y="38" textAnchor="middle" fill="white" fontSize="7">Hypothetical</text><text x="45" y="52" textAnchor="middle" fill="white" fontSize="7">→ Vector</text><text x="45" y="70" textAnchor="middle" fill="#cffafe" fontSize="6">Better match</text></g>
+      <path d="M445 90 L485 90" stroke="#34d399" strokeWidth="2" markerEnd="url(#arrowEmerald)" />
+      <g transform="translate(490, 50)"><rect width="90" height="80" rx="8" fill="url(#emeraldGrad)" opacity="0.9" /><text x="45" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Retrieve</text><text x="45" y="38" textAnchor="middle" fill="white" fontSize="7">Real docs</text><text x="45" y="52" textAnchor="middle" fill="white" fontSize="7">that match</text><text x="45" y="70" textAnchor="middle" fill="#86efac" fontSize="6">+10-20% recall</text></g>
+      <text x="350" y="165" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Bad Hypothetical (domain mismatch), Added Latency (LLM call)</text>
+    </svg>);
+
+    const ParentChildDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 30)"><rect width="110" height="140" rx="8" fill="url(#slateGrad)" opacity="0.5" stroke="#64748b" /><text x="55" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Document</text>
+        <g transform="translate(8, 35)" onMouseMove={(e) => onHover("Parent: Large context (2000+ tokens). Stored but NOT embedded.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="94" height="95" rx="6" fill="url(#orangeGrad)" opacity="0.7" /><text x="47" y="16" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">Parent (2000 tok)</text>
+          <rect x="5" y="25" width="40" height="25" rx="3" fill="url(#cyanGrad)" opacity="0.9" /><text x="25" y="42" textAnchor="middle" fill="white" fontSize="5">Child 1</text>
+          <rect x="48" y="25" width="40" height="25" rx="3" fill="url(#cyanGrad)" opacity="0.9" /><text x="68" y="42" textAnchor="middle" fill="white" fontSize="5">Child 2</text>
+          <rect x="5" y="55" width="40" height="25" rx="3" fill="url(#cyanGrad)" opacity="0.9" /><text x="25" y="72" textAnchor="middle" fill="white" fontSize="5">Child 3</text>
+          <rect x="48" y="55" width="40" height="25" rx="3" fill="url(#cyanGrad)" opacity="0.9" /><text x="68" y="72" textAnchor="middle" fill="white" fontSize="5">Child 4</text>
+        </g>
+      </g>
+      <g transform="translate(170, 45)"><rect width="150" height="110" rx="10" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" strokeDasharray="4 2" /><text x="75" y="20" textAnchor="middle" fill="#22d3ee" fontSize="9" fontWeight="bold">Index Structure</text>
+        <g transform="translate(10, 30)" onMouseMove={(e) => onHover("Children (256 tok) are embedded and indexed. Small = precise.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="130" height="32" rx="6" fill="url(#cyanGrad)" opacity="0.9" /><text x="65" y="14" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Child Embeddings</text><text x="65" y="26" textAnchor="middle" fill="white" fontSize="6">(256 tok) → Search</text></g>
+        <g transform="translate(10, 70)"><rect width="130" height="32" rx="6" fill="url(#orangeGrad)" opacity="0.7" /><text x="65" y="14" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">Parent Links</text><text x="65" y="26" textAnchor="middle" fill="white" fontSize="6">child_id → parent_id</text></g>
+      </g>
+      <path d="M325 100 L365 100" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      <g transform="translate(370, 40)" onMouseMove={(e) => onHover("Search finds child, but returns PARENT to LLM. Precise retrieval + full context.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="120" height="120" rx="10" fill="url(#purpleGrad)" opacity="0.9" /><text x="60" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Retrieval</text>
+        <rect x="10" y="32" width="100" height="35" rx="4" fill="rgba(34,211,238,0.3)" /><text x="60" y="48" textAnchor="middle" fill="#22d3ee" fontSize="7" fontWeight="bold">1. Search children</text><text x="60" y="60" textAnchor="middle" fill="#22d3ee" fontSize="6">→ Find Child 2</text>
+        <rect x="10" y="72" width="100" height="35" rx="4" fill="rgba(251,146,60,0.3)" /><text x="60" y="88" textAnchor="middle" fill="#fb923c" fontSize="7" fontWeight="bold">2. Return parent</text><text x="60" y="100" textAnchor="middle" fill="#fb923c" fontSize="6">→ Full context</text>
+      </g>
+      <path d="M495 100 L535 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(540, 50)"><rect width="90" height="100" rx="8" fill="url(#greenGrad)" opacity="0.9" /><text x="45" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">To LLM</text><text x="45" y="42" textAnchor="middle" fill="white" fontSize="7">Parent chunk</text><text x="45" y="56" textAnchor="middle" fill="white" fontSize="7">with full</text><text x="45" y="70" textAnchor="middle" fill="white" fontSize="7">context</text><text x="45" y="88" textAnchor="middle" fill="#86efac" fontSize="6">Best of both!</text></g>
+      <text x="350" y="185" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Storage Overhead (2x), Complex Implementation</text>
+    </svg>);
+
+    const MetadataFilterDiagram = ({ onHover }) => (<svg viewBox="0 0 700 180" className="w-full h-auto"><GradientDefs />
+      <g transform="translate(30, 45)"><rect width="120" height="90" rx="8" fill="url(#blueGrad)" opacity="0.9" /><text x="60" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Query + Filters</text><rect x="10" y="32" width="100" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="60" y="47" textAnchor="middle" fill="white" fontSize="7">"machine learning"</text><rect x="10" y="58" width="100" height="25" rx="4" fill="rgba(250,204,21,0.3)" /><text x="60" y="72" textAnchor="middle" fill="#facc15" fontSize="7" fontWeight="bold">Filters:</text><text x="60" y="80" textAnchor="middle" fill="#facc15" fontSize="5">date&gt;2023, type=paper</text></g>
+      <path d="M155 90 L200 90" stroke="#34d399" strokeWidth="2" markerEnd="url(#arrowEmerald)" />
+      <g transform="translate(205, 25)" onMouseMove={(e) => onHover("Pre-filter: Apply metadata constraints BEFORE vector search. Reduces search space.", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}><rect width="180" height="130" rx="10" fill="url(#emeraldGrad)" opacity="0.9" /><text x="90" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Vector DB + Metadata</text>
+        <rect x="10" y="35" width="160" height="40" rx="6" fill="rgba(250,204,21,0.2)" stroke="#facc15" /><text x="90" y="52" textAnchor="middle" fill="#facc15" fontSize="7" fontWeight="bold">1. Metadata Pre-filter</text><text x="90" y="66" textAnchor="middle" fill="#fef3c7" fontSize="6">1000 docs → 50 candidates</text>
+        <rect x="10" y="82" width="160" height="38" rx="6" fill="rgba(34,211,238,0.2)" stroke="#22d3ee" /><text x="90" y="98" textAnchor="middle" fill="#22d3ee" fontSize="7" fontWeight="bold">2. Vector Search</text><text x="90" y="112" textAnchor="middle" fill="#cffafe" fontSize="6">On filtered subset</text>
+      </g>
+      <path d="M390 90 L430 90" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      <g transform="translate(435, 35)"><rect width="180" height="110" rx="8" fill="url(#purpleGrad)" opacity="0.9" /><text x="90" y="20" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Filtered Results</text>
+        <rect x="10" y="32" width="160" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="90" y="47" textAnchor="middle" fill="white" fontSize="6">📄 Paper from 2024 - ML survey</text>
+        <rect x="10" y="58" width="160" height="22" rx="4" fill="rgba(0,0,0,0.2)" /><text x="90" y="73" textAnchor="middle" fill="white" fontSize="6">📄 Paper from 2023 - DL advances</text>
+        <text x="90" y="95" textAnchor="middle" fill="#c4b5fd" fontSize="7">✓ All match filters + query</text>
+      </g>
+      <text x="350" y="168" textAnchor="middle" fill="#f87171" fontSize="9">⚠️ Over-filtering (no results), Missing metadata, Index not optimized</text>
+    </svg>);
+
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      const handleHover = (text, x, y) => { setTooltip(text ? { text, x, y } : { text: null, x: 0, y: 0 }); };
+
+      const patterns = [
+        { id: 30, title: 'Basic RAG (Retrieve-Read)', subtitle: 'Embed query → Vector search → Context + LLM → Answer', Diagram: BasicRAGDiagram, badges: ['Foundation', 'QA', 'Knowledge Base'] },
+        { id: 31, title: 'Chunk + Embed Pipeline', subtitle: 'Documents → Chunks → Embeddings → Vector Store', Diagram: ChunkEmbedDiagram, badges: ['Indexing', 'Preprocessing', 'Offline'] },
+        { id: 32, title: 'Dense vs Sparse vs Hybrid', subtitle: 'Semantic (vectors) vs Keyword (BM25) vs Both — Hybrid wins!', Diagram: HybridRetrievalDiagram, badges: ['Hybrid Best', 'RRF Fusion', 'Recall+Precision'] },
+        { id: 33, title: 'Reranking (Two-Stage)', subtitle: 'Fast bi-encoder → Precise cross-encoder reranker', Diagram: RerankingDiagram, badges: ['Cross-Encoder', '+15-25%', 'Cohere/BGE'] },
+        { id: 34, title: 'Query Expansion / RAG Fusion', subtitle: 'Generate query variants → Multiple retrievals → Fuse', Diagram: QueryExpansionDiagram, badges: ['Better Recall', 'RRF', 'LLM Expansion'] },
+        { id: 35, title: 'HyDE (Hypothetical Document)', subtitle: 'Generate hypothetical answer → Embed → Search', Diagram: HyDEDiagram, badges: ['Zero-Shot', '+10-20% Recall', 'LLM Cost'] },
+        { id: 36, title: 'Parent-Child Chunking', subtitle: 'Search small chunks, return parent context', Diagram: ParentChildDiagram, badges: ['Hierarchical', 'Best Context', 'LlamaIndex'] },
+        { id: 37, title: 'Metadata Filtering', subtitle: 'Pre-filter by metadata before vector search', Diagram: MetadataFilterDiagram, badges: ['Pre-filter', 'Structured', 'Hybrid Query'] },
+      ];
+
+      return (
+        <div className="min-h-screen text-white relative">
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-32 -left-32 bg-emerald-500/10 rounded-full blur-3xl pulse-bg" />
+            <div className="absolute w-[500px] h-[500px] top-1/3 -right-32 bg-cyan-500/10 rounded-full blur-3xl pulse-bg" style={{animationDelay: '1s'}} />
+          </div>
+          <Tooltip text={tooltip.text} x={tooltip.x} y={tooltip.y} />
+          <div className="relative max-w-5xl mx-auto px-6 py-12">
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-2 glass rounded-full mb-6">
+                <span className="text-emerald-300 font-semibold text-sm tracking-wide">SECTION VI: RAG CORE</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 gradient-text">RAG Core Patterns</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">Retrieval-Augmented Generation fundamentals.<span className="block mt-2 text-emerald-400 text-base">Patterns 30–37 • ✨ Hover for details</span></p>
+            </header>
+            <div className="grid grid-cols-3 gap-4 mb-12">
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-emerald-400">8</div><div className="text-slate-400 text-sm">RAG Core Patterns</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-cyan-400">📚</div><div className="text-slate-400 text-sm">Grounded Answers</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-purple-400">🔍</div><div className="text-slate-400 text-sm">Vector Search</div></div>
+            </div>
+            <div className="space-y-12">
+              {patterns.map((p) => (
+                <section key={p.id} className="glass rounded-2xl p-8 hover:border-emerald-500/30 transition-colors">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center text-lg font-bold text-emerald-400">{p.id}</div>
+                    <div><h2 className="text-xl font-bold text-emerald-300">{p.title}</h2><p className="text-slate-400 text-sm">{p.subtitle}</p></div>
+                  </div>
+                  <p.Diagram onHover={handleHover} />
+                  <div className="mt-4 flex gap-3 flex-wrap">{p.badges.map(b => <span key={b} className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-sm">{b}</span>)}</div>
+                </section>
+              ))}
+            </div>
+            <footer className="mt-16 text-center pt-8 border-t border-white/10"><p className="text-slate-500">Part of <span className="text-slate-400">The LLM Symphony</span> — Section VI: RAG Core</p><p className="text-slate-600 text-sm mt-2">Patterns 30-37 of 55</p></footer>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
