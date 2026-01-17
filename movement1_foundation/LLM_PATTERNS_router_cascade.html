@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>LLM Patterns - Router, Cascade, Fallback</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'router': 'Route queries to appropriate model. Simple queries -> small model. Complex -> large model. Classifier or LLM decides. Optimize cost/quality.',
+        'cascade': 'Try cheap model first, escalate if needed. Small -> Medium -> Large. Check confidence, escalate if low. Progressive quality.',
+        'fallback': 'Primary fails? Try backup. GPT-4 down? Use Claude. Rate limited? Use local model. Reliability pattern.',
+        'ensemble': 'Multiple models answer, combine results. Voting, averaging, or meta-model selection. Better than single model. More expensive.',
+        'classify': 'Classifier routes requests. Train on query types. Fast, cheap routing. "Is this code, math, or writing?"',
+        'semantic': 'Embed query, match to model specialties. Similar queries -> same model. Learned routing based on content.',
+        'cost': 'Optimize $/query. Route 80% to cheap model, 20% to expensive. Same quality, fraction of cost. Business critical.',
+        'latency': 'Fast path vs slow path. Simple queries -> fast small model. Complex -> slower large model. Meet SLA targets.',
+        'spec': 'Specialized models. Code -> CodeLLaMA. Math -> Llemma. Medical -> Med-PaLM. Domain expertise.',
+        'local': 'Local model for privacy/speed. Ollama, llama.cpp. Fallback to cloud for hard queries. Hybrid deployment.',
+        'cache': 'Cache responses. Same query -> cached answer. Semantic similarity for fuzzy match. Huge cost savings.',
+        'retry': 'Transient failure? Retry with backoff. Rate limit? Wait and retry. Simple reliability.',
+        'hedge': 'Send to multiple providers simultaneously. Return first good response. Latency optimization. Expensive but fast.',
+        'ab': 'A/B test models. Route % to each, measure quality. Data-driven model selection. Continuous optimization.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-cyan-900/50 border border-cyan-500 rounded-full mb-4">
+                <span className="text-cyan-300 font-bold text-sm">LLM ARCHITECTURE</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                LLM Patterns
+              </h1>
+              <p className="text-slate-400">Routing, cascading, and reliability patterns. Hover for details.</p>
+            </div>
+
+            {/* Routing */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-cyan-300">1. Routing Patterns</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="router" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Model Router" sub="Right model for query"/>
+                <Card id="classify" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Classifier" sub="Query type detection"/>
+                <Card id="semantic" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Semantic" sub="Embedding-based routing"/>
+              </div>
+            </div>
+
+            {/* Cascade */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">2. Cascade & Escalation</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="cascade" bg="bg-green-900/50 border-green-500 text-green-200" title="Cascade" sub="Small -> Medium -> Large"/>
+                <Card id="spec" bg="bg-green-900/50 border-green-500 text-green-200" title="Specialized" sub="Domain-specific models"/>
+                <Card id="local" bg="bg-green-900/50 border-green-500 text-green-200" title="Local + Cloud" sub="Hybrid deployment"/>
+              </div>
+            </div>
+
+            {/* Reliability */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">3. Reliability</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="fallback" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Fallback" sub="Backup providers"/>
+                <Card id="retry" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Retry" sub="Transient failures"/>
+                <Card id="hedge" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Hedging" sub="Parallel requests"/>
+                <Card id="ensemble" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Ensemble" sub="Combine outputs"/>
+              </div>
+            </div>
+
+            {/* Optimization */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-purple-300">4. Cost & Performance</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="cost" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Cost Opt" sub="Route by $/query"/>
+                <Card id="latency" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Latency" sub="Fast vs slow path"/>
+                <Card id="cache" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Caching" sub="Reuse responses"/>
+                <Card id="ab" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="A/B Test" sub="Model comparison"/>
+              </div>
+            </div>
+
+            {/* Flow */}
+            <div className="mb-8 p-4 bg-slate-900/50 border border-slate-700 rounded-xl text-center text-sm">
+              <span className="text-cyan-300">Query</span>
+              <span className="text-slate-500 mx-2">-></span>
+              <span className="text-green-300">Router</span>
+              <span className="text-slate-500 mx-2">-></span>
+              <span className="text-yellow-300">Small Model?</span>
+              <span className="text-slate-500 mx-2">-></span>
+              <span className="text-orange-300">Fallback?</span>
+              <span className="text-slate-500 mx-2">-></span>
+              <span className="text-purple-300">Large Model</span>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-cyan-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">LLM Patterns Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                Route to right model, cascade on complexity, fallback for reliability. Cache everything.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-cyan-900/50 rounded text-cyan-300 text-sm">Router</span>
+                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Cascade</span>
+                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">Fallback</span>
+                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Cache</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

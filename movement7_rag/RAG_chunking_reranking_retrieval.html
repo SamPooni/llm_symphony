@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Deep Dive - Chunking, Reranking & Retrieval</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function RAGDeepDive() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // CHUNKING OVERVIEW
+        'chunk-why': {
+          title: '❓ WHY CHUNKING MATTERS',
+          content: 'Documents must be split into retrievable units.',
+          problem: 'Full documents:\n• Too long for context window\n• Dilute relevance signal\n• Waste tokens on irrelevant parts',
+          goal: 'Good chunks:\n• Self-contained meaning\n• Optimal size for retrieval\n• Preserve context boundaries'
+        },
+        'chunk-tradeoff': {
+          title: '⚖️ CHUNK SIZE TRADEOFF',
+          content: 'Smaller vs larger chunks.',
+          small: 'Small chunks (100-200 tokens):\n✅ More precise retrieval\n✅ Less noise\n❌ May lose context\n❌ More chunks to search',
+          large: 'Large chunks (500-1000 tokens):\n✅ More context preserved\n✅ Fewer chunks\n❌ Diluted relevance\n❌ May include irrelevant info',
+          sweet: 'Sweet spot: 256-512 tokens for most use cases'
+        },
+
+        // CHUNKING STRATEGIES
+        'chunk-fixed': {
+          title: '📏 FIXED-SIZE CHUNKING',
+          content: 'Split by character/token count.',
+          method: 'Split every N characters/tokens\nAdd overlap between chunks\nSimplest approach',
+          code: 'chunks = []\nfor i in range(0, len(text), chunk_size - overlap):\n    chunks.append(text[i:i+chunk_size])',
+          pros: 'Simple, predictable size\nEasy to implement',
+          cons: 'Cuts mid-sentence\nIgnores document structure'
+        },
+        'chunk-recursive': {
+          title: '🔄 RECURSIVE SPLITTING',
+          content: 'Try multiple separators in order.',
+          method: 'Separators: ["\\n\\n", "\\n", ". ", " "]\n1. Try first separator\n2. If chunks too big, try next\n3. Recursively split until size OK',
+          benefit: 'Respects natural boundaries\nFalls back gracefully\nLangChain default',
+          code: 'RecursiveCharacterTextSplitter(\n  chunk_size=500,\n  chunk_overlap=50,\n  separators=["\\n\\n", "\\n", ". ", " "]\n)'
+        },
+        'chunk-semantic': {
+          title: '🧠 SEMANTIC CHUNKING',
+          content: 'Split based on meaning changes.',
+          method: '1. Split into sentences\n2. Embed each sentence\n3. Find breakpoints where similarity drops\n4. Group similar sentences together',
+          benefit: 'Chunks are semantically coherent\nNo mid-thought breaks\nBetter retrieval quality',
+          cost: 'Requires embedding each sentence\nMore compute upfront\nSlower indexing'
+        },
+        'chunk-document': {
+          title: '📄 DOCUMENT-AWARE',
+          content: 'Use document structure.',
+          types: 'Markdown: Split by headers\nHTML: Split by tags\nPDF: Split by sections/pages\nCode: Split by functions/classes',
+          benefit: 'Preserves logical units\nHeaders provide context\nRespects author intent',
+          tools: 'MarkdownHeaderTextSplitter\nHTMLHeaderTextSplitter\nUnstructured library'
+        },
+        'chunk-agentic': {
+          title: '🤖 AGENTIC CHUNKING',
+          content: 'Use LLM to decide chunk boundaries.',
+          method: '1. Send document to LLM\n2. Ask: "Where are the natural breakpoints?"\n3. Split at LLM-identified boundaries',
+          benefit: 'Highest quality boundaries\nUnderstands content semantics',
+          cost: 'Very expensive (LLM calls per doc)\nSlow indexing\nUse for high-value docs only'
+        },
+
+        // OVERLAP & CONTEXT
+        'overlap-why': {
+          title: '🔗 CHUNK OVERLAP',
+          content: 'Repeat text between adjacent chunks.',
+          why: 'Without overlap:\n• Context lost at boundaries\n• Queries about boundary content fail\n\nWith overlap:\n• Smooth transitions\n• Better boundary retrieval',
+          typical: '10-20% overlap\n50-100 tokens typical\nMore overlap = more redundancy'
+        },
+        'context-parent': {
+          title: '👨‍👧 PARENT-CHILD CHUNKING',
+          content: 'Small chunks for retrieval, large for context.',
+          method: '1. Create small chunks (child)\n2. Store parent reference\n3. Retrieve on small chunks\n4. Return parent (larger context)',
+          benefit: 'Precise retrieval + rich context\nBest of both worlds',
+          implementation: 'ParentDocumentRetriever in LangChain\nStore both chunk levels'
+        },
+        'context-window': {
+          title: '🪟 CONTEXTUAL WINDOW',
+          content: 'Add surrounding context to chunks.',
+          method: 'Store: chunk + N sentences before/after\nRetrieve on chunk embedding\nReturn chunk + context',
+          benefit: 'Chunks have context\nBetter LLM understanding',
+          variant: 'Sentence window retrieval\nLlamaIndex SentenceWindowNodeParser'
+        },
+
+        // RERANKING
+        'rerank-why': {
+          title: '❓ WHY RERANKING',
+          content: 'Initial retrieval is fast but imprecise.',
+          problem: 'Embedding similarity:\n• Fast but approximate\n• Single vector per chunk\n• Misses nuanced relevance',
+          solution: 'Reranking:\n• More accurate scoring\n• Cross-attention query-document\n• Computationally heavier'
+        },
+        'rerank-twostage': {
+          title: '🔄 TWO-STAGE RETRIEVAL',
+          content: 'Retrieve many, rerank to few.',
+          pipeline: 'Stage 1: Vector search\n• Retrieve top-100 candidates\n• Fast, approximate\n\nStage 2: Reranking\n• Score top-100 with reranker\n• Return top-10\n• Slow, accurate',
+          why: 'Can\'t rerank entire corpus (too slow)\nVector search narrows candidates\nReranker refines selection'
+        },
+        'rerank-cross': {
+          title: '🔀 CROSS-ENCODERS',
+          content: 'Joint encoding of query + document.',
+          method: 'Input: [CLS] query [SEP] document [SEP]\nModel sees both together\nCross-attention between them\nOutput: Relevance score',
+          benefit: 'Much more accurate than bi-encoder\nCaptures query-document interaction',
+          cost: 'Must run for each (query, doc) pair\nO(N) inference, not O(1) lookup\nToo slow for initial retrieval'
+        },
+        'rerank-models': {
+          title: '🏆 RERANKER MODELS',
+          content: 'Popular reranking models.',
+          models: 'Cohere Rerank:\n• API-based, easy to use\n• rerank-english-v2.0\n\nBGE Reranker:\n• Open source (BAAI)\n• bge-reranker-base/large\n\nms-marco-MiniLM:\n• Cross-encoder on MS MARCO\n• Fast, decent quality\n\nColBERT:\n• Late interaction (hybrid)\n• Token-level matching',
+          choice: 'Cohere: Best quality, costs $\nBGE: Best open source\nMiniLM: Fast, lower quality'
+        },
+        'rerank-colbert': {
+          title: '🔷 COLBERT',
+          content: 'Late interaction retrieval.',
+          method: 'Encode query → query token embeddings\nEncode doc → doc token embeddings\nMaxSim: max similarity per query token\nSum MaxSim scores',
+          benefit: 'Better than bi-encoder\nFaster than cross-encoder\nToken-level matching',
+          usage: 'ColBERTv2, RAGatouille\nCan be used for retrieval or reranking'
+        },
+
+        // HYBRID SEARCH
+        'hybrid-why': {
+          title: '🔀 WHY HYBRID SEARCH',
+          content: 'Combine keyword and semantic search.',
+          keyword: 'BM25 (keyword):\n✅ Exact matches\n✅ Rare terms\n✅ No embedding needed\n❌ Misses synonyms',
+          semantic: 'Vector search:\n✅ Semantic similarity\n✅ Handles synonyms\n❌ May miss exact terms\n❌ Needs embeddings',
+          combine: 'Hybrid = BM25 + Vector\nBest of both approaches'
+        },
+        'hybrid-fusion': {
+          title: '🔗 FUSION METHODS',
+          content: 'How to combine BM25 and vector results.',
+          methods: 'Linear combination:\nscore = α × bm25 + (1-α) × vector\n\nRRF (Reciprocal Rank Fusion):\nscore = Σ 1/(k + rank_i)\n\nLearned fusion:\nTrain model to combine scores',
+          rrf: 'RRF is robust default\nk=60 typical\nNo score normalization needed'
+        },
+        'hybrid-implementation': {
+          title: '⚙️ HYBRID IMPLEMENTATION',
+          content: 'How to implement hybrid search.',
+          options: 'Built-in:\n• Weaviate: hybrid search native\n• Pinecone: sparse-dense vectors\n• Qdrant: hybrid with BM25\n\nManual:\n• Run BM25 separately\n• Run vector search\n• Merge results with RRF',
+          code: 'weaviate.query.hybrid(\n  query="...",\n  alpha=0.5  # 0=bm25, 1=vector\n)'
+        },
+
+        // EVALUATION
+        'eval-metrics': {
+          title: '📊 RETRIEVAL METRICS',
+          content: 'How to measure retrieval quality.',
+          metrics: 'Recall@k:\n• % of relevant docs in top-k\n• Recall@10 > 0.9 is good\n\nMRR (Mean Reciprocal Rank):\n• 1/rank of first relevant\n• Higher = relevant docs ranked higher\n\nNDCG:\n• Considers graded relevance\n• Penalizes relevant docs ranked low',
+          important: 'Recall@k most important for RAG\nIf relevant doc not retrieved, LLM can\'t use it'
+        },
+        'eval-ragas': {
+          title: '📏 RAGAS',
+          content: 'RAG Assessment framework.',
+          metrics: 'Context Relevance:\n• Is retrieved context relevant?\n\nFaithfulness:\n• Is answer grounded in context?\n\nAnswer Relevance:\n• Does answer address question?',
+          usage: 'from ragas import evaluate\nresult = evaluate(dataset, metrics=[...])'
+        },
+        'eval-endtoend': {
+          title: '🎯 END-TO-END EVAL',
+          content: 'Evaluate full RAG pipeline.',
+          approach: '1. Create test questions + ground truth\n2. Run RAG pipeline\n3. Score answers (LLM judge or human)\n4. Track retrieval + generation separately',
+          tip: 'Separate retrieval vs generation errors\nPoor retrieval → fix chunking/embedding\nPoor generation → fix prompt/model'
+        },
+
+        // ADVANCED
+        'adv-hyde': {
+          title: '🔮 HyDE',
+          content: 'Hypothetical Document Embeddings.',
+          method: '1. Generate hypothetical answer with LLM\n2. Embed the hypothetical answer\n3. Search with that embedding',
+          why: 'Query: "What is X?"\nHyDE: "X is... [generated explanation]"\nSearch for docs similar to explanation',
+          benefit: 'Better than short query embedding\nLLM "imagines" relevant content'
+        },
+        'adv-multiquery': {
+          title: '🔀 MULTI-QUERY',
+          content: 'Generate multiple query variations.',
+          method: '1. LLM generates N query variations\n2. Retrieve for each variation\n3. Merge and deduplicate results',
+          benefit: 'Covers different phrasings\nMore robust retrieval\nHandles ambiguous queries',
+          example: 'Original: "python web frameworks"\nVariations:\n• "best python frameworks for web"\n• "django vs flask comparison"\n• "python backend frameworks"'
+        },
+        'adv-routing': {
+          title: '🚦 QUERY ROUTING',
+          content: 'Route queries to appropriate retriever.',
+          method: 'Classify query type\nRoute to specialized index\n• Code questions → code index\n• Recent events → web search\n• Company data → internal docs',
+          benefit: 'Right tool for each query\nBetter relevance\nCan combine retrieval sources'
+        },
+        'adv-corrective': {
+          title: '🔧 CORRECTIVE RAG',
+          content: 'Check and fix retrieval quality.',
+          method: '1. Retrieve documents\n2. Grade relevance (LLM or classifier)\n3. If low relevance:\n   • Try different query\n   • Expand to web search\n   • Ask for clarification',
+          benefit: 'Self-correcting pipeline\nHandles retrieval failures\nMore robust'
+        },
+
+        // PRACTICAL
+        'practical-size': {
+          title: '📏 CHUNK SIZE GUIDE',
+          content: 'Recommended chunk sizes by use case.',
+          guide: 'Q&A over docs: 256-512 tokens\nSummarization: 1000-2000 tokens\nCode: Function/class level\nChat: 512 tokens + parent retrieval',
+          overlap: 'Overlap: 10-20% of chunk size\n50-100 tokens typical'
+        },
+        'practical-embed': {
+          title: '🎯 EMBEDDING CHOICE',
+          content: 'Which embedding model to use.',
+          recommend: 'OpenAI text-embedding-3-small:\n• Best quality/cost ratio\n• 1536 dims, $0.02/1M tokens\n\nCohere embed-v3:\n• Great for search\n• Input type hints\n\nBGE-large (open source):\n• Best open model\n• 1024 dims, free',
+          tip: 'Match embedding model for index and query\nCan\'t mix different models'
+        },
+        'practical-pipeline': {
+          title: '🔧 RECOMMENDED PIPELINE',
+          content: 'Production RAG setup.',
+          pipeline: '1. Chunking: Recursive, 512 tokens, 50 overlap\n2. Embedding: text-embedding-3-small\n3. Vector DB: Pinecone or Qdrant\n4. Retrieval: Hybrid (BM25 + vector)\n5. Reranking: Cohere or BGE reranker\n6. Top-k: Retrieve 20, rerank to 5',
+          tip: 'Start simple, add complexity as needed\nMeasure at each stage'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.method && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">METHOD</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.method}</pre>
+              </div>
+            )}
+            {t.pipeline && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PIPELINE</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.pipeline}</pre>
+              </div>
+            )}
+            {t.models && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MODELS</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.models}</pre>
+              </div>
+            )}
+            {t.metrics && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">METRICS</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.metrics}</pre>
+              </div>
+            )}
+            {t.guide && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">GUIDE</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.guide}</pre>
+              </div>
+            )}
+            {t.code && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">CODE</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.code}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.cost && (
+              <div className="text-xs text-orange-400 mt-2">
+                <span className="font-bold">💰 </span>{t.cost}
+              </div>
+            )}
+            {t.tip && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">💡 </span>{t.tip}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-emerald-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-teal-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-green-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600/30 border border-emerald-400 rounded-full mb-6">
+                <span className="text-emerald-300 font-bold">RAG DEEP DIVE</span>
+                <span className="text-white">•</span>
+                <span className="text-emerald-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-400 to-green-400">
+                Chunking, Reranking & Retrieval
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-emerald-300 font-bold">The practitioner's guide</span> — Make your RAG pipeline actually work.
+              </p>
+            </header>
+
+            {/* Pipeline Overview */}
+            <div className="bg-gradient-to-r from-emerald-900/50 to-teal-900/50 border-2 border-emerald-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-black text-white">🔄 RAG RETRIEVAL PIPELINE</div>
+              </div>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <div className="px-4 py-3 rounded-lg bg-blue-900/50 border border-blue-500 text-center">
+                  <div className="text-blue-300 text-sm font-bold">📄 Docs</div>
+                </div>
+                <div className="text-emerald-400">→</div>
+                <div className="px-4 py-3 rounded-lg bg-purple-900/50 border border-purple-500 text-center">
+                  <div className="text-purple-300 text-sm font-bold">✂️ Chunk</div>
+                </div>
+                <div className="text-emerald-400">→</div>
+                <div className="px-4 py-3 rounded-lg bg-cyan-900/50 border border-cyan-500 text-center">
+                  <div className="text-cyan-300 text-sm font-bold">🔢 Embed</div>
+                </div>
+                <div className="text-emerald-400">→</div>
+                <div className="px-4 py-3 rounded-lg bg-green-900/50 border border-green-500 text-center">
+                  <div className="text-green-300 text-sm font-bold">🗄️ Index</div>
+                </div>
+                <div className="text-emerald-400">→</div>
+                <div className="px-4 py-3 rounded-lg bg-yellow-900/50 border border-yellow-500 text-center">
+                  <div className="text-yellow-300 text-sm font-bold">🔍 Retrieve</div>
+                </div>
+                <div className="text-emerald-400">→</div>
+                <div className="px-4 py-3 rounded-lg bg-orange-900/50 border border-orange-500 text-center">
+                  <div className="text-orange-300 text-sm font-bold">🏆 Rerank</div>
+                </div>
+                <div className="text-emerald-400">→</div>
+                <div className="px-4 py-3 rounded-lg bg-red-900/50 border border-red-500 text-center">
+                  <div className="text-red-300 text-sm font-bold">🤖 LLM</div>
+                </div>
+              </div>
+            </div>
+
+            {/* CHUNKING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Chunking" 
+                subtitle="How to split documents"
+                color="from-purple-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Hoverable id="chunk-why">
+                  <div className="p-5 rounded-xl bg-purple-900/40 border-2 border-purple-500">
+                    <div className="text-xl font-black text-purple-200 mb-2">❓ Why Chunking</div>
+                    <div className="text-purple-100/70 text-sm">
+                      Docs too long for context<br/>
+                      Need retrievable units<br/>
+                      Self-contained meaning
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="chunk-tradeoff">
+                  <div className="p-5 rounded-xl bg-violet-900/40 border-2 border-violet-500">
+                    <div className="text-xl font-black text-violet-200 mb-2">⚖️ Size Tradeoff</div>
+                    <div className="text-violet-100/70 text-sm">
+                      Small = precise, less context<br/>
+                      Large = more context, noisy<br/>
+                      Sweet spot: 256-512 tokens
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="chunk-fixed">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">📏 Fixed-Size</div>
+                    <div className="text-purple-100/60 text-xs">Simple, fast</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="chunk-recursive">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🔄 Recursive</div>
+                    <div className="text-violet-100/60 text-xs">LangChain default</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="chunk-semantic">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🧠 Semantic</div>
+                    <div className="text-fuchsia-100/60 text-xs">Meaning-based</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="chunk-document">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">📄 Doc-Aware</div>
+                    <div className="text-pink-100/60 text-xs">Headers, structure</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="chunk-agentic">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">🤖 Agentic</div>
+                    <div className="text-rose-100/60 text-xs">LLM decides</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* OVERLAP & CONTEXT */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Context Preservation" 
+                subtitle="Keep meaning intact"
+                color="from-blue-500 to-cyan-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="overlap-why">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">🔗 Overlap</div>
+                    <div className="text-blue-100/70 text-sm">10-20% between chunks</div>
+                    <div className="text-blue-300 text-xs mt-2">Smooth transitions</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="context-parent">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">👨‍👧 Parent-Child</div>
+                    <div className="text-cyan-100/70 text-sm">Small retrieve, large return</div>
+                    <div className="text-cyan-300 text-xs mt-2">Best of both</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="context-window">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">🪟 Context Window</div>
+                    <div className="text-teal-100/70 text-sm">Add surrounding sentences</div>
+                    <div className="text-teal-300 text-xs mt-2">Richer context</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* RERANKING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Reranking" 
+                subtitle="Improve retrieval precision"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Hoverable id="rerank-why">
+                  <div className="p-5 rounded-xl bg-orange-900/40 border-2 border-orange-500">
+                    <div className="text-xl font-black text-orange-200 mb-2">❓ Why Rerank</div>
+                    <div className="text-orange-100/70 text-sm">
+                      Vector search is approximate<br/>
+                      Rerankers are more accurate<br/>
+                      Two-stage: fast then precise
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="rerank-twostage">
+                  <div className="p-5 rounded-xl bg-amber-900/40 border-2 border-amber-500">
+                    <div className="text-xl font-black text-amber-200 mb-2">🔄 Two-Stage</div>
+                    <div className="text-amber-100/70 text-sm">
+                      Stage 1: Vector → top-100<br/>
+                      Stage 2: Rerank → top-10<br/>
+                      Fast then accurate
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="rerank-cross">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🔀 Cross-Encoder</div>
+                    <div className="text-orange-100/70 text-sm">Joint query-doc encoding</div>
+                    <div className="text-orange-300 text-xs mt-2">Most accurate</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="rerank-models">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">🏆 Models</div>
+                    <div className="text-amber-100/70 text-sm">Cohere, BGE, MiniLM</div>
+                    <div className="text-amber-300 text-xs mt-2">Pick your tradeoff</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="rerank-colbert">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">🔷 ColBERT</div>
+                    <div className="text-yellow-100/70 text-sm">Late interaction</div>
+                    <div className="text-yellow-300 text-xs mt-2">Token-level matching</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* HYBRID SEARCH */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Hybrid Search" 
+                subtitle="Keyword + semantic"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="hybrid-why">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🔀 Why Hybrid</div>
+                    <div className="text-green-100/70 text-sm">BM25 + Vector = best of both</div>
+                    <div className="text-green-300 text-xs mt-2">Exact + semantic</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="hybrid-fusion">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🔗 Fusion</div>
+                    <div className="text-emerald-100/70 text-sm">RRF, linear, learned</div>
+                    <div className="text-emerald-300 text-xs mt-2">RRF is robust default</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="hybrid-implementation">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">⚙️ Implementation</div>
+                    <div className="text-teal-100/70 text-sm">Weaviate, Pinecone, Qdrant</div>
+                    <div className="text-teal-300 text-xs mt-2">Built-in or manual</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* EVALUATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Evaluation" 
+                subtitle="Measure what matters"
+                color="from-red-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="eval-metrics">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">📊 Metrics</div>
+                    <div className="text-red-100/70 text-sm">Recall@k, MRR, NDCG</div>
+                    <div className="text-red-300 text-xs mt-2">Recall most important</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-ragas">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">📏 RAGAS</div>
+                    <div className="text-rose-100/70 text-sm">Context, faithfulness, relevance</div>
+                    <div className="text-rose-300 text-xs mt-2">RAG-specific metrics</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-endtoend">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">🎯 End-to-End</div>
+                    <div className="text-pink-100/70 text-sm">Test questions + ground truth</div>
+                    <div className="text-pink-300 text-xs mt-2">LLM judge or human</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* ADVANCED */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Advanced Techniques" 
+                subtitle="Level up your RAG"
+                color="from-indigo-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="adv-hyde">
+                  <div className="p-3 rounded-lg bg-indigo-900/50 border border-indigo-400 text-center">
+                    <div className="text-indigo-200 font-bold text-sm">🔮 HyDE</div>
+                    <div className="text-indigo-100/60 text-xs">Hypothetical docs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-multiquery">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🔀 Multi-Query</div>
+                    <div className="text-violet-100/60 text-xs">Query variations</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-routing">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">🚦 Routing</div>
+                    <div className="text-purple-100/60 text-xs">Right retriever</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-corrective">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🔧 CRAG</div>
+                    <div className="text-fuchsia-100/60 text-xs">Self-correcting</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Practical Guide" 
+                subtitle="What to actually use"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="practical-size">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-lg font-black text-slate-200 mb-2">📏 Chunk Sizes</div>
+                    <div className="text-slate-400 text-sm">Q&A: 256-512 tokens</div>
+                    <div className="text-slate-500 text-xs mt-2">10-20% overlap</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-embed">
+                  <div className="p-4 rounded-xl bg-zinc-800 border-2 border-zinc-500">
+                    <div className="text-lg font-black text-zinc-200 mb-2">🎯 Embeddings</div>
+                    <div className="text-zinc-400 text-sm">OpenAI or BGE-large</div>
+                    <div className="text-zinc-500 text-xs mt-2">Match index & query</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-pipeline">
+                  <div className="p-4 rounded-xl bg-stone-800 border-2 border-stone-500">
+                    <div className="text-lg font-black text-stone-200 mb-2">🔧 Pipeline</div>
+                    <div className="text-stone-400 text-sm">Recursive + Hybrid + Rerank</div>
+                    <div className="text-stone-500 text-xs mt-2">Retrieve 20 → rerank 5</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-emerald-900/50 to-teal-900/50 border-2 border-emerald-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                📚 RAG DEEP DIVE SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Chunk smart (recursive, 512 tokens). Hybrid search (BM25 + vector).<br/>
+                Always rerank. Measure with Recall@k and RAGAS.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">Recursive</div>
+                  <div className="text-slate-400">Chunking</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">Parent-Child</div>
+                  <div className="text-slate-400">Context</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">Hybrid</div>
+                  <div className="text-slate-400">BM25+Vector</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">Rerank</div>
+                  <div className="text-slate-400">Cohere/BGE</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-red-300 font-bold">Recall@k</div>
+                  <div className="text-slate-400">Measure</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>RAG Deep Dive • Chunking • Reranking • Hybrid Search</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<RAGDeepDive />);
+  </script>
+</body>
+</html>

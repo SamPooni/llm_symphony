@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Model Merging - SLERP, TIES, DARE</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'what': 'Combine multiple fine-tuned models into one. No additional training. Merge weights mathematically. Get capabilities of all source models.',
+        'why': 'Model A: good at code. Model B: good at math. Merge: good at both. Free capability combination. Open source superpower.',
+        'linear': 'Linear merge. Weighted average of weights. model_C = 0.5*A + 0.5*B. Simplest method. Often works surprisingly well.',
+        'slerp': 'SLERP: Spherical Linear Interpolation. Interpolate on hypersphere, not linear. Better preserves model geometry. Popular choice.',
+        'ties': 'TIES: TrIm, Elect, Sum. Trim small deltas, elect sign by majority, sum. Handles multiple models well. State-of-art.',
+        'dare': 'DARE: Drop And REscale. Randomly drop delta weights, rescale rest. Reduces interference. Works with TIES.',
+        'task': 'Task vectors. Compute delta from base: task_vector = fine_tuned - base. Add task vectors to base. Modular capabilities.',
+        'franken': 'Frankenmerge. Mix layers from different models. Layers 0-16 from A, 17-32 from B. Architectural surgery. Experimental.',
+        'passthrough': 'Passthrough merge. Stack models by passing layers through. Increases depth. Creates larger models.',
+        'mergekit': 'MergeKit library. Python tool for all merge methods. YAML configs. Community standard. Easy experimentation.',
+        'hf': 'Hugging Face model-merging leaderboard. Track merged model performance. Community benchmarks. Discover good merges.',
+        'recipe': 'Merge recipes. Community-shared configurations. Proven combinations. Starting point for experiments.',
+        'eval': 'Evaluate after merge. Run benchmarks. Compare to source models. Not all merges improve. Test thoroughly.',
+        'base': 'Same base model required. Cant merge LLaMA with Mistral (usually). Fine-tunes of same base work best.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-amber-900/50 border border-amber-500 rounded-full mb-4">
+                <span className="text-amber-300 font-bold text-sm">MODEL COMBINATION</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500">
+                Model Merging
+              </h1>
+              <p className="text-slate-400">Combine models without training. Hover for details.</p>
+            </div>
+
+            {/* Overview */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-amber-300">1. Overview</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="what" bg="bg-amber-900/50 border-amber-500 text-amber-200" title="What is Merging?" sub="Combine model weights"/>
+                <Card id="why" bg="bg-amber-900/50 border-amber-500 text-amber-200" title="Why?" sub="Free capability combo"/>
+              </div>
+            </div>
+
+            {/* Methods */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Merge Methods</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="linear" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Linear" sub="Weighted average"/>
+                <Card id="slerp" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="SLERP" sub="Spherical interp"/>
+                <Card id="ties" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="TIES" sub="Trim, elect, sum"/>
+                <Card id="dare" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="DARE" sub="Drop and rescale"/>
+              </div>
+            </div>
+
+            {/* Advanced */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-purple-300">3. Advanced</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="task" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Task Vectors" sub="Modular capabilities"/>
+                <Card id="franken" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Frankenmerge" sub="Layer mixing"/>
+                <Card id="passthrough" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Passthrough" sub="Stack depth"/>
+              </div>
+            </div>
+
+            {/* Tools */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">4. Tools & Resources</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="mergekit" bg="bg-green-900/50 border-green-500 text-green-200" title="MergeKit" sub="Python library"/>
+                <Card id="hf" bg="bg-green-900/50 border-green-500 text-green-200" title="HF Leaderboard" sub="Track merges"/>
+                <Card id="recipe" bg="bg-green-900/50 border-green-500 text-green-200" title="Recipes" sub="Community configs"/>
+              </div>
+            </div>
+
+            {/* Best Practices */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-red-300">5. Best Practices</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="base" bg="bg-red-900/50 border-red-500 text-red-200" title="Same Base" sub="Required for merging"/>
+                <Card id="eval" bg="bg-red-900/50 border-red-500 text-red-200" title="Evaluate" sub="Test after merge"/>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-amber-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">Model Merging Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                SLERP or TIES+DARE for best results. MergeKit for tooling. Same base model required.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">SLERP</span>
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">TIES</span>
+                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">MergeKit</span>
+                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Task Vectors</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

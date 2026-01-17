@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Prompt Caching - Cost Optimization</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'what': 'Cache the KV activations for repeated prompt prefixes. Reuse computation across requests. Massive cost savings for shared prefixes.',
+        'why': 'System prompts repeated every request. Long documents processed multiple times. Prefix computation dominates cost. Cache and reuse.',
+        'anthropic': 'Anthropic prompt caching. Mark prefix with cache_control. 90% discount on cached tokens. 5 minute TTL. Explicit cache control.',
+        'openai': 'OpenAI automatic caching. No explicit marking. System caches common prefixes automatically. ~50% discount. Implicit optimization.',
+        'prefix': 'Prefix caching pattern. System prompt + few-shot examples cached. User query appended. Only new tokens computed fresh.',
+        'ttl': 'Time-to-live. Cache expires after period. Anthropic: 5 min default, extendable. Balance freshness vs hit rate.',
+        'hit': 'Cache hit: Use cached KV, pay discounted rate. Cache miss: Compute fresh, full price. Track hit rate to optimize.',
+        'savings': 'Long system prompt (4K tokens) + short query (100 tokens). Without cache: 4.1K tokens. With cache: 100 tokens full + 4K discounted. 90% savings.',
+        'design': 'Design prompts for caching. Static prefix first, dynamic content last. Maximize shared prefix length.',
+        'multi': 'Multi-turn caching. Cache conversation history. Each turn adds to cached prefix. Compound savings.',
+        'semantic': 'Semantic caching. Similar queries return cached response. Embedding similarity threshold. Not just prefix match.',
+        'gptcache': 'GPTCache library. Semantic caching layer. Redis/SQLite backend. Open source. Works with any LLM.',
+        'cost': 'Cost analysis. Track cached vs uncached tokens. Calculate effective rate. Optimize prefix length for ROI.',
+        'warm': 'Cache warming. Pre-populate cache with common prefixes. Ensure hits from first request. Startup optimization.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-green-900/50 border border-green-500 rounded-full mb-4">
+                <span className="text-green-300 font-bold text-sm">COST OPTIMIZATION</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-500">
+                Prompt Caching
+              </h1>
+              <p className="text-slate-400">Reuse computation, cut costs 90%. Hover for details.</p>
+            </div>
+
+            {/* Basics */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">1. Basics</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="what" bg="bg-green-900/50 border-green-500 text-green-200" title="What is Caching?" sub="Reuse KV computation"/>
+                <Card id="why" bg="bg-green-900/50 border-green-500 text-green-200" title="Why?" sub="System prompts repeat"/>
+              </div>
+            </div>
+
+            {/* Provider Support */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Providers</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="anthropic" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Anthropic" sub="Explicit, 90% discount"/>
+                <Card id="openai" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="OpenAI" sub="Automatic, ~50% discount"/>
+              </div>
+            </div>
+
+            {/* How It Works */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-purple-300">3. How It Works</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="prefix" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Prefix" sub="Shared content first"/>
+                <Card id="ttl" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="TTL" sub="Cache expiration"/>
+                <Card id="hit" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Hit/Miss" sub="Track hit rate"/>
+                <Card id="savings" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Savings" sub="Up to 90%"/>
+              </div>
+            </div>
+
+            {/* Patterns */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Patterns</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="design" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Design" sub="Static prefix first"/>
+                <Card id="multi" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Multi-Turn" sub="Cache conversation"/>
+                <Card id="warm" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Warming" sub="Pre-populate cache"/>
+              </div>
+            </div>
+
+            {/* Semantic Caching */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-cyan-300">5. Semantic Caching</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="semantic" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Semantic" sub="Similar query match"/>
+                <Card id="gptcache" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="GPTCache" sub="Open source library"/>
+                <Card id="cost" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Cost Analysis" sub="Track ROI"/>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">Prompt Caching Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                Cache system prompts for 90% savings. Design prefix-first. Track hit rates. GPTCache for semantic.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Anthropic 90%</span>
+                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Prefix First</span>
+                <span className="px-3 py-1 bg-cyan-900/50 rounded text-cyan-300 text-sm">GPTCache</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

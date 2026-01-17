@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Agent Observability and Tracing</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'why': 'Agents are black boxes. Multiple LLM calls, tool uses, branches. Need visibility to debug failures, optimize cost, ensure quality.',
+        'trace': 'End-to-end record of agent execution. Every LLM call, tool use, decision. Hierarchical spans like distributed tracing. Essential for debugging.',
+        'spans': 'Individual units of work. LLM call, tool execution, retrieval. Nested structure shows call hierarchy. Timing, inputs, outputs.',
+        'langsmith': 'LangChain tracing platform. Auto-instruments LangChain apps. Playground for testing. Datasets for evaluation. Most popular option.',
+        'arize': 'Phoenix for LLM observability. Open source. Traces, evals, embeddings visualization. Good for production monitoring.',
+        'weights': 'Weights & Biases Weave. Experiment tracking for LLMs. Compare runs, track metrics. Good for research/iteration.',
+        'otel': 'OpenTelemetry for LLMs. Standard tracing format. Vendor-agnostic. Integrates with existing observability stack.',
+        'cost': 'Track token usage per call. Aggregate by user, feature, model. Set budgets and alerts. Prevent runaway costs.',
+        'latency': 'Time per step. LLM calls dominate. Identify bottlenecks. P50, P95, P99 latencies. Critical for user experience.',
+        'success': 'Did the agent complete the task? Binary or graded. Track over time. Segment by task type, complexity.',
+        'quality': 'Output quality metrics. Factuality, relevance, helpfulness. LLM-as-judge or human eval. Hard to automate.',
+        'debug': 'When agent fails: check trace, find failing step, inspect inputs/outputs. Reproduce with same inputs. Iterative fix.',
+        'replay': 'Re-run past traces with changes. Test fixes without live users. A/B test prompts on historical data.',
+        'alerts': 'Trigger on: high error rate, latency spike, cost anomaly, quality drop. PagerDuty, Slack integration.',
+        'dashboard': 'Real-time metrics. Success rate, latency, cost, volume. Filter by user, model, feature. Executive and debug views.',
+        'privacy': 'Traces contain user data. PII redaction, access controls. Retention policies. Compliance requirements.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-cyan-900/50 border border-cyan-500 rounded-full mb-4">
+                <span className="text-cyan-300 font-bold text-sm">PRODUCTION OPS</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                Agent Observability
+              </h1>
+              <p className="text-slate-400">Tracing, debugging, and monitoring agents. Hover for details.</p>
+            </div>
+
+            {/* Why Observability */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-cyan-300">1. Why Observability?</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="why" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Why?" sub="Debug black box agents"/>
+                <Card id="trace" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Traces" sub="End-to-end execution record"/>
+                <Card id="spans" bg="bg-cyan-900/50 border-cyan-500 text-cyan-200" title="Spans" sub="Individual work units"/>
+              </div>
+            </div>
+
+            {/* Tools */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Tools</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="langsmith" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="LangSmith" sub="LangChain platform"/>
+                <Card id="arize" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Arize Phoenix" sub="Open source"/>
+                <Card id="weights" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="W&B Weave" sub="Experiment tracking"/>
+                <Card id="otel" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="OpenTelemetry" sub="Standard format"/>
+              </div>
+            </div>
+
+            {/* Metrics */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">3. Key Metrics</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="cost" bg="bg-green-900/50 border-green-500 text-green-200" title="Cost" sub="Token usage, spend"/>
+                <Card id="latency" bg="bg-green-900/50 border-green-500 text-green-200" title="Latency" sub="P50, P95, P99"/>
+                <Card id="success" bg="bg-green-900/50 border-green-500 text-green-200" title="Success Rate" sub="Task completion"/>
+                <Card id="quality" bg="bg-green-900/50 border-green-500 text-green-200" title="Quality" sub="Output quality score"/>
+              </div>
+            </div>
+
+            {/* Debugging */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-purple-300">4. Debugging</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="debug" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Debug Flow" sub="Trace to find failure"/>
+                <Card id="replay" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Replay" sub="Re-run with changes"/>
+              </div>
+            </div>
+
+            {/* Production */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">5. Production</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="alerts" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Alerts" sub="Error, latency, cost"/>
+                <Card id="dashboard" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Dashboards" sub="Real-time metrics"/>
+                <Card id="privacy" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Privacy" sub="PII redaction"/>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-cyan-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">Observability Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                Trace every call, track cost/latency/quality, debug with replay, alert on anomalies.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">LangSmith</span>
+                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Cost/Latency</span>
+                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Debug/Replay</span>
+                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">Alerts</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

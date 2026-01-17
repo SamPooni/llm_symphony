@@ -165,16 +165,17 @@
         },
       ];
 
-      // ============== MOVEMENT VI: AGENTS (3 files) ==============
-      const agentDiagrams = [
+      // ============== MOVEMENT VI: AGENTS (13 files) ==============
+      // Core Architecture & Pipelines
+      const agentCore = [
         {
           id: 'agent-arch',
           title: 'Agent Architecture',
-          subtitle: 'Tool calling, protocols',
+          subtitle: 'Tool calling fundamentals',
           file: 'movement6_agents/agent-architecture-tool-calling.html',
           color: 'cyan',
-          icon: '🤖',
-          topics: ['ReAct', 'MCP', 'AG-UI', 'Tool execution', 'Safety']
+          icon: '🏗️',
+          topics: ['Tool schemas', 'Function calling', 'Execution flow', 'Error handling']
         },
         {
           id: 'agent-pipeline',
@@ -183,7 +184,7 @@
           file: 'movement6_agents/agent-pipeline-full.html',
           color: 'blue',
           icon: '🔗',
-          topics: ['Planning', 'Memory', 'Multi-agent', 'Handoffs']
+          topics: ['Planning', 'Execution', 'Observation', 'Iteration']
         },
         {
           id: 'router',
@@ -192,7 +193,144 @@
           file: 'movement6_agents/llm-router-agent-pipeline.html',
           color: 'violet',
           icon: '🔀',
-          topics: ['Routing logic', 'Cost optimization', 'Fallbacks']
+          topics: ['Routing logic', 'Cost optimization', 'Fallbacks', 'Cascading']
+        },
+      ];
+
+      // Patterns & Reasoning
+      const agentPatterns = [
+        {
+          id: 'patterns',
+          title: 'Agentic Patterns',
+          subtitle: 'ReAct, Reflexion, LATS',
+          file: 'movement6_agents/AGENTIC_PATTERNS_react_reflexion.html',
+          color: 'purple',
+          icon: '🧠',
+          topics: ['ReAct loop', 'Reflexion', 'Self-critique', 'Tree search']
+        },
+        {
+          id: 'prompting',
+          title: 'Prompt Engineering',
+          subtitle: 'Techniques for agents',
+          file: 'movement6_agents/PROMPT_ENGINEERING_techniques.html',
+          color: 'indigo',
+          icon: '✍️',
+          topics: ['Few-shot', 'Chain-of-thought', 'System prompts', 'Structured output']
+        },
+      ];
+
+      // Protocols & Connectivity
+      const agentProtocols = [
+        {
+          id: 'mcp',
+          title: 'Model Context Protocol',
+          subtitle: 'Anthropic\'s MCP standard',
+          file: 'movement6_agents/MCP_model_context_protocol.html',
+          color: 'emerald',
+          icon: '🔌',
+          topics: ['Tools', 'Resources', 'Prompts', 'Transports', 'SDK']
+        },
+        {
+          id: 'agui',
+          title: 'AG-UI Protocol',
+          subtitle: 'Agent-generated interfaces',
+          file: 'movement6_agents/AG_UI_agent_generated_interfaces.html',
+          color: 'teal',
+          icon: '🖼️',
+          topics: ['Dynamic UI', 'Event streams', 'Component rendering', 'State sync']
+        },
+        {
+          id: 'a2a',
+          title: 'A2A Protocol',
+          subtitle: 'Agent-to-agent communication',
+          file: 'movement6_agents/A2A_agent_to_agent_protocol.html',
+          color: 'sky',
+          icon: '🤝',
+          topics: ['Agent cards', 'Task delegation', 'Discovery', 'Handoffs']
+        },
+      ];
+
+      // Specialized Agent Types
+      const agentSpecialized = [
+        {
+          id: 'swe-agents',
+          title: 'Agentic Coding',
+          subtitle: 'SWE agents & code gen',
+          file: 'movement6_agents/AGENTIC_CODING_swe_agents.html',
+          color: 'green',
+          icon: '💻',
+          topics: ['SWE-bench', 'Code editing', 'Testing', 'Debugging loops']
+        },
+        {
+          id: 'computer-use',
+          title: 'Computer Use',
+          subtitle: 'Browser & desktop control',
+          file: 'movement6_agents/COMPUTER_USE_browser_desktop.html',
+          color: 'lime',
+          icon: '🖥️',
+          topics: ['Screenshots', 'Click/type', 'Browser automation', 'Safety']
+        },
+      ];
+
+      // State, Memory & Operations
+      const agentOps = [
+        {
+          id: 'memory',
+          title: 'Agent Memory',
+          subtitle: 'State management',
+          file: 'movement6_agents/AGENT_MEMORY_state_management.html',
+          color: 'amber',
+          icon: '🧠',
+          topics: ['Short-term', 'Long-term', 'Episodic', 'Semantic', 'Working memory']
+        },
+        {
+          id: 'multi-agent',
+          title: 'Multi-Agent Systems',
+          subtitle: 'Orchestration & coordination',
+          file: 'movement6_agents/MULTI_AGENT_systems_orchestration.html',
+          color: 'orange',
+          icon: '👥',
+          topics: ['Supervisors', 'Hierarchies', 'Message passing', 'Consensus']
+        },
+        {
+          id: 'observability',
+          title: 'Agent Observability',
+          subtitle: 'Tracing & debugging',
+          file: 'movement6_agents/AGENT_OBSERVABILITY_tracing.html',
+          color: 'red',
+          icon: '📊',
+          topics: ['LangSmith', 'Traces', 'Spans', 'Cost tracking', 'Evals']
+        },
+      ];
+
+      // ============== MOVEMENT VII: RAG (3 files) ==============
+      const ragDiagrams = [
+        {
+          id: 'rag-intro',
+          title: 'RAG Fundamentals',
+          subtitle: 'Retrieval-augmented generation',
+          file: 'movement7_rag/RAG_retrieval_augmented_generation.html',
+          color: 'rose',
+          icon: '📚',
+          topics: ['Embedding', 'Vector DB', 'Retrieval', 'Augmented context']
+        },
+        {
+          id: 'rag-chunking',
+          title: 'Chunking & Retrieval',
+          subtitle: 'Splitting, embedding, reranking',
+          file: 'movement7_rag/RAG_chunking_reranking_retrieval.html',
+          color: 'pink',
+          icon: '✂️',
+          topics: ['Chunk strategies', 'Overlap', 'Semantic search', 'Rerankers']
+        },
+        {
+          id: 'rag-patterns',
+          title: 'Advanced RAG Patterns',
+          subtitle: 'Modular & agentic RAG',
+          file: 'movement7_rag/RAG_PATTERNS_advanced_modular.html',
+          color: 'fuchsia',
+          icon: '🔧',
+          topics: ['Query rewriting', 'Multi-hop', 'Agentic RAG', 'CRAG', 'Self-RAG']
         },
       ];
 
@@ -225,6 +363,8 @@
         teal: { bg: 'bg-teal-900/40', border: 'border-teal-500', text: 'text-teal-300', glow: 'shadow-teal-500/20' },
         slate: { bg: 'bg-slate-800/60', border: 'border-slate-500', text: 'text-slate-300', glow: 'shadow-slate-500/20' },
         lime: { bg: 'bg-lime-900/40', border: 'border-lime-500', text: 'text-lime-300', glow: 'shadow-lime-500/20' },
+        rose: { bg: 'bg-rose-900/40', border: 'border-rose-500', text: 'text-rose-300', glow: 'shadow-rose-500/20' },
+        fuchsia: { bg: 'bg-fuchsia-900/40', border: 'border-fuchsia-500', text: 'text-fuchsia-300', glow: 'shadow-fuchsia-500/20' },
       };
 
       const DiagramCard = ({ item, size = 'normal' }) => {
@@ -352,6 +492,7 @@
                   { label: 'Inference', color: 'from-blue-500 to-blue-600', icon: '⚡' },
                   { label: 'Serving', color: 'from-emerald-500 to-emerald-600', icon: '🚀' },
                   { label: 'Agents', color: 'from-cyan-500 to-cyan-600', icon: '🤖' },
+                  { label: 'RAG', color: 'from-rose-500 to-rose-600', icon: '📚' },
                 ].map((item, i, arr) => (
                   <div key={i} className="flex items-center">
                     <div className={`px-4 py-2 rounded-lg bg-gradient-to-r ${item.color} flex items-center gap-2`}>
@@ -515,14 +656,93 @@
               <MovementHeader 
                 number="VI" 
                 title="Agents & Tools" 
-                subtitle="LLMs that act — tool calling, planning, multi-agent"
+                subtitle="LLMs that act — tool calling, planning, protocols, multi-agent systems"
                 color="from-cyan-500 to-blue-600"
                 icon="🤖"
+                count="13"
+              />
+              
+              {/* Core Architecture */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-cyan-400 text-sm font-bold">🏗️ CORE ARCHITECTURE</span>
+                  <div className="flex-1 h-px bg-cyan-500/20"></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {agentCore.map(d => (
+                    <DiagramCard key={d.id} item={d} size="large" />
+                  ))}
+                </div>
+              </div>
+
+              {/* Patterns & Reasoning */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-purple-400 text-sm font-bold">🧠 PATTERNS & REASONING</span>
+                  <div className="flex-1 h-px bg-purple-500/20"></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {agentPatterns.map(d => (
+                    <DiagramCard key={d.id} item={d} size="large" />
+                  ))}
+                </div>
+              </div>
+
+              {/* Protocols */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-emerald-400 text-sm font-bold">🔌 PROTOCOLS & CONNECTIVITY</span>
+                  <div className="flex-1 h-px bg-emerald-500/20"></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {agentProtocols.map(d => (
+                    <DiagramCard key={d.id} item={d} size="large" />
+                  ))}
+                </div>
+              </div>
+
+              {/* Specialized Agents */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-green-400 text-sm font-bold">💻 SPECIALIZED AGENTS</span>
+                  <div className="flex-1 h-px bg-green-500/20"></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {agentSpecialized.map(d => (
+                    <DiagramCard key={d.id} item={d} size="large" />
+                  ))}
+                </div>
+              </div>
+
+              {/* State, Memory & Ops */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-orange-400 text-sm font-bold">📊 MEMORY, MULTI-AGENT & OPS</span>
+                  <div className="flex-1 h-px bg-orange-500/20"></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {agentOps.map(d => (
+                    <DiagramCard key={d.id} item={d} size="large" />
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <FlowArrow />
+
+            {/* ============== MOVEMENT VII: RAG ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="VII" 
+                title="RAG & Retrieval" 
+                subtitle="Grounding LLMs with external knowledge — chunking, embedding, retrieval, reranking"
+                color="from-rose-500 to-pink-600"
+                icon="📚"
                 count="3"
               />
               
               <div className="grid grid-cols-3 gap-4">
-                {agentDiagrams.map(d => (
+                {ragDiagrams.map(d => (
                   <DiagramCard key={d.id} item={d} size="large" />
                 ))}
               </div>
@@ -554,7 +774,7 @@
                   <div className="text-2xl font-black text-white mb-2">🔑 Quick Reference</div>
                 </div>
                 
-                <div className="grid grid-cols-4 gap-6 text-sm">
+                <div className="grid grid-cols-5 gap-6 text-sm">
                   <div>
                     <div className="text-purple-300 font-bold mb-2">Training</div>
                     <ul className="text-white/60 space-y-1">
@@ -581,6 +801,15 @@
                     </ul>
                   </div>
                   <div>
+                    <div className="text-cyan-300 font-bold mb-2">Agents</div>
+                    <ul className="text-white/60 space-y-1">
+                      <li>• ReAct: Think→Act</li>
+                      <li>• MCP: Tool protocol</li>
+                      <li>• A2A: Agent cards</li>
+                      <li>• AG-UI: Dynamic UI</li>
+                    </ul>
+                  </div>
+                  <div>
                     <div className="text-emerald-300 font-bold mb-2">Hardware</div>
                     <ul className="text-white/60 space-y-1">
                       <li>• H100: 80GB</li>
@@ -596,7 +825,7 @@
             <section className="mb-12">
               <div className="grid grid-cols-4 gap-4 text-center">
                 <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-4">
-                  <div className="text-4xl font-black text-purple-400">31</div>
+                  <div className="text-4xl font-black text-purple-400">41</div>
                   <div className="text-white/50 text-sm">Diagrams</div>
                 </div>
                 <div className="bg-pink-900/20 border border-pink-500/30 rounded-xl p-4">
@@ -604,7 +833,7 @@
                   <div className="text-white/50 text-sm">Tooltips</div>
                 </div>
                 <div className="bg-cyan-900/20 border border-cyan-500/30 rounded-xl p-4">
-                  <div className="text-4xl font-black text-cyan-400">6</div>
+                  <div className="text-4xl font-black text-cyan-400">7</div>
                   <div className="text-white/50 text-sm">Movements</div>
                 </div>
                 <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-xl p-4">
@@ -617,7 +846,7 @@
             {/* ============== FOOTER ============== */}
             <footer className="text-center text-white/30 text-sm pt-8 border-t border-white/5">
               <p className="text-lg mb-2">🎼 The LLM Symphony 🎼</p>
-              <p>Foundation → Training → Alignment → Inference → Serving → Agents</p>
+              <p>Foundation → Training → Alignment → Inference → Serving → Agents → RAG</p>
             </footer>
           </div>
         </div>

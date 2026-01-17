@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MCP - Model Context Protocol</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'what': 'Open protocol by Anthropic for connecting LLMs to external data sources and tools. USB-C for AI - one standard, universal connectivity.',
+        'why': 'Before MCP: N apps x M tools = N*M integrations. With MCP: N+M integrations. Build once, works everywhere.',
+        'server': 'Lightweight programs that expose tools, resources, and prompts. Run locally or remotely. Examples: filesystem, database, GitHub, Slack.',
+        'client': 'LLM applications that connect to servers. Claude Desktop, IDEs, custom apps. Maintains 1:1 connection with servers.',
+        'host': 'The application that runs MCP clients. Manages connections, enforces security, coordinates between client and servers.',
+        'tools': 'Functions the LLM can call. Like function calling but standardized. Server defines schema, LLM invokes, server executes.',
+        'resources': 'Data the LLM can read. Files, database records, API responses. URI-based addressing. Read-only access.',
+        'prompts': 'Reusable prompt templates. Server-defined, user-selectable. Slash commands in Claude Desktop.',
+        'sampling': 'Server can request LLM completions. Enables agentic behaviors. Server asks host to generate, host returns result.',
+        'stdio': 'Local transport. Communication via stdin/stdout. Simple, secure, process-based isolation. Default for local servers.',
+        'sse': 'HTTP-based transport. Server-Sent Events for streaming. Good for remote servers. Supports authentication.',
+        'lifecycle': 'Initialize -> exchange capabilities -> normal operation -> shutdown. Server and client negotiate features.',
+        'security': 'User consent required. Servers run in sandbox. Host controls permissions. No ambient authority.',
+        'claude': 'Claude Desktop has built-in MCP support. Add servers via config file. Filesystem, GitHub, Postgres, and more.',
+        'sdk': 'Official SDKs: TypeScript and Python. Build servers in minutes. Schema validation, transport handling included.',
+        'ecosystem': 'Growing ecosystem: 50+ official servers, community contributions. Databases, APIs, dev tools, productivity apps.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-violet-900/50 border border-violet-500 rounded-full mb-4">
+                <span className="text-violet-300 font-bold text-sm">AGENT INFRASTRUCTURE</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-purple-500">
+                Model Context Protocol (MCP)
+              </h1>
+              <p className="text-slate-400">Anthropic's open standard for LLM-tool connectivity. Hover for details.</p>
+            </div>
+
+            {/* Overview */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-violet-300">1. Overview</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="what" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="What is MCP?" sub="Universal protocol for AI tools"/>
+                <Card id="why" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="Why MCP?" sub="N+M instead of N*M integrations"/>
+              </div>
+            </div>
+
+            {/* Architecture */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Architecture</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="host" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Host" sub="Application runtime"/>
+                <Card id="client" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Client" sub="Connects to servers"/>
+                <Card id="server" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Server" sub="Exposes capabilities"/>
+              </div>
+              <div className="mt-4 p-4 bg-slate-900/50 border border-slate-700 rounded-xl text-center text-sm">
+                <span className="text-blue-300">Host (Claude Desktop)</span>
+                <span className="text-slate-500 mx-2">&rarr;</span>
+                <span className="text-cyan-300">Client</span>
+                <span className="text-slate-500 mx-2">&rarr;</span>
+                <span className="text-green-300">Server (GitHub, Postgres, etc)</span>
+              </div>
+            </div>
+
+            {/* Primitives */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">3. Core Primitives</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="tools" bg="bg-green-900/50 border-green-500 text-green-200" title="Tools" sub="Functions to call"/>
+                <Card id="resources" bg="bg-green-900/50 border-green-500 text-green-200" title="Resources" sub="Data to read"/>
+                <Card id="prompts" bg="bg-green-900/50 border-green-500 text-green-200" title="Prompts" sub="Templates"/>
+                <Card id="sampling" bg="bg-green-900/50 border-green-500 text-green-200" title="Sampling" sub="Server requests LLM"/>
+              </div>
+            </div>
+
+            {/* Transport */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Transport</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="stdio" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="stdio" sub="Local, stdin/stdout"/>
+                <Card id="sse" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="HTTP + SSE" sub="Remote, streaming"/>
+                <Card id="lifecycle" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Lifecycle" sub="Init, operate, shutdown"/>
+              </div>
+            </div>
+
+            {/* Practical */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-pink-300">5. Practical</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="claude" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Claude Desktop" sub="Built-in support"/>
+                <Card id="sdk" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="SDKs" sub="TypeScript, Python"/>
+                <Card id="security" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Security" sub="User consent required"/>
+                <Card id="ecosystem" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Ecosystem" sub="50+ servers"/>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-violet-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">MCP Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                One protocol, universal connectivity. Servers expose tools/resources, clients connect, hosts orchestrate.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-violet-900/50 rounded text-violet-300 text-sm">Open Standard</span>
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Host/Client/Server</span>
+                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Tools + Resources</span>
+                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">stdio / HTTP</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

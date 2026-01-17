@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Synthetic Data & Distillation</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'what': 'Generate training data using LLMs. Teacher model creates examples, student model learns from them. Data flywheel for AI.',
+        'why': 'Real data is expensive, limited, biased. Synthetic data is cheap, unlimited, controllable. Scale training without human labeling.',
+        'distill': 'Knowledge distillation. Large model (teacher) generates, small model (student) learns. Transfer capabilities to efficient model.',
+        'self': 'Self-instruct. Model generates its own training data. Bootstrap from few examples. Alpaca, Vicuna used this.',
+        'evol': 'Evol-Instruct. Evolve instructions to be more complex. Start simple, add constraints, deepen. WizardLM technique.',
+        'orca': 'Orca style. Teacher explains reasoning step-by-step. Student learns process, not just answers. Better generalization.',
+        'magpie': 'Magpie. Generate instruction-response pairs at scale. Filter for quality. Millions of examples cheaply.',
+        'persona': 'Persona-driven generation. Generate data from different viewpoints. Diversity through synthetic personas.',
+        'verify': 'Verification crucial. LLM-as-judge, human spot-check, downstream eval. Garbage in, garbage out.',
+        'filter': 'Quality filtering. Remove duplicates, filter by perplexity, use reward model. Quality over quantity.',
+        'domain': 'Domain-specific data. Generate code, math, medical, legal. Specialized synthetic datasets.',
+        'augment': 'Data augmentation. Paraphrase, translate, add noise. Expand existing datasets. Cheap diversity.',
+        'license': 'License concerns. Training on model outputs may violate ToS. OpenAI, Anthropic restrict. Check terms.',
+        'collapse': 'Model collapse risk. Training on synthetic -> degraded outputs -> worse synthetic -> collapse. Mix real data.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-lime-900/50 border border-lime-500 rounded-full mb-4">
+                <span className="text-lime-300 font-bold text-sm">DATA GENERATION</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-lime-400 to-green-500">
+                Synthetic Data & Distillation
+              </h1>
+              <p className="text-slate-400">LLM-generated training data. Hover for details.</p>
+            </div>
+
+            {/* Overview */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-lime-300">1. Overview</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="what" bg="bg-lime-900/50 border-lime-500 text-lime-200" title="Synthetic Data" sub="LLM generates training data"/>
+                <Card id="why" bg="bg-lime-900/50 border-lime-500 text-lime-200" title="Why?" sub="Cheap, unlimited, controllable"/>
+              </div>
+            </div>
+
+            {/* Techniques */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Techniques</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="distill" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Distillation" sub="Teacher to student"/>
+                <Card id="self" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Self-Instruct" sub="Bootstrap examples"/>
+                <Card id="evol" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Evol-Instruct" sub="Evolve complexity"/>
+                <Card id="orca" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Orca Style" sub="Explain reasoning"/>
+              </div>
+            </div>
+
+            {/* Generation */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-purple-300">3. Generation Methods</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="magpie" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Magpie" sub="Scale generation"/>
+                <Card id="persona" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Persona" sub="Diverse viewpoints"/>
+                <Card id="domain" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Domain" sub="Specialized data"/>
+              </div>
+            </div>
+
+            {/* Quality */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Quality Control</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="verify" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Verification" sub="Judge and check"/>
+                <Card id="filter" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Filtering" sub="Quality over quantity"/>
+                <Card id="augment" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Augmentation" sub="Expand existing"/>
+              </div>
+            </div>
+
+            {/* Risks */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-red-300">5. Risks</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="license" bg="bg-red-900/50 border-red-500 text-red-200" title="License" sub="ToS restrictions"/>
+                <Card id="collapse" bg="bg-red-900/50 border-red-500 text-red-200" title="Model Collapse" sub="Mix real data"/>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-lime-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">Synthetic Data Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                Self-Instruct or Evol-Instruct to generate, filter rigorously, mix with real data to avoid collapse.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Distillation</span>
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Self-Instruct</span>
+                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">Filter</span>
+                <span className="px-3 py-1 bg-red-900/50 rounded text-red-300 text-sm">Mix Real</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Voice & Audio LLMs</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'what': 'LLMs that understand and generate audio. Speech-to-text, text-to-speech, and native audio understanding. Voice interfaces for AI.',
+        'pipeline': 'Traditional: Speech->Text->LLM->Text->Speech. Three models, high latency. Simple but slow.',
+        'native': 'Native audio LLMs. Model directly processes audio tokens. No transcription step. Lower latency, preserves prosody.',
+        'whisper': 'OpenAI Whisper. State-of-art speech recognition. Open source. Multiple sizes. Handles accents, noise. Foundation model.',
+        'tts': 'Text-to-Speech. ElevenLabs, OpenAI TTS, Bark. Natural voices, emotion control. Cloning capabilities. Getting very good.',
+        'gpt4o': 'GPT-4o audio mode. Native audio input/output. Real-time conversation. Emotion, interruption handling. The future.',
+        'gemini': 'Gemini native audio. Process audio directly. Multi-turn voice conversations. Google assistant-grade.',
+        'realtime': 'OpenAI Realtime API. WebSocket streaming. Sub-second latency. Interruption handling. Voice agents.',
+        'vad': 'Voice Activity Detection. Detect when user is speaking. Trigger recording. Handle turn-taking. Essential for conversation.',
+        'stream': 'Streaming TTS. Generate audio as text streams. Dont wait for full response. Reduces perceived latency.',
+        'latency': 'Voice latency critical. >500ms feels slow. Target <300ms. End-to-end optimization needed.',
+        'emotion': 'Emotion in voice. Detect user emotion from audio. Generate appropriate emotional response. Beyond words.',
+        'clone': 'Voice cloning. Replicate specific voice. ElevenLabs, Resemble. Ethical concerns. Powerful but risky.',
+        'local': 'Local voice. Whisper.cpp, Piper TTS. On-device processing. Privacy, offline capability. Edge deployment.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-rose-900/50 border border-rose-500 rounded-full mb-4">
+                <span className="text-rose-300 font-bold text-sm">VOICE AI</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-pink-500">
+                Voice & Audio LLMs
+              </h1>
+              <p className="text-slate-400">Speech recognition, synthesis, and native audio. Hover for details.</p>
+            </div>
+
+            {/* Overview */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-rose-300">1. Overview</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="what" bg="bg-rose-900/50 border-rose-500 text-rose-200" title="Voice LLMs" sub="Audio in, audio out"/>
+                <Card id="pipeline" bg="bg-rose-900/50 border-rose-500 text-rose-200" title="Pipeline" sub="STT -> LLM -> TTS"/>
+                <Card id="native" bg="bg-rose-900/50 border-rose-500 text-rose-200" title="Native Audio" sub="Direct processing"/>
+              </div>
+            </div>
+
+            {/* Speech-to-Text */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Speech-to-Text</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <Card id="whisper" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Whisper" sub="OpenAI, state-of-art"/>
+                <Card id="vad" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="VAD" sub="Voice activity detection"/>
+              </div>
+            </div>
+
+            {/* Text-to-Speech */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">3. Text-to-Speech</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="tts" bg="bg-green-900/50 border-green-500 text-green-200" title="TTS" sub="ElevenLabs, OpenAI"/>
+                <Card id="stream" bg="bg-green-900/50 border-green-500 text-green-200" title="Streaming" sub="Audio as text streams"/>
+                <Card id="clone" bg="bg-green-900/50 border-green-500 text-green-200" title="Cloning" sub="Replicate voices"/>
+              </div>
+            </div>
+
+            {/* Native Audio */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-purple-300">4. Native Audio Models</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="gpt4o" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="GPT-4o" sub="Native audio mode"/>
+                <Card id="gemini" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Gemini" sub="Direct audio"/>
+                <Card id="realtime" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Realtime API" sub="WebSocket streaming"/>
+              </div>
+            </div>
+
+            {/* Optimization */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">5. Optimization</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="latency" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Latency" sub="Target <300ms"/>
+                <Card id="emotion" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Emotion" sub="Detect and generate"/>
+                <Card id="local" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Local" sub="Whisper.cpp, Piper"/>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-rose-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">Voice LLM Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                Whisper for STT, ElevenLabs for TTS, GPT-4o for native. Optimize for latency.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Whisper</span>
+                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">TTS</span>
+                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">GPT-4o</span>
+                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">Realtime</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

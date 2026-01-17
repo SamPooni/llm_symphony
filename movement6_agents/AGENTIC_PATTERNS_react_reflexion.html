@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Agentic Patterns - ReAct, Reflexion, Plan-Execute</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body style="margin:0;background:#000">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [hover, setHover] = React.useState(null);
+      
+      const tips = {
+        'react': 'Reason + Act. Think step by step, then take action, observe result, repeat. "Thought: I need to search. Action: search(query). Observation: results." Most popular pattern.',
+        'cot': 'Chain of Thought. Break problem into steps before answering. "Lets think step by step..." Improves reasoning, especially math/logic.',
+        'plan': 'Plan-and-Execute. First create full plan, then execute steps. Good for complex multi-step tasks. Separate planning from execution.',
+        'reflexion': 'Self-reflection loop. Try, evaluate result, reflect on mistakes, try again. Learn from failures. Iterative self-improvement.',
+        'tot': 'Tree of Thoughts. Explore multiple reasoning paths. Branch, evaluate, prune. Good for problems with many approaches. More compute, better results.',
+        'least': 'Least-to-Most. Decompose into subproblems, solve smallest first, build up. Good for complex problems. Progressive complexity.',
+        'tool': 'Tool use pattern. LLM decides when to call tools. Query -> decide tool -> call -> integrate result -> continue. Foundation of agents.',
+        'self-ask': 'Self-Ask. LLM asks itself clarifying questions. "Do I need to know X? Yes. What is X?" Recursive decomposition.',
+        'retry': 'Retry with feedback. If action fails, analyze error, retry with correction. Simple but effective. Error recovery.',
+        'verify': 'Generate then verify. Create answer, then check it. Catch errors before returning. Self-consistency check.',
+        'critic': 'Generator-Critic. One LLM generates, another critiques. Iterate until critic approves. Adversarial refinement.',
+        'multi': 'Multi-path voting. Generate N solutions, vote on best. Majority or weighted selection. Reduces variance.',
+        'context': 'Context stuffing. Load all relevant info into prompt. Simple, no retrieval. Works for small contexts.',
+        'scratchpad': 'Working memory in prompt. Agent writes notes to itself. Persists across steps. External memory simulation.'
+      };
+
+      const Card = ({id, bg, title, sub}) => (
+        <div 
+          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          <div className="font-bold">{title}</div>
+          <div className="text-sm opacity-60">{sub}</div>
+          {hover === id && (
+            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
+              {tips[id]}
+            </div>
+          )}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-8">
+              <div className="inline-block px-4 py-1 bg-violet-900/50 border border-violet-500 rounded-full mb-4">
+                <span className="text-violet-300 font-bold text-sm">AGENT PATTERNS</span>
+              </div>
+              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-purple-500">
+                Agentic Patterns
+              </h1>
+              <p className="text-slate-400">Core reasoning and action patterns. Hover for details.</p>
+            </div>
+
+            {/* Reasoning */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-violet-300">1. Reasoning Patterns</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="cot" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="Chain of Thought" sub="Step by step"/>
+                <Card id="tot" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="Tree of Thoughts" sub="Explore branches"/>
+                <Card id="least" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="Least-to-Most" sub="Build up complexity"/>
+                <Card id="self-ask" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="Self-Ask" sub="Clarifying questions"/>
+              </div>
+            </div>
+
+            {/* Action Patterns */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Action Patterns</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="react" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="ReAct" sub="Reason + Act loop"/>
+                <Card id="plan" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Plan-Execute" sub="Plan first, then do"/>
+                <Card id="tool" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Tool Use" sub="Call external tools"/>
+              </div>
+            </div>
+
+            {/* Self-Improvement */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-green-300">3. Self-Improvement</h2>
+              <div className="grid grid-cols-4 gap-3">
+                <Card id="reflexion" bg="bg-green-900/50 border-green-500 text-green-200" title="Reflexion" sub="Learn from failures"/>
+                <Card id="retry" bg="bg-green-900/50 border-green-500 text-green-200" title="Retry" sub="Error recovery"/>
+                <Card id="verify" bg="bg-green-900/50 border-green-500 text-green-200" title="Verify" sub="Check own work"/>
+                <Card id="critic" bg="bg-green-900/50 border-green-500 text-green-200" title="Generator-Critic" sub="Adversarial refine"/>
+              </div>
+            </div>
+
+            {/* Ensemble */}
+            <div className="mb-8">
+              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Ensemble & Memory</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <Card id="multi" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Multi-Path" sub="Vote on best"/>
+                <Card id="context" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Context Stuffing" sub="Load all info"/>
+                <Card id="scratchpad" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Scratchpad" sub="Working memory"/>
+              </div>
+            </div>
+
+            {/* Flow Diagram */}
+            <div className="mb-8 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
+              <div className="text-center text-sm">
+                <span className="text-violet-300">Think (CoT)</span>
+                <span className="text-slate-500 mx-2">-></span>
+                <span className="text-blue-300">Act (Tool)</span>
+                <span className="text-slate-500 mx-2">-></span>
+                <span className="text-yellow-300">Observe</span>
+                <span className="text-slate-500 mx-2">-></span>
+                <span className="text-green-300">Reflect</span>
+                <span className="text-slate-500 mx-2">-></span>
+                <span className="text-violet-300">Think...</span>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-900/50 border border-violet-500/30 rounded-xl p-6 text-center">
+              <div className="text-xl font-bold text-white mb-2">Agentic Patterns Summary</div>
+              <p className="text-slate-400 text-sm mb-4">
+                ReAct for action, CoT for reasoning, Reflexion for learning. Combine patterns for complex agents.
+              </p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">ReAct</span>
+                <span className="px-3 py-1 bg-violet-900/50 rounded text-violet-300 text-sm">CoT</span>
+                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Reflexion</span>
+                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">Plan-Execute</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
