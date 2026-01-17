@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pre-Model Processing - End-to-End Inference Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function PreModelWithTooltips() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      // Comprehensive tooltip content for every item
+      const tooltips = {
+        // Key Metrics
+        'metric-cost': {
+          title: '💰 COST',
+          content: 'GPU compute is the most expensive part of inference. A single H100 costs $2-4/hour. Pre-model processing uses only CPU — failing here costs almost nothing. Failing during GPU execution wastes money.',
+          example: 'Rejecting a malformed request at the gateway: ~$0.00\nProcessing it on GPU then failing: ~$0.02-0.10'
+        },
+        'metric-latency': {
+          title: '⚡ LATENCY',
+          content: 'Target: <50ms for all pre-model steps combined. This includes network hops, auth lookups, rate limit checks, and routing decisions. Every millisecond here delays time-to-first-token.',
+          example: 'Auth: 5-10ms | Rate limit: 1-5ms | Routing: 5-15ms | Validation: 5-10ms'
+        },
+        'metric-security': {
+          title: '🛡️ SECURITY',
+          content: 'This is your attack surface. Prompt injection, credential stuffing, DDoS, and data exfiltration all start here. Strong auth + validation prevents most attacks before they reach your model.',
+          example: 'Block: Invalid API keys, oversized payloads, suspicious patterns, known bad IPs'
+        },
+        'metric-correctness': {
+          title: '✓ CORRECTNESS',
+          content: 'Wrong model = wrong output. Routing decisions here determine which model, which adapter, which quantization level handles the request. Mistakes are expensive to debug.',
+          example: 'User requests GPT-4 → Route to GPT-4 instance\nUser needs vision → Route to multimodal model'
+        },
+
+        // Client Request Types
+        'client-rest': {
+          title: 'REST (HTTP/JSON)',
+          content: 'The most common API pattern. Client sends a POST request with JSON body, waits for complete response. Simple to implement but blocks until generation completes.',
+          example: 'POST /v1/chat/completions\nContent-Type: application/json\n{"model": "gpt-4", "messages": [...]}',
+          pros: 'Universal support, simple debugging, works everywhere',
+          cons: 'Higher perceived latency for long responses'
+        },
+        'client-grpc': {
+          title: 'gRPC (Protobuf)',
+          content: 'Binary protocol over HTTP/2. Messages are serialized with Protocol Buffers — smaller payloads, faster parsing. Supports native streaming. Preferred for internal services.',
+          example: 'service Inference {\n  rpc Complete(Request) returns (stream Token);\n}',
+          pros: 'Faster serialization, type-safe, bidirectional streaming',
+          cons: 'More complex setup, harder to debug'
+        },
+        'client-websocket': {
+          title: 'WebSocket / SSE',
+          content: 'Persistent connections for real-time streaming. Tokens are pushed as they\'re generated. Essential for chat UX where users see text appear character by character.',
+          example: 'ws://api.example.com/v1/stream\nSSE: GET /v1/chat/completions?stream=true',
+          pros: 'Best UX for chat, lowest perceived latency',
+          cons: 'Connection management complexity, harder to load balance'
+        },
+        'client-mesh': {
+          title: 'Service Mesh (Internal)',
+          content: 'Internal microservice calls via sidecar proxies (Istio, Linkerd, Envoy). Automatic mTLS, load balancing, retries, and observability. Used for service-to-service inference calls.',
+          example: 'http://inference-service.default.svc.cluster.local:8080',
+          pros: 'Built-in security, observability, traffic management',
+          cons: 'Added latency from sidecars (~1-2ms)'
+        },
+
+        // Request Payload Fields
+        'payload-messages': {
+          title: 'messages',
+          content: 'The conversation history. Array of {role, content} objects. Roles: "system" (instructions), "user" (human input), "assistant" (model output). Order matters for context.',
+          example: '[\n  {"role": "system", "content": "You are helpful..."},\n  {"role": "user", "content": "Hello!"}\n]',
+          warning: 'Large message arrays consume context window. Consider summarization for long conversations.'
+        },
+        'payload-model': {
+          title: 'model',
+          content: 'Which model to use. Maps to a specific model instance, version, and configuration. May trigger different routing, pricing, and rate limits.',
+          example: '"gpt-4-turbo" → GPT-4 Turbo 128K\n"gpt-4-vision" → Multimodal GPT-4\n"gpt-3.5-turbo" → Faster, cheaper',
+          warning: 'Invalid model IDs should fail fast with clear error messages.'
+        },
+        'payload-temperature': {
+          title: 'temperature',
+          content: 'Controls randomness. 0.0 = deterministic (always pick highest probability token). 1.0+ = more creative/random. Affects sampling distribution, not model weights.',
+          example: '0.0 → Code generation, factual Q&A\n0.7 → Balanced chat\n1.0+ → Creative writing, brainstorming',
+          range: '0.0 to 2.0 (typically)'
+        },
+        'payload-max_tokens': {
+          title: 'max_tokens',
+          content: 'Maximum tokens to generate. Hard cap on output length. Prevents runaway generation. Affects billing (most APIs charge per output token).',
+          example: '256 → Short responses\n1024 → Medium responses\n4096 → Long-form content',
+          warning: 'Higher values don\'t mean longer responses — model may still stop at EOS.'
+        },
+        'payload-tools': {
+          title: 'tools',
+          content: 'Function definitions the model can call. Enables agents, API calls, code execution. Model outputs structured JSON to invoke tools, you execute them.',
+          example: '{\n  "type": "function",\n  "function": {\n    "name": "get_weather",\n    "parameters": {...}\n  }\n}',
+          warning: 'Tool schemas increase prompt size. Validate tool arguments before execution.'
+        },
+        'payload-api_key': {
+          title: 'api_key',
+          content: 'Authentication credential. Usually passed in Authorization header, not body. Identifies the caller, links to billing account, determines rate limits.',
+          example: 'Authorization: Bearer sk-xxxx...xxxx',
+          warning: 'NEVER log full API keys. Store hashed, transmit over HTTPS only.'
+        },
+
+        // API Gateway - Authentication
+        'auth-apikeys': {
+          title: 'API Keys',
+          content: 'Simple bearer tokens. Easy to implement, easy to rotate. Best for server-to-server calls. Should be long, random, and treated as secrets.',
+          example: 'Authorization: Bearer sk-abc123...\nX-API-Key: pk_live_xxx...',
+          security: 'Store hashed in DB. Rate limit per key. Rotate regularly. Revoke on leak.'
+        },
+        'auth-oauth': {
+          title: 'OAuth 2.0 / JWT',
+          content: 'Delegated authorization. User grants app permission, app gets token. JWTs are self-contained — verify signature locally without DB lookup.',
+          example: 'Authorization: Bearer eyJhbGciOiJSUzI1NiIs...\n// Decode → {sub: "user123", exp: 1234567890}',
+          security: 'Validate signature, check expiry, verify issuer, check scopes.'
+        },
+        'auth-mtls': {
+          title: 'mTLS Certificates',
+          content: 'Mutual TLS — both client and server present certificates. Strongest auth for service-to-service. No secrets in headers, identity proven at TLS layer.',
+          example: 'Client presents cert signed by your CA\nServer validates cert chain\nConnection established with verified identity',
+          security: 'Rotate certs before expiry. Use short-lived certs. Maintain CRL/OCSP.'
+        },
+        'auth-hmac': {
+          title: 'HMAC Signatures',
+          content: 'Sign request with shared secret. Proves authenticity and integrity — request wasn\'t tampered with. Used by AWS, Stripe, webhooks.',
+          example: 'signature = HMAC-SHA256(secret, timestamp + body)\nX-Signature: sha256=abc123...',
+          security: 'Include timestamp to prevent replay attacks. Use constant-time comparison.'
+        },
+
+        // API Gateway - Rate Limiting
+        'rate-perkey': {
+          title: 'Per API Key',
+          content: 'Each API key has its own quota. Prevents one customer from exhausting shared resources. Typically: requests/minute + tokens/day.',
+          example: 'Free tier: 20 req/min, 100K tokens/day\nPaid tier: 500 req/min, 10M tokens/day',
+          implementation: 'Redis INCR with TTL, or token bucket algorithm'
+        },
+        'rate-pertenant': {
+          title: 'Per Tenant / Org',
+          content: 'Organization-level limits across all their API keys. Prevents a single org from monopolizing capacity even with multiple keys.',
+          example: 'Org "acme-corp" total: 10K req/min\nSplit across 50 API keys\nAny key can burst, but org total capped',
+          implementation: 'Aggregate counters in Redis, check both key + org limits'
+        },
+        'rate-perip': {
+          title: 'Per IP Address',
+          content: 'Defense against credential stuffing and DDoS. Even with valid API key, single IP can\'t flood the system. Watch for NAT/proxy IPs.',
+          example: 'Any IP: 100 req/min max\nKnown proxy ranges: special handling\nCloudflare IPs: trust X-Forwarded-For',
+          warning: 'Don\'t block shared IPs too aggressively — corporate NATs are common.'
+        },
+        'rate-sliding': {
+          title: 'Sliding Window',
+          content: 'Smooths out traffic spikes vs fixed windows. Prevents burst-at-boundary attacks where clients hit limit, wait for reset, burst again.',
+          example: 'Fixed: 100/min resets at :00 → 200 requests possible at :59-:01\nSliding: Always looks at last 60 seconds → true 100/min',
+          implementation: 'Redis sorted sets with timestamps, or sliding log algorithm'
+        },
+
+        // API Gateway - Validation
+        'validate-schema': {
+          title: 'JSON Schema Check',
+          content: 'Validate request body against OpenAPI/JSON Schema. Catches malformed requests before any processing. Returns clear error messages.',
+          example: '{"messages": "invalid"} → Error: messages must be array\n{"model": 123} → Error: model must be string',
+          implementation: 'ajv, jsonschema, or OpenAPI validator middleware'
+        },
+        'validate-required': {
+          title: 'Required Fields',
+          content: 'Ensure mandatory fields are present. Different endpoints have different requirements. Fail fast with specific error.',
+          example: 'POST /chat/completions requires: model, messages\nPOST /embeddings requires: model, input',
+          response: '400 Bad Request: {"error": {"message": "Missing required field: model"}}'
+        },
+        'validate-types': {
+          title: 'Type Validation',
+          content: 'Check field types match expected. Temperature should be number, messages should be array. Prevents type confusion bugs.',
+          example: 'temperature: "0.5" → Coerce to 0.5 or reject?\nmax_tokens: "256" → Usually coerce\nmessages: {} → Reject (must be array)',
+          decision: 'Be strict on structure, lenient on primitives. Document coercion rules.'
+        },
+        'validate-size': {
+          title: 'Size Limits',
+          content: 'Reject oversized requests before parsing. Prevents memory exhaustion, DoS attacks. Check Content-Length header first.',
+          example: 'Max request body: 10MB\nMax prompt chars: 128K\nMax messages: 1000\nMax attachments: 10',
+          implementation: 'Check Content-Length header, then streaming parser with limits'
+        },
+
+        // API Gateway - Abuse Detection
+        'abuse-oversize': {
+          title: 'Oversized Prompts',
+          content: 'Extremely long prompts may be attacks or errors. Check character count before tokenization (which is expensive).',
+          example: '> 500K chars → Likely attack or bug\n> 128K chars → May exceed context window\nNormal range: 100-50K chars',
+          action: 'Reject with 413 Payload Too Large, log for analysis'
+        },
+        'abuse-frequency': {
+          title: 'Request Frequency',
+          content: 'Abnormal request patterns: too fast, too regular (bot-like), or sudden spikes. May indicate scraping, attacks, or runaway scripts.',
+          example: '1000 req/sec from one key → Runaway loop\nExactly 1 req/sec for hours → Bot pattern\n10x normal volume → Possible attack',
+          action: 'Alert, throttle, or block depending on severity'
+        },
+        'abuse-patterns': {
+          title: 'Unusual Patterns',
+          content: 'Suspicious content patterns: repeated jailbreak attempts, PII harvesting, prompt injection signatures.',
+          example: 'Repeated "ignore previous instructions" → Injection attempt\nRequests for SSN/credit cards → Data harvesting\nBase64 encoded prompts → Obfuscation',
+          action: 'Flag for review, block repeat offenders, feed to security team'
+        },
+        'abuse-badactors': {
+          title: 'Known Bad Actors',
+          content: 'Blocklists of known malicious IPs, API keys, fingerprints. Shared threat intelligence across the industry.',
+          example: 'IP blocklists (Spamhaus, AbuseIPDB)\nAPI key revocation list\nDevice fingerprint blacklist',
+          action: 'Immediate reject, no error details (don\'t help attackers)'
+        },
+
+        // Tenant Isolation
+        'tenant-id': {
+          title: 'tenant_id',
+          content: 'Unique identifier for the customer/organization. Links to billing, quotas, SLAs. Used for isolation, logging, and analytics.',
+          example: '"acme-corp-123" → Acme Corporation\n"user_abc" → Individual user\n"internal-team" → Your own usage',
+          usage: 'Partition queues, track costs, enforce org-level limits'
+        },
+        'tenant-priority': {
+          title: 'priority',
+          content: 'Service tier determining queue placement and resource allocation. Higher priority = faster service, dedicated capacity.',
+          example: '"enterprise" → Dedicated GPU allocation\n"paid" → Priority queue, burst allowed\n"free" → Best effort, heavily throttled',
+          implementation: 'Separate queues per priority, weighted fair scheduling'
+        },
+        'tenant-sla': {
+          title: 'sla_target',
+          content: 'Contractual latency commitment. p99 < 500ms means 99% of requests complete in under 500ms. Violations may trigger alerts or credits.',
+          example: 'p50 < 100ms → Median response time\np99 < 500ms → Tail latency target\np99.9 < 2s → Extreme tail',
+          monitoring: 'Track percentiles, alert on SLA breach, auto-scale if needed'
+        },
+        'priority-enterprise': {
+          title: 'ENTERPRISE Tier',
+          content: 'Highest priority. Dedicated GPU capacity reserved. Guaranteed SLAs with financial penalties. Direct support channel.',
+          features: 'Dedicated instances, 99.9% SLA, priority support, custom models, SSO/SAML',
+          pricing: 'Typically $10K-100K+/month commitment'
+        },
+        'priority-paid': {
+          title: 'PAID Tier',
+          content: 'Priority over free tier. Burst capacity available. Standard SLAs. Pay-as-you-go or subscription.',
+          features: 'Priority queue, higher rate limits, email support, usage dashboard',
+          pricing: 'Pay per token or monthly subscription'
+        },
+        'priority-free': {
+          title: 'FREE Tier',
+          content: 'Best-effort service. Heavily rate limited. No SLA guarantees. May be deprioritized during peak load.',
+          features: 'Basic access, strict rate limits, community support only',
+          limits: 'Typically 20 req/min, 100K tokens/day, queued behind paid'
+        },
+        'qos-queues': {
+          title: '📋 Assign Queues',
+          content: 'Separate request queues per priority tier. Enterprise requests never wait behind free tier. Prevents noisy neighbor problems.',
+          implementation: 'Kafka topics per tier, or priority queue with multiple levels',
+          example: 'queue:enterprise → GPU pool A (dedicated)\nqueue:paid → GPU pool B (shared)\nqueue:free → GPU pool C (best effort)'
+        },
+        'qos-admission': {
+          title: '🎛️ Control Admission',
+          content: 'Limit concurrent requests per tenant. Prevents one customer from consuming all GPU slots. Admission control before GPU assignment.',
+          implementation: 'Semaphores per tenant, counting active requests',
+          example: 'Enterprise: 100 concurrent\nPaid: 20 concurrent\nFree: 3 concurrent'
+        },
+        'qos-throttle': {
+          title: '🛑 Throttle Abusers',
+          content: 'Detect and slow down abusive tenants. Protects other customers from resource exhaustion. Progressive penalties.',
+          implementation: 'Track request patterns, apply exponential backoff',
+          example: 'First offense: Warning\nSecond: 50% throttle\nThird: 90% throttle\nFourth: Temporary block'
+        },
+
+        // Model Routing
+        'route-latency': {
+          title: 'Latency SLA',
+          content: 'Route to instance that can meet latency target. Nearby region, less loaded, faster GPU. May sacrifice cost for speed.',
+          example: 'p99 < 100ms → Route to H100 in same region\np99 < 500ms → Any available GPU\np99 < 2s → Can use slower/cheaper GPU',
+          tradeoff: 'Faster GPU = higher cost. Match SLA to minimize spend.'
+        },
+        'route-cost': {
+          title: 'Cost Budget',
+          content: 'Stay within cost constraints. Route to cheaper GPUs or quantized models when budget is tight. Track spend per request.',
+          example: 'Budget: $0.001/1K tokens → Use INT8 quantized\nBudget: $0.01/1K tokens → Use full precision\nNo budget → Use cheapest available',
+          tradeoff: 'Cheaper often means slower or lower quality. Balance carefully.'
+        },
+        'route-context': {
+          title: 'Context Length',
+          content: 'Match request to model with sufficient context window. 128K prompt needs 128K+ model. Don\'t waste long-context models on short prompts.',
+          example: '< 4K tokens → Any model\n4-32K tokens → Extended context models\n32-128K tokens → Long context specialists\n> 128K → May need RAG or summarization',
+          optimization: 'Short prompts on short-context models = lower cost'
+        },
+        'route-capabilities': {
+          title: 'Capabilities',
+          content: 'Route based on required features. Vision requests need multimodal models. Tool use needs function-calling models.',
+          example: 'Has images → Multimodal model (GPT-4V, Claude 3)\nNeeds tools → Function-calling model\nNeeds JSON → JSON mode enabled model\nCode only → Code-specialized model',
+          fallback: 'If capability unavailable, reject with clear error'
+        },
+        'model-base': {
+          title: '🧠 Base Model',
+          content: 'The core pretrained model without fine-tuning. GPT-4, Claude-3, Llama-3, etc. General purpose, highest capability.',
+          example: 'gpt-4-turbo → Latest GPT-4\nclaude-3-opus → Most capable Claude\nllama-3-70b → Open source large',
+          tradeoff: 'Most capable but also most expensive. Use for complex tasks.'
+        },
+        'model-lora': {
+          title: '🔧 LoRA Adapter',
+          content: 'Lightweight fine-tuning on top of base model. Custom behavior without full fine-tune cost. Hot-swappable adapters.',
+          example: 'base:llama-3-70b + adapter:customer-support\nbase:gpt-4 + adapter:legal-review\nSwitch adapters without reloading base model',
+          benefit: 'Custom models at fraction of full fine-tuning cost'
+        },
+        'model-quantized': {
+          title: '📦 Quantized Model',
+          content: 'Reduced precision weights (INT8, INT4, FP8). Faster inference, lower memory, but slight quality loss. Good for cost-sensitive workloads.',
+          example: 'FP16 → INT8: 2x faster, ~1% quality loss\nFP16 → INT4: 4x faster, ~3% quality loss\nAWQ, GPTQ, bitsandbytes',
+          tradeoff: 'Speed/cost vs quality. Test quality for your use case.'
+        },
+        'model-fullprec': {
+          title: '✨ Full Precision',
+          content: 'BF16 or FP16 weights. Maximum quality, highest cost. Use for tasks where quality is paramount.',
+          example: 'Medical/legal advice → Full precision\nCreative writing → Full precision\nCasual chat → Quantized is fine',
+          when: 'When accuracy matters more than cost. Benchmarking. Production quality bar.'
+        },
+        'gpu-h100-high': {
+          title: 'H100 80GB (87% utilized)',
+          content: 'High utilization H100. Fast but near capacity. New requests may queue. Consider routing elsewhere if latency-sensitive.',
+          specs: '80GB HBM3, 3.35 TB/s bandwidth, 1979 TFLOPS FP8',
+          status: 'HIGH — May add latency, prefer less loaded instance'
+        },
+        'gpu-h100-med': {
+          title: 'H100 80GB (54% utilized)',
+          content: 'Medium utilization H100. Good balance of performance and availability. Ideal routing target for most requests.',
+          specs: '80GB HBM3, 3.35 TB/s bandwidth, 1979 TFLOPS FP8',
+          status: 'MEDIUM — Good choice, capacity available'
+        },
+        'gpu-a100': {
+          title: 'A100 80GB (23% utilized)',
+          content: 'Previous generation GPU with low utilization. Cheaper than H100. Good for cost-optimized or non-urgent requests.',
+          specs: '80GB HBM2e, 2.0 TB/s bandwidth, 624 TFLOPS TF32',
+          status: 'LOW — Lots of capacity, good for cost-sensitive'
+        },
+        'gpu-l40s': {
+          title: 'L40S 48GB (5% utilized)',
+          content: 'Ada Lovelace GPU, nearly idle. Lower performance than A100/H100. Best for small models or inference-only workloads.',
+          specs: '48GB GDDR6, 864 GB/s bandwidth, 362 TFLOPS FP8',
+          status: 'IDLE — Available immediately, lowest cost tier'
+        },
+
+        // Hard Guards
+        'guard-prompt': {
+          title: '📏 MAX PROMPT SIZE',
+          content: 'Reject prompts exceeding character limit before tokenization. Tokenization is expensive — don\'t waste CPU cycles on obviously too-long prompts.',
+          limit: '> 128K characters → REJECT',
+          prevents: 'OOM errors during tokenization, KV cache overflow',
+          response: '400 Bad Request: Prompt exceeds maximum length of 128000 characters'
+        },
+        'guard-output': {
+          title: '🔢 MAX OUTPUT TOKENS',
+          content: 'Cap output generation to prevent runaway responses. Model might loop or generate excessive content without this.',
+          limit: '> 4096 tokens → CAP at limit',
+          prevents: 'Runaway generation, excessive costs, stuck requests',
+          implementation: 'Check max_tokens param, enforce hard ceiling'
+        },
+        'guard-context': {
+          title: '✂️ CONTEXT OVERFLOW',
+          content: 'When total tokens (prompt + max_tokens) exceed model\'s context window, truncate history or reject.',
+          limit: 'Exceeds context window → TRUNCATE oldest messages',
+          prevents: 'KV cache explosion, OOM during attention',
+          strategies: 'Truncate oldest, summarize history, or reject with error'
+        },
+        'guard-attachment': {
+          title: '📎 ATTACHMENT SIZE',
+          content: 'Limit size of images, files, audio attachments. Large attachments consume memory and slow processing.',
+          limit: '> 20MB files → REJECT',
+          prevents: 'Memory pressure, slow uploads, storage costs',
+          response: '413 Payload Too Large: Attachment exceeds 20MB limit'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        // Calculate position to keep tooltip on screen
+        const tooltipWidth = 400;
+        const tooltipHeight = 300;
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        
+        if (left + tooltipWidth > window.innerWidth) {
+          left = mousePos.x - tooltipWidth - 15;
+        }
+        if (top + tooltipHeight > window.innerHeight) {
+          top = window.innerHeight - tooltipHeight - 20;
+        }
+        
+        return (
+          <div 
+            className="fixed z-50 max-w-md p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl shadow-black/50"
+            style={{ left, top, maxWidth: tooltipWidth }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            
+            {t.pros && (
+              <div className="text-xs mb-1">
+                <span className="text-green-400 font-bold">✓ Pros: </span>
+                <span className="text-slate-400">{t.pros}</span>
+              </div>
+            )}
+            
+            {t.cons && (
+              <div className="text-xs mb-1">
+                <span className="text-red-400 font-bold">✗ Cons: </span>
+                <span className="text-slate-400">{t.cons}</span>
+              </div>
+            )}
+            
+            {t.warning && (
+              <div className="text-xs text-amber-400 mt-2">
+                <span className="font-bold">⚠️ Warning: </span>{t.warning}
+              </div>
+            )}
+            
+            {t.security && (
+              <div className="text-xs text-red-400 mt-2">
+                <span className="font-bold">🔒 Security: </span>{t.security}
+              </div>
+            )}
+            
+            {t.implementation && (
+              <div className="text-xs text-cyan-400 mt-2">
+                <span className="font-bold">⚙️ Implementation: </span>{t.implementation}
+              </div>
+            )}
+            
+            {t.tradeoff && (
+              <div className="text-xs text-purple-400 mt-2">
+                <span className="font-bold">⚖️ Tradeoff: </span>{t.tradeoff}
+              </div>
+            )}
+            
+            {t.prevents && (
+              <div className="text-xs text-orange-400 mt-2">
+                <span className="font-bold">🛡️ Prevents: </span>{t.prevents}
+              </div>
+            )}
+            
+            {t.specs && (
+              <div className="text-xs text-blue-400 mt-2">
+                <span className="font-bold">📊 Specs: </span>{t.specs}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      // Hoverable component wrapper
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div
+          className={`cursor-help transition-all hover:scale-[1.02] ${className}`}
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-6" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-orange-500/20 border-2 border-orange-400 mb-4">
+                <span className="text-orange-300 font-black text-lg">STAGE 0</span>
+                <span className="text-white">•</span>
+                <span className="text-orange-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-yellow-300 to-red-400">
+                Pre-Model Processing
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                Everything here happens <span className="text-yellow-300 font-bold">BEFORE the model runs</span>. 
+                <span className="text-cyan-300 ml-2">🖱️ Hover over any element for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-cost">
+                <div className="p-5 rounded-xl bg-red-600 border-2 border-red-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💰</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">COST</span>
+                  </div>
+                  <div className="text-3xl font-black text-red-100">$$$$</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">GPU minutes are expensive</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-latency">
+                <div className="p-5 rounded-xl bg-amber-600 border-2 border-amber-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⚡</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">LATENCY</span>
+                  </div>
+                  <div className="text-3xl font-black text-amber-100">&lt;50ms</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Queuing + routing + admission</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-security">
+                <div className="p-5 rounded-xl bg-pink-600 border-2 border-pink-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🛡️</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">SECURITY</span>
+                  </div>
+                  <div className="text-3xl font-black text-pink-100">CRITICAL</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Auth, abuse, injection surface</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-correctness">
+                <div className="p-5 rounded-xl bg-violet-600 border-2 border-violet-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">✓</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">CORRECTNESS</span>
+                  </div>
+                  <div className="text-3xl font-black text-violet-100">100%</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Model selection, context policy</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 0.1: CLIENT REQUEST */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-blue-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">0.1 CLIENT REQUEST</h2>
+                  <p className="text-blue-200/80">How requests arrive at your inference endpoint</p>
+                </div>
+              </div>
+
+              {/* Client Sources */}
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <Hoverable id="client-rest">
+                  <div className="p-5 rounded-xl bg-blue-600 border-2 border-blue-300 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-1">REST</div>
+                    <div className="text-blue-200 font-semibold text-sm mb-3">HTTP/JSON</div>
+                    <div className="space-y-1">
+                      {["Synchronous", "POST /v1/chat", "Simple & Universal"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-blue-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="client-grpc">
+                  <div className="p-5 rounded-xl bg-indigo-600 border-2 border-indigo-300 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-1">gRPC</div>
+                    <div className="text-indigo-200 font-semibold text-sm mb-3">Protobuf</div>
+                    <div className="space-y-1">
+                      {["Binary Protocol", "HTTP/2 Streams", "High Throughput"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-indigo-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="client-websocket">
+                  <div className="p-5 rounded-xl bg-cyan-600 border-2 border-cyan-300 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-1">WebSocket</div>
+                    <div className="text-cyan-200 font-semibold text-sm mb-3">SSE</div>
+                    <div className="space-y-1">
+                      {["Bidirectional", "Real-time Stream", "Token by Token"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-cyan-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="client-mesh">
+                  <div className="p-5 rounded-xl bg-teal-600 border-2 border-teal-300 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-1">Service Mesh</div>
+                    <div className="text-teal-200 font-semibold text-sm mb-3">Internal</div>
+                    <div className="space-y-1">
+                      {["Istio / Linkerd", "mTLS Built-in", "Envoy Sidecar"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-teal-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Request Payload */}
+              <div className="bg-slate-900 border-2 border-blue-400 rounded-xl p-6 shadow-lg">
+                <div className="text-lg font-black text-blue-300 mb-4 flex items-center gap-2">
+                  <span className="text-2xl">📦</span> REQUEST PAYLOAD
+                </div>
+                <div className="grid grid-cols-2 gap-4 font-mono text-sm">
+                  <Hoverable id="payload-messages">
+                    <div className="flex items-center gap-3 bg-black/50 rounded-lg px-4 py-3 border border-transparent hover:border-cyan-500">
+                      <span className="text-slate-400 font-semibold">messages:</span>
+                      <span className="text-cyan-300 font-medium">[{'{role, content}'}]</span>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="payload-model">
+                    <div className="flex items-center gap-3 bg-black/50 rounded-lg px-4 py-3 border border-transparent hover:border-green-500">
+                      <span className="text-slate-400 font-semibold">model:</span>
+                      <span className="text-green-300 font-medium">"gpt-4-turbo"</span>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="payload-temperature">
+                    <div className="flex items-center gap-3 bg-black/50 rounded-lg px-4 py-3 border border-transparent hover:border-yellow-500">
+                      <span className="text-slate-400 font-semibold">temperature:</span>
+                      <span className="text-yellow-300 font-medium">0.7</span>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="payload-max_tokens">
+                    <div className="flex items-center gap-3 bg-black/50 rounded-lg px-4 py-3 border border-transparent hover:border-yellow-500">
+                      <span className="text-slate-400 font-semibold">max_tokens:</span>
+                      <span className="text-yellow-300 font-medium">4096</span>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="payload-tools">
+                    <div className="flex items-center gap-3 bg-black/50 rounded-lg px-4 py-3 border border-transparent hover:border-pink-500">
+                      <span className="text-slate-400 font-semibold">tools:</span>
+                      <span className="text-pink-300 font-medium">[{'{function...}'}]</span>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="payload-api_key">
+                    <div className="flex items-center gap-3 bg-black/50 rounded-lg px-4 py-3 border border-transparent hover:border-red-500">
+                      <span className="text-slate-400 font-semibold">api_key:</span>
+                      <span className="text-red-300 font-medium">"sk-xxxx...xxxx"</span>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-blue-400 to-orange-400 rounded-full" />
+            </div>
+
+            {/* SECTION 0.2: API GATEWAY */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-orange-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">0.2 API GATEWAY</h2>
+                  <p className="text-orange-200/80">Not optional in production — first line of defense</p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-orange-950 to-red-950 border-2 border-orange-400 rounded-xl p-6 shadow-lg">
+                <div className="grid grid-cols-4 gap-4">
+                  {/* Authentication */}
+                  <div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4">
+                    <div className="text-orange-300 font-black text-base mb-3">🔐 AUTHENTICATION</div>
+                    <div className="space-y-2">
+                      <Hoverable id="auth-apikeys">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-orange-500/20">
+                          <div className="w-2 h-2 rounded-full bg-orange-400" />
+                          <span className="text-white text-sm font-medium">API Keys</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="auth-oauth">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-orange-500/20">
+                          <div className="w-2 h-2 rounded-full bg-orange-400" />
+                          <span className="text-white text-sm font-medium">OAuth 2.0 / JWT</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="auth-mtls">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-orange-500/20">
+                          <div className="w-2 h-2 rounded-full bg-orange-400" />
+                          <span className="text-white text-sm font-medium">mTLS Certificates</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="auth-hmac">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-orange-500/20">
+                          <div className="w-2 h-2 rounded-full bg-orange-400" />
+                          <span className="text-white text-sm font-medium">HMAC Signatures</span>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* Rate Limiting */}
+                  <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4">
+                    <div className="text-amber-300 font-black text-base mb-3">⏱️ RATE LIMITING</div>
+                    <div className="space-y-2">
+                      <Hoverable id="rate-perkey">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-amber-500/20">
+                          <div className="w-2 h-2 rounded-full bg-amber-400" />
+                          <span className="text-white text-sm font-medium">Per API Key</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="rate-pertenant">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-amber-500/20">
+                          <div className="w-2 h-2 rounded-full bg-amber-400" />
+                          <span className="text-white text-sm font-medium">Per Tenant / Org</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="rate-perip">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-amber-500/20">
+                          <div className="w-2 h-2 rounded-full bg-amber-400" />
+                          <span className="text-white text-sm font-medium">Per IP Address</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="rate-sliding">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-amber-500/20">
+                          <div className="w-2 h-2 rounded-full bg-amber-400" />
+                          <span className="text-white text-sm font-medium">Sliding Window</span>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* Validation */}
+                  <div className="bg-black/40 border-2 border-yellow-400 rounded-xl p-4">
+                    <div className="text-yellow-300 font-black text-base mb-3">✅ VALIDATION</div>
+                    <div className="space-y-2">
+                      <Hoverable id="validate-schema">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-yellow-500/20">
+                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                          <span className="text-white text-sm font-medium">JSON Schema Check</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="validate-required">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-yellow-500/20">
+                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                          <span className="text-white text-sm font-medium">Required Fields</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="validate-types">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-yellow-500/20">
+                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                          <span className="text-white text-sm font-medium">Type Validation</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="validate-size">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-yellow-500/20">
+                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                          <span className="text-white text-sm font-medium">Size Limits</span>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* Abuse Detection */}
+                  <div className="bg-black/40 border-2 border-red-400 rounded-xl p-4">
+                    <div className="text-red-300 font-black text-base mb-3">🚨 ABUSE DETECTION</div>
+                    <div className="space-y-2">
+                      <Hoverable id="abuse-oversize">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-red-500/20">
+                          <div className="w-2 h-2 rounded-full bg-red-400" />
+                          <span className="text-white text-sm font-medium">Oversized Prompts</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="abuse-frequency">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-red-500/20">
+                          <div className="w-2 h-2 rounded-full bg-red-400" />
+                          <span className="text-white text-sm font-medium">Request Frequency</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="abuse-patterns">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-red-500/20">
+                          <div className="w-2 h-2 rounded-full bg-red-400" />
+                          <span className="text-white text-sm font-medium">Unusual Patterns</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="abuse-badactors">
+                        <div className="flex items-center gap-2 p-2 rounded hover:bg-red-500/20">
+                          <div className="w-2 h-2 rounded-full bg-red-400" />
+                          <span className="text-white text-sm font-medium">Known Bad Actors</span>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-orange-300 font-semibold">Implementations:</span>
+                    {["Envoy", "Kong", "NGINX", "AWS API GW", "CloudFlare"].map((impl, i) => (
+                      <span key={i} className="px-3 py-1 bg-orange-500/30 border border-orange-400 rounded-full text-orange-200 text-sm font-semibold">
+                        {impl}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="px-4 py-2 bg-red-600 border-2 border-red-400 rounded-lg text-white font-black text-sm animate-pulse">
+                    ⚡ FAIL FAST — GPU time is expensive
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-orange-400 to-pink-400 rounded-full" />
+            </div>
+
+            {/* SECTION 0.3: TENANT ISOLATION */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-pink-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">0.3 TENANT ISOLATION & QoS</h2>
+                  <p className="text-pink-200/80">Where fairness is enforced</p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-pink-950 to-rose-950 border-2 border-pink-400 rounded-xl p-6 shadow-lg">
+                <div className="grid grid-cols-3 gap-6">
+                  {/* Request Tags */}
+                  <div className="bg-black/40 border-2 border-pink-400 rounded-xl p-5">
+                    <div className="text-pink-300 font-black text-lg mb-4">📋 Request Tagged With</div>
+                    <div className="space-y-3 font-mono text-sm">
+                      <Hoverable id="tenant-id">
+                        <div className="bg-pink-900/50 rounded-lg px-4 py-2 hover:bg-pink-800/50 border border-transparent hover:border-pink-400">
+                          <span className="text-pink-300">tenant_id: </span>
+                          <span className="text-white font-semibold">"acme-corp-123"</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="tenant-priority">
+                        <div className="bg-pink-900/50 rounded-lg px-4 py-2 hover:bg-pink-800/50 border border-transparent hover:border-pink-400">
+                          <span className="text-pink-300">priority: </span>
+                          <span className="text-green-300 font-semibold">"enterprise"</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="tenant-sla">
+                        <div className="bg-pink-900/50 rounded-lg px-4 py-2 hover:bg-pink-800/50 border border-transparent hover:border-pink-400">
+                          <span className="text-pink-300">sla_target: </span>
+                          <span className="text-yellow-300 font-semibold">"p99 &lt; 500ms"</span>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* Priority Classes */}
+                  <div className="bg-black/40 border-2 border-pink-400 rounded-xl p-5">
+                    <div className="text-pink-300 font-black text-lg mb-4">🏷️ Priority Classes</div>
+                    <div className="space-y-3">
+                      <Hoverable id="priority-enterprise">
+                        <div className="flex items-center gap-3 bg-green-600 border-2 border-green-400 rounded-lg px-4 py-3">
+                          <div className="w-3 h-3 rounded-full bg-green-300" />
+                          <div>
+                            <div className="text-white font-black">ENTERPRISE</div>
+                            <div className="text-green-200 text-xs">Dedicated capacity, SLA guarantees</div>
+                          </div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="priority-paid">
+                        <div className="flex items-center gap-3 bg-blue-600 border-2 border-blue-400 rounded-lg px-4 py-3">
+                          <div className="w-3 h-3 rounded-full bg-blue-300" />
+                          <div>
+                            <div className="text-white font-black">PAID</div>
+                            <div className="text-blue-200 text-xs">Priority queuing, burst allowed</div>
+                          </div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="priority-free">
+                        <div className="flex items-center gap-3 bg-slate-600 border-2 border-slate-400 rounded-lg px-4 py-3">
+                          <div className="w-3 h-3 rounded-full bg-slate-300" />
+                          <div>
+                            <div className="text-white font-black">FREE</div>
+                            <div className="text-slate-200 text-xs">Best effort, rate limited</div>
+                          </div>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* Used To */}
+                  <div className="bg-black/40 border-2 border-pink-400 rounded-xl p-5">
+                    <div className="text-pink-300 font-black text-lg mb-4">🎯 Used To</div>
+                    <div className="space-y-3">
+                      <Hoverable id="qos-queues">
+                        <div className="bg-pink-900/50 border border-pink-500 rounded-lg px-4 py-3 hover:bg-pink-800/50">
+                          <div className="text-white font-bold">📋 Assign Queues</div>
+                          <div className="text-pink-200 text-xs">Separate queues per priority tier</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="qos-admission">
+                        <div className="bg-pink-900/50 border border-pink-500 rounded-lg px-4 py-3 hover:bg-pink-800/50">
+                          <div className="text-white font-bold">🎛️ Control Admission</div>
+                          <div className="text-pink-200 text-xs">Limit concurrent requests per tenant</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="qos-throttle">
+                        <div className="bg-pink-900/50 border border-pink-500 rounded-lg px-4 py-3 hover:bg-pink-800/50">
+                          <div className="text-white font-bold">🛑 Throttle Abusers</div>
+                          <div className="text-pink-200 text-xs">Protect other tenants</div>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-pink-400 to-violet-400 rounded-full" />
+            </div>
+
+            {/* SECTION 0.4: MODEL ROUTING */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-violet-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-violet-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-violet-300">0.4 MODEL SELECTION & ROUTING</h2>
+                  <p className="text-violet-200/80">A scheduling problem, not just a lookup</p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-violet-950 to-purple-950 border-2 border-violet-400 rounded-xl p-6 shadow-lg">
+                <div className="grid grid-cols-3 gap-6">
+                  {/* Routing Signals */}
+                  <div className="bg-black/40 border-2 border-violet-400 rounded-xl p-5">
+                    <div className="text-violet-300 font-black text-lg mb-4">📡 Routing Signals</div>
+                    <div className="space-y-3">
+                      <Hoverable id="route-latency">
+                        <div className="flex items-center justify-between bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <span className="text-violet-200 font-semibold">Latency SLA</span>
+                          <span className="text-yellow-300 font-mono font-bold">p99 &lt; 200ms</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="route-cost">
+                        <div className="flex items-center justify-between bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <span className="text-violet-200 font-semibold">Cost Budget</span>
+                          <span className="text-green-300 font-mono font-bold">$0.002/1K</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="route-context">
+                        <div className="flex items-center justify-between bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <span className="text-violet-200 font-semibold">Context Length</span>
+                          <span className="text-cyan-300 font-mono font-bold">128K tokens</span>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="route-capabilities">
+                        <div className="flex items-center justify-between bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <span className="text-violet-200 font-semibold">Capabilities</span>
+                          <span className="text-pink-300 font-mono font-bold">tools, vision</span>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* Route To */}
+                  <div className="bg-black/40 border-2 border-violet-400 rounded-xl p-5">
+                    <div className="text-violet-300 font-black text-lg mb-4">🎯 Route To</div>
+                    <div className="space-y-3">
+                      <Hoverable id="model-base">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <div className="text-white font-bold">🧠 Base Model</div>
+                          <div className="text-violet-200 text-xs">GPT-4, Claude-3, Llama-3</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="model-lora">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <div className="text-white font-bold">🔧 LoRA Adapter</div>
+                          <div className="text-violet-200 text-xs">Fine-tuned variants</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="model-quantized">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <div className="text-white font-bold">📦 Quantized</div>
+                          <div className="text-violet-200 text-xs">INT8/INT4 for cost savings</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="model-fullprec">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-violet-400">
+                          <div className="text-white font-bold">✨ Full Precision</div>
+                          <div className="text-violet-200 text-xs">BF16/FP16 for quality</div>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  {/* GPU Targets */}
+                  <div className="bg-black/40 border-2 border-violet-400 rounded-xl p-5">
+                    <div className="text-violet-300 font-black text-lg mb-4">🖥️ GPU Targets</div>
+                    <div className="space-y-3">
+                      <Hoverable id="gpu-h100-high">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-green-400">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-green-300 font-bold text-sm">H100 80GB</span>
+                            <span className="text-green-300 text-xs font-bold px-2 py-0.5 bg-green-500/30 rounded">HIGH</span>
+                          </div>
+                          <div className="w-full h-2 bg-black rounded-full overflow-hidden">
+                            <div className="h-full bg-green-500 rounded-full" style={{width: '87%'}} />
+                          </div>
+                          <div className="text-right text-xs text-slate-400 mt-1">87% utilized</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="gpu-h100-med">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-yellow-400">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-green-300 font-bold text-sm">H100 80GB</span>
+                            <span className="text-yellow-300 text-xs font-bold px-2 py-0.5 bg-yellow-500/30 rounded">MED</span>
+                          </div>
+                          <div className="w-full h-2 bg-black rounded-full overflow-hidden">
+                            <div className="h-full bg-yellow-500 rounded-full" style={{width: '54%'}} />
+                          </div>
+                          <div className="text-right text-xs text-slate-400 mt-1">54% utilized</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="gpu-a100">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-blue-400">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-green-300 font-bold text-sm">A100 80GB</span>
+                            <span className="text-blue-300 text-xs font-bold px-2 py-0.5 bg-blue-500/30 rounded">LOW</span>
+                          </div>
+                          <div className="w-full h-2 bg-black rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full" style={{width: '23%'}} />
+                          </div>
+                          <div className="text-right text-xs text-slate-400 mt-1">23% utilized</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="gpu-l40s">
+                        <div className="bg-violet-900/50 rounded-lg px-4 py-2 hover:bg-violet-800/50 border border-transparent hover:border-slate-400">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-green-300 font-bold text-sm">L40S 48GB</span>
+                            <span className="text-slate-300 text-xs font-bold px-2 py-0.5 bg-slate-500/30 rounded">IDLE</span>
+                          </div>
+                          <div className="w-full h-2 bg-black rounded-full overflow-hidden">
+                            <div className="h-full bg-slate-500 rounded-full" style={{width: '5%'}} />
+                          </div>
+                          <div className="text-right text-xs text-slate-400 mt-1">5% utilized</div>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-violet-400 to-red-400 rounded-full" />
+            </div>
+
+            {/* SECTION 0.5: HARD GUARDS */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-red-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">0.5 HARD GUARDS & LIMITS</h2>
+                  <p className="text-red-200/80">Before tokenization — reject or truncate</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="guard-prompt">
+                  <div className="bg-gradient-to-br from-red-950 to-rose-950 border-2 border-red-400 rounded-xl p-5 shadow-lg h-full">
+                    <div className="text-4xl mb-3">📏</div>
+                    <div className="text-red-300 font-black text-base mb-2">MAX PROMPT SIZE</div>
+                    <div className="inline-block bg-red-600 text-white text-xs font-black px-3 py-1 rounded mb-2">REJECT</div>
+                    <div className="text-white font-mono text-sm mb-2">&gt; 128K characters</div>
+                    <div className="text-red-200/70 text-xs">Prevents: OOM errors</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="guard-output">
+                  <div className="bg-gradient-to-br from-amber-950 to-orange-950 border-2 border-amber-400 rounded-xl p-5 shadow-lg h-full">
+                    <div className="text-4xl mb-3">🔢</div>
+                    <div className="text-amber-300 font-black text-base mb-2">MAX OUTPUT</div>
+                    <div className="inline-block bg-amber-600 text-white text-xs font-black px-3 py-1 rounded mb-2">CAP</div>
+                    <div className="text-white font-mono text-sm mb-2">&gt; 4096 tokens</div>
+                    <div className="text-amber-200/70 text-xs">Prevents: Runaway generation</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="guard-context">
+                  <div className="bg-gradient-to-br from-pink-950 to-rose-950 border-2 border-pink-400 rounded-xl p-5 shadow-lg h-full">
+                    <div className="text-4xl mb-3">✂️</div>
+                    <div className="text-pink-300 font-black text-base mb-2">CONTEXT OVERFLOW</div>
+                    <div className="inline-block bg-pink-600 text-white text-xs font-black px-3 py-1 rounded mb-2">TRUNCATE</div>
+                    <div className="text-white font-mono text-sm mb-2">Exceeds window</div>
+                    <div className="text-pink-200/70 text-xs">Prevents: KV cache explosion</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="guard-attachment">
+                  <div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-5 shadow-lg h-full">
+                    <div className="text-4xl mb-3">📎</div>
+                    <div className="text-purple-300 font-black text-base mb-2">ATTACHMENT SIZE</div>
+                    <div className="inline-block bg-purple-600 text-white text-xs font-black px-3 py-1 rounded mb-2">REJECT</div>
+                    <div className="text-white font-mono text-sm mb-2">&gt; 20MB files</div>
+                    <div className="text-purple-200/70 text-xs">Prevents: Memory pressure</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Output */}
+            <div className="mt-12 mb-8">
+              <div className="bg-gradient-to-r from-green-600 to-emerald-600 border-2 border-green-400 rounded-xl p-6 shadow-lg shadow-green-500/30">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-4">
+                    <span className="text-5xl">✅</span>
+                    <div>
+                      <div className="text-2xl font-black text-white">VALIDATED REQUEST</div>
+                      <div className="text-green-200 font-medium">Ready for Input Normalization & Tokenization →</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-8 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">Pre-Model Processing • Stage 0 • 🖱️ Hover over any item for detailed tooltips</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<PreModelWithTooltips />);
+  </script>
+</body>
+</html>

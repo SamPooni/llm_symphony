@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 5: Gradient Synchronization - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function GradientSyncStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-bandwidth': {
+          title: '📊 BANDWIDTH',
+          content: 'Network bandwidth determines sync time. InfiniBand NDR: 400 Gbps. Gradient volume can be huge.',
+          numbers: '70B model gradients: 140GB (BF16)\n400 Gbps = 50 GB/s\nTheoretical: 2.8s to move all gradients',
+          reality: 'AllReduce ring: 2× data volume\nOverlap with compute helps\nActual: <1s with good overlap'
+        },
+        'metric-latency': {
+          title: '⏱️ LATENCY',
+          content: 'Communication latency adds to step time. Must overlap with compute to hide it.',
+          breakdown: 'IB latency: ~1μs\nAllReduce startup: ~10-100μs\nData transfer: bandwidth-bound',
+          optimization: 'Bucket gradients for pipelining\nOverlap with backward compute\nNVLink for intra-node (faster)'
+        },
+        'metric-scaling': {
+          title: '📈 SCALING EFFICIENCY',
+          content: 'How well does training scale with more GPUs? Communication overhead determines this.',
+          ideal: 'N GPUs → N× throughput\nReality: Communication overhead\n90%+ efficiency is excellent',
+          bottleneck: 'More GPUs = more communication\nRing AllReduce: O(N) time\nTree AllReduce: O(log N) time'
+        },
+        'metric-overlap': {
+          title: '🔄 OVERLAP %',
+          content: 'Percentage of communication hidden behind compute. Higher is better.',
+          target: '80%+ overlap is good\n90%+ is excellent\n<50% means communication-bound',
+          how: 'DDP hooks trigger early sync\nBucket by parameter group\nPrefetch next layer'
+        },
+
+        // Collective Operations
+        'collective-allreduce': {
+          title: '🔄 AllReduce',
+          content: 'Sum gradients across all ranks, result on all ranks. The fundamental DP operation.',
+          operation: 'Input: gradient on each rank\nOutput: sum of gradients on ALL ranks\nEvery rank gets identical result',
+          algorithms: 'Ring: O(2(N-1)/N × data)\nTree: O(2 × log(N) × data)\nRecursive halving-doubling',
+          usage: 'DDP gradient sync\nData parallel training\nMost common collective'
+        },
+        'collective-reducescatter': {
+          title: '📤 Reduce-Scatter',
+          content: 'Reduce then scatter: each rank gets 1/N of the reduced result. Used in FSDP/ZeRO.',
+          operation: 'Input: gradient on each rank\nOutput: 1/N of sum on each rank\nRank i gets shard i of total',
+          benefit: 'Each rank: 1/N data after op\nBasis of ZeRO-3 / FSDP\nMemory efficient',
+          usage: 'FSDP gradient sync\nZeRO-3 gradient sharding'
+        },
+        'collective-allgather': {
+          title: '📥 AllGather',
+          content: 'Gather shards from all ranks to all ranks. Reconstruct full tensor from shards.',
+          operation: 'Input: 1/N of data on each rank\nOutput: full data on ALL ranks\nConcatenates shards',
+          usage: 'FSDP: Gather params before forward\nZeRO-3: Reconstruct weights\nReverse of Reduce-Scatter',
+          cost: 'Each rank sends 1/N, receives (N-1)/N\nTotal volume: (N-1)/N × data'
+        },
+        'collective-alltoall': {
+          title: '🔀 All-to-All',
+          content: 'Personalized exchange: each rank sends different data to each other rank. MoE routing.',
+          operation: 'Rank i sends chunk_ij to rank j\nAll ranks exchange simultaneously\nMost flexible, most complex',
+          usage: 'MoE expert parallel: Send tokens to expert owners\nTranspose distributed tensors',
+          cost: 'Complex pattern\nDepends on actual data distribution\nNetwork topology matters'
+        },
+        'collective-broadcast': {
+          title: '📡 Broadcast',
+          content: 'One rank sends to all others. Used for distributing initial weights or hyperparameters.',
+          operation: 'Input: data on rank 0 (root)\nOutput: data on ALL ranks\nOne-to-many communication',
+          usage: 'Distribute initial weights\nShare random seeds\nLess common in training loop'
+        },
+
+        // DDP Sync
+        'ddp-hooks': {
+          title: '🪝 DDP Hooks',
+          content: 'PyTorch DDP registers hooks on each parameter. Triggers gradient sync when gradient is ready.',
+          mechanism: 'Hook fires when grad computed\nAdds grad to bucket\nBucket full → AllReduce starts',
+          benefit: 'Overlaps sync with backward\nNo explicit sync code needed\nAutomatic bucketing'
+        },
+        'ddp-buckets': {
+          title: '🪣 Gradient Buckets',
+          content: 'Group small gradients into buckets for efficient AllReduce. Reduces communication overhead.',
+          mechanism: 'Bucket size: 25MB default\nSmall tensors grouped together\nOne AllReduce per bucket',
+          tuning: 'Larger buckets: fewer ops, less overlap\nSmaller buckets: more ops, better overlap\n25MB is good default'
+        },
+        'ddp-sync-point': {
+          title: '🎯 Sync Points',
+          content: 'All ranks must reach sync point together. Straggler delays everyone.',
+          behavior: 'AllReduce is blocking (effectively)\nAll ranks must participate\nSlowest rank determines time',
+          problem: 'Load imbalance hurts scaling\nOne slow rank → all wait\nData variation can cause this'
+        },
+
+        // FSDP Sync
+        'fsdp-reduce-scatter': {
+          title: '📤 FSDP Reduce-Scatter',
+          content: 'After backward, Reduce-Scatter gradients. Each rank keeps 1/N of gradients.',
+          flow: 'Backward computes full gradient\nReduce-Scatter across ranks\nEach rank: 1/N gradient shard',
+          memory: 'Only 1/N gradient memory needed\nOptimizer step on shard only\nMassive memory savings'
+        },
+        'fsdp-allgather': {
+          title: '📥 FSDP AllGather',
+          content: 'Before forward/backward, AllGather parameters. Reconstruct full layer from shards.',
+          flow: 'Each rank has 1/N of params\nAllGather to reconstruct full\nCompute forward/backward\nDiscard non-owned params',
+          timing: 'Prefetch: AllGather next layer\nOverlap with current layer compute\nCritical for performance'
+        },
+        'fsdp-prefetch': {
+          title: '⏭️ FSDP Prefetching',
+          content: 'AllGather next layer while computing current. Hides communication latency.',
+          mechanism: 'Layer N computing\nLayer N+1 AllGather in flight\nWhen N done, N+1 ready',
+          config: 'forward_prefetch=True\nbackward_prefetch=BACKWARD_PRE\nLimit concurrent prefetch (memory)'
+        },
+
+        // ZeRO Stages
+        'zero-1': {
+          title: '1️⃣ ZeRO Stage 1',
+          content: 'Shard optimizer states only. Each rank stores 1/N of Adam m, v tensors.',
+          memory: 'Optimizer: 1/N\nGradients: Full\nParams: Full',
+          savings: '~4× memory reduction\nMinimal communication overhead\nGood starting point'
+        },
+        'zero-2': {
+          title: '2️⃣ ZeRO Stage 2',
+          content: 'Shard optimizer states AND gradients. Reduce-Scatter gradients after backward.',
+          memory: 'Optimizer: 1/N\nGradients: 1/N\nParams: Full',
+          savings: '~8× memory reduction\nSlightly more communication\nGood for most cases'
+        },
+        'zero-3': {
+          title: '3️⃣ ZeRO Stage 3',
+          content: 'Shard everything: optimizer, gradients, AND parameters. Maximum memory efficiency.',
+          memory: 'Optimizer: 1/N\nGradients: 1/N\nParams: 1/N',
+          savings: '~N× memory reduction\nMost communication\nNeeded for largest models'
+        },
+
+        // MoE Communication
+        'moe-dispatch': {
+          title: '📤 MoE Token Dispatch',
+          content: 'All-to-All to send tokens to expert-owning GPUs. Each GPU owns subset of experts.',
+          flow: 'Router assigns tokens to experts\nAll-to-All: tokens → expert owners\nExperts process their tokens',
+          pattern: 'Non-uniform communication\nDepends on routing decisions\nLoad balancing important'
+        },
+        'moe-combine': {
+          title: '📥 MoE Result Combine',
+          content: 'All-to-All to return expert outputs to original GPUs.',
+          flow: 'Experts compute outputs\nAll-to-All: outputs → original ranks\nCombine with routing weights',
+          symmetry: 'Reverse of dispatch\nSame communication volume\nBackward mirrors forward'
+        },
+
+        // Network Topology
+        'topo-nvlink': {
+          title: '🔗 NVLink (Intra-node)',
+          content: 'Direct GPU-to-GPU within node. 900 GB/s bidirectional. Required for Tensor Parallel.',
+          specs: 'NVLink 4.0: 900 GB/s\nNVSwitch: All-to-all\n18 links per H100',
+          usage: 'Tensor Parallel comms\nIntra-node AllReduce\nFast, no CPU involvement'
+        },
+        'topo-ib': {
+          title: '🌐 InfiniBand (Inter-node)',
+          content: 'High-bandwidth network between nodes. 400 Gbps NDR. RDMA for low latency.',
+          specs: 'NDR: 400 Gbps/port\nRDMA: ~1μs latency\nMultiple rails common',
+          usage: 'Data Parallel AllReduce\nPipeline P2P\nCheckpoint writes'
+        },
+        'topo-hierarchy': {
+          title: '🏗️ Hierarchical AllReduce',
+          content: 'Two-level reduce: intra-node (NVLink), then inter-node (IB). Exploits topology.',
+          algorithm: '1. AllReduce within node (fast)\n2. AllReduce across nodes (slower)\n3. Broadcast within node',
+          benefit: 'Exploits fast NVLink\nReduces IB traffic\nDefault in NCCL'
+        },
+
+        // Communication Libraries
+        'lib-nccl': {
+          title: '📚 NCCL',
+          content: 'NVIDIA Collective Communications Library. Optimized for NVIDIA GPUs.',
+          features: 'Topology-aware algorithms\nNVLink, IB, PCIe support\nAutomatic algorithm selection',
+          usage: 'Default for PyTorch distributed\nCUDA-only\nBest performance on NVIDIA'
+        },
+        'lib-gloo': {
+          title: '📚 Gloo',
+          content: 'Facebook\'s collective library. CPU and GPU support. Good fallback.',
+          features: 'CPU collectives\nPlatform portable\nGood for debugging',
+          usage: 'CPU operations\nNon-NVIDIA GPUs\nFallback option'
+        },
+
+        // Optimization
+        'opt-overlap': {
+          title: '⏱️ Compute-Comm Overlap',
+          content: 'Run communication while computing. Critical for scaling efficiency.',
+          techniques: 'DDP hooks: Auto overlap\nFSDP prefetch: Manual config\nAsync collectives',
+          measurement: 'Profile comm vs compute time\nTarget: Comm hidden by compute\nNSight Systems to analyze'
+        },
+        'opt-compression': {
+          title: '🗜️ Gradient Compression',
+          content: 'Compress gradients before communication. Trade accuracy for bandwidth.',
+          methods: 'FP16/BF16 communication\nQuantization (INT8)\nSparsification (top-k)',
+          tradeoff: 'Less bandwidth needed\nSome accuracy loss\nUsually not needed with BF16'
+        },
+        'opt-async': {
+          title: '🔄 Async Operations',
+          content: 'Non-blocking collectives that return immediately. Explicit wait later.',
+          api: 'work = dist.all_reduce(tensor, async_op=True)\n# ... do other work ...\nwork.wait()',
+          usage: 'Manual overlap control\nAdvanced optimization\nMost users: Let DDP handle it'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.operation && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">OPERATION</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.operation}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.flow && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FLOW</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.flow}</pre>
+              </div>
+            )}
+            {t.memory && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MEMORY</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.memory}</pre>
+              </div>
+            )}
+            {t.specs && (
+              <div className="text-xs text-blue-400 mb-2">
+                <span className="font-bold">📊 Specs: </span>{t.specs}
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.usage && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">📍 Usage: </span>{t.usage}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-purple-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-violet-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-indigo-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-purple-600/30 border border-purple-400 rounded-full mb-6">
+                <span className="text-purple-300 font-bold">STAGE 5</span>
+                <span className="text-white">•</span>
+                <span className="text-purple-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-violet-400 to-indigo-400">
+                Gradient Synchronization
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-purple-300 font-bold">AllReduce, Reduce-Scatter, AllGather</span> — coordinate gradients across GPUs.
+                <span className="text-violet-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-bandwidth">
+                <div className="p-5 rounded-xl bg-purple-600/90 border-2 border-purple-400 shadow-lg shadow-purple-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">BANDWIDTH</span>
+                  </div>
+                  <div className="text-3xl font-black text-purple-100">400Gbps</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">InfiniBand NDR</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-latency">
+                <div className="p-5 rounded-xl bg-violet-600/90 border-2 border-violet-400 shadow-lg shadow-violet-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⏱️</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">LATENCY</span>
+                  </div>
+                  <div className="text-3xl font-black text-violet-100">~1μs</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">RDMA latency</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-scaling">
+                <div className="p-5 rounded-xl bg-indigo-600/90 border-2 border-indigo-400 shadow-lg shadow-indigo-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📈</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">SCALING</span>
+                  </div>
+                  <div className="text-3xl font-black text-indigo-100">&gt;90%</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Target efficiency</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-overlap">
+                <div className="p-5 rounded-xl bg-blue-600/90 border-2 border-blue-400 shadow-lg shadow-blue-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔄</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">OVERLAP</span>
+                  </div>
+                  <div className="text-3xl font-black text-blue-100">80%+</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Comm hidden</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: COLLECTIVE OPERATIONS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">5.1 COLLECTIVE OPERATIONS</h2>
+                  <p className="text-purple-200/80">The building blocks of distributed communication</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-3 mb-6">
+                <Hoverable id="collective-allreduce">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-1">🔄 AllReduce</div>
+                    <div className="text-purple-100/70 text-xs">Sum → All ranks</div>
+                    <div className="text-purple-100/50 text-xs mt-1">DDP standard</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="collective-reducescatter">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-1">📤 Reduce-Scatter</div>
+                    <div className="text-violet-100/70 text-xs">Sum → Sharded</div>
+                    <div className="text-violet-100/50 text-xs mt-1">FSDP/ZeRO</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="collective-allgather">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-1">📥 AllGather</div>
+                    <div className="text-indigo-100/70 text-xs">Shards → All</div>
+                    <div className="text-indigo-100/50 text-xs mt-1">Reconstruct</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="collective-alltoall">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-1">🔀 All-to-All</div>
+                    <div className="text-blue-100/70 text-xs">Personalized exchange</div>
+                    <div className="text-blue-100/50 text-xs mt-1">MoE routing</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="collective-broadcast">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-1">📡 Broadcast</div>
+                    <div className="text-cyan-100/70 text-xs">One → All</div>
+                    <div className="text-cyan-100/50 text-xs mt-1">Init weights</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* AllReduce Visualization */}
+              <div className="bg-slate-900/80 border-2 border-purple-500/50 rounded-xl p-6">
+                <div className="text-lg font-black text-purple-300 mb-4">🔄 AllReduce in Action (Data Parallel)</div>
+                <div className="flex items-center justify-between gap-4">
+                  {/* Before */}
+                  <div className="flex-1">
+                    <div className="text-slate-400 text-sm mb-2 text-center">Before AllReduce</div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {['GPU 0', 'GPU 1', 'GPU 2', 'GPU 3'].map((gpu, i) => (
+                        <div key={i} className="bg-slate-800 rounded-lg p-2 text-center">
+                          <div className="text-slate-300 text-xs">{gpu}</div>
+                          <div className="text-purple-400 font-mono text-sm">∇{i}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="text-purple-400 text-2xl px-4">→</div>
+
+                  {/* After */}
+                  <div className="flex-1">
+                    <div className="text-slate-400 text-sm mb-2 text-center">After AllReduce</div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {['GPU 0', 'GPU 1', 'GPU 2', 'GPU 3'].map((gpu, i) => (
+                        <div key={i} className="bg-green-900/50 rounded-lg p-2 text-center border border-green-500">
+                          <div className="text-slate-300 text-xs">{gpu}</div>
+                          <div className="text-green-400 font-mono text-sm">Σ∇</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 text-center text-slate-400 text-sm">
+                  All ranks have identical sum of gradients → identical weight updates
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-purple-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: DDP SYNCHRONIZATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">5.2 DDP SYNCHRONIZATION</h2>
+                  <p className="text-green-200/80">DistributedDataParallel gradient averaging</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="ddp-hooks">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-xl font-black text-green-200 mb-2">🪝 DDP Hooks</div>
+                    <div className="text-green-100/80 text-sm">Auto-trigger sync</div>
+                    <div className="text-green-100/60 text-xs mt-2">On gradient ready</div>
+                    <div className="text-green-100/60 text-xs">Overlaps with backward</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="ddp-buckets">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">🪣 Gradient Buckets</div>
+                    <div className="text-emerald-100/80 text-sm">Group small tensors</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">25MB default size</div>
+                    <div className="text-emerald-100/60 text-xs">Reduce overhead</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="ddp-sync-point">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-xl font-black text-teal-200 mb-2">🎯 Sync Points</div>
+                    <div className="text-teal-100/80 text-sm">All ranks together</div>
+                    <div className="text-teal-100/60 text-xs mt-2">Straggler delays all</div>
+                    <div className="text-teal-100/60 text-xs">Load balance important</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* DDP Flow */}
+              <div className="bg-slate-900/80 border border-green-500/30 rounded-xl p-4">
+                <div className="text-green-300 font-bold mb-3">⚡ DDP Backward + Sync Flow</div>
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <div className="bg-slate-800 rounded-lg px-3 py-2 text-center">
+                    <div className="text-orange-300">Backward</div>
+                    <div className="text-slate-400 text-xs">Compute grads</div>
+                  </div>
+                  <div className="text-green-400">→</div>
+                  <div className="bg-slate-800 rounded-lg px-3 py-2 text-center">
+                    <div className="text-green-300">Hook fires</div>
+                    <div className="text-slate-400 text-xs">Grad ready</div>
+                  </div>
+                  <div className="text-green-400">→</div>
+                  <div className="bg-slate-800 rounded-lg px-3 py-2 text-center">
+                    <div className="text-green-300">Add to bucket</div>
+                    <div className="text-slate-400 text-xs">Accumulate</div>
+                  </div>
+                  <div className="text-green-400">→</div>
+                  <div className="bg-green-800 rounded-lg px-3 py-2 text-center">
+                    <div className="text-green-200">AllReduce</div>
+                    <div className="text-green-400 text-xs">When bucket full</div>
+                  </div>
+                  <div className="text-green-400">→</div>
+                  <div className="bg-slate-800 rounded-lg px-3 py-2 text-center">
+                    <div className="text-green-300">Avg grads</div>
+                    <div className="text-slate-400 text-xs">÷ world_size</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-green-400 to-orange-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: FSDP/ZeRO SYNCHRONIZATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">5.3 FSDP / ZeRO SYNC</h2>
+                  <p className="text-orange-200/80">Sharded parameter synchronization patterns</p>
+                </div>
+              </div>
+
+              {/* FSDP Operations */}
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="fsdp-allgather">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">📥 AllGather Params</div>
+                    <div className="text-orange-100/80 text-sm">Before forward/backward</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Reconstruct full layer</div>
+                    <div className="text-orange-100/60 text-xs">Then compute</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="fsdp-reduce-scatter">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">📤 Reduce-Scatter Grads</div>
+                    <div className="text-red-100/80 text-sm">After backward</div>
+                    <div className="text-red-100/60 text-xs mt-2">Each rank: 1/N grads</div>
+                    <div className="text-red-100/60 text-xs">Memory efficient</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="fsdp-prefetch">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-xl font-black text-rose-200 mb-2">⏭️ Prefetching</div>
+                    <div className="text-rose-100/80 text-sm">Overlap comm/compute</div>
+                    <div className="text-rose-100/60 text-xs mt-2">AllGather next layer</div>
+                    <div className="text-rose-100/60 text-xs">While computing current</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* ZeRO Stages */}
+              <div className="bg-slate-900/80 border border-orange-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-orange-300 mb-4">📊 ZeRO Stages Comparison</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Hoverable id="zero-1">
+                    <div className="bg-yellow-900/30 border border-yellow-500 rounded-xl p-4">
+                      <div className="text-yellow-200 font-bold text-lg">ZeRO-1</div>
+                      <div className="text-yellow-100/70 text-sm mt-2">Optimizer: <span className="text-green-400">1/N</span></div>
+                      <div className="text-yellow-100/70 text-sm">Gradients: <span className="text-red-400">Full</span></div>
+                      <div className="text-yellow-100/70 text-sm">Params: <span className="text-red-400">Full</span></div>
+                      <div className="text-yellow-300 text-xs mt-2">~4× memory savings</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="zero-2">
+                    <div className="bg-orange-900/30 border border-orange-500 rounded-xl p-4">
+                      <div className="text-orange-200 font-bold text-lg">ZeRO-2</div>
+                      <div className="text-orange-100/70 text-sm mt-2">Optimizer: <span className="text-green-400">1/N</span></div>
+                      <div className="text-orange-100/70 text-sm">Gradients: <span className="text-green-400">1/N</span></div>
+                      <div className="text-orange-100/70 text-sm">Params: <span className="text-red-400">Full</span></div>
+                      <div className="text-orange-300 text-xs mt-2">~8× memory savings</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="zero-3">
+                    <div className="bg-red-900/30 border-2 border-red-500 rounded-xl p-4">
+                      <div className="text-red-200 font-bold text-lg">ZeRO-3 / FSDP</div>
+                      <div className="text-red-100/70 text-sm mt-2">Optimizer: <span className="text-green-400">1/N</span></div>
+                      <div className="text-red-100/70 text-sm">Gradients: <span className="text-green-400">1/N</span></div>
+                      <div className="text-red-100/70 text-sm">Params: <span className="text-green-400">1/N</span></div>
+                      <div className="text-red-300 text-xs mt-2">~N× memory savings</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-orange-400 to-pink-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: MoE COMMUNICATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">5.4 MoE COMMUNICATION</h2>
+                  <p className="text-pink-200/80">All-to-All for expert parallel routing</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="moe-dispatch">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">📤 Token Dispatch</div>
+                    <div className="text-pink-100/80 text-sm">All-to-All: tokens → expert GPUs</div>
+                    <div className="text-pink-100/60 text-xs mt-2">Router decides assignment</div>
+                    <div className="text-pink-100/60 text-xs">Non-uniform communication</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="moe-combine">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-xl font-black text-rose-200 mb-2">📥 Result Combine</div>
+                    <div className="text-rose-100/80 text-sm">All-to-All: outputs → original GPUs</div>
+                    <div className="text-rose-100/60 text-xs mt-2">Return after expert compute</div>
+                    <div className="text-rose-100/60 text-xs">Weighted combination</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 5: NETWORK & OPTIMIZATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">5.5 NETWORK & OPTIMIZATION</h2>
+                  <p className="text-cyan-200/80">Topology, libraries, and performance tuning</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Network Topology */}
+                <div className="bg-slate-900/80 border border-cyan-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-cyan-300 mb-4">🌐 Network Topology</div>
+                  <div className="space-y-3">
+                    <Hoverable id="topo-nvlink">
+                      <div className="bg-green-900/40 border border-green-500 rounded-lg p-3">
+                        <div className="text-green-200 font-bold">🔗 NVLink (Intra-node)</div>
+                        <div className="text-green-100/60 text-xs">900 GB/s • For Tensor Parallel</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="topo-ib">
+                      <div className="bg-blue-900/40 border border-blue-500 rounded-lg p-3">
+                        <div className="text-blue-200 font-bold">🌐 InfiniBand (Inter-node)</div>
+                        <div className="text-blue-100/60 text-xs">400 Gbps • For Data Parallel</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="topo-hierarchy">
+                      <div className="bg-purple-900/40 border border-purple-500 rounded-lg p-3">
+                        <div className="text-purple-200 font-bold">🏗️ Hierarchical AllReduce</div>
+                        <div className="text-purple-100/60 text-xs">Intra-node first, then inter-node</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Optimization */}
+                <div className="bg-slate-900/80 border border-cyan-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-cyan-300 mb-4">⚡ Optimization Techniques</div>
+                  <div className="space-y-3">
+                    <Hoverable id="opt-overlap">
+                      <div className="bg-cyan-900/40 border border-cyan-500 rounded-lg p-3">
+                        <div className="text-cyan-200 font-bold">⏱️ Compute-Comm Overlap</div>
+                        <div className="text-cyan-100/60 text-xs">Hide comm behind compute</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="opt-compression">
+                      <div className="bg-teal-900/40 border border-teal-500 rounded-lg p-3">
+                        <div className="text-teal-200 font-bold">🗜️ Gradient Compression</div>
+                        <div className="text-teal-100/60 text-xs">FP16/INT8 communication</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="opt-async">
+                      <div className="bg-emerald-900/40 border border-emerald-500 rounded-lg p-3">
+                        <div className="text-emerald-200 font-bold">🔄 Async Operations</div>
+                        <div className="text-emerald-100/60 text-xs">Non-blocking collectives</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+
+              {/* Libraries */}
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <Hoverable id="lib-nccl">
+                  <div className="bg-green-900/30 border border-green-500 rounded-xl p-4">
+                    <div className="text-green-200 font-bold">📚 NCCL</div>
+                    <div className="text-green-100/60 text-sm">NVIDIA Collective Communications Library</div>
+                    <div className="text-green-100/60 text-xs mt-1">Default for PyTorch • Best for NVIDIA GPUs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="lib-gloo">
+                  <div className="bg-blue-900/30 border border-blue-500 rounded-xl p-4">
+                    <div className="text-blue-200 font-bold">📚 Gloo</div>
+                    <div className="text-blue-100/60 text-sm">Facebook's collective library</div>
+                    <div className="text-blue-100/60 text-xs mt-1">CPU support • Fallback option</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border-2 border-purple-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                Stage 5 Complete → Gradients Synchronized
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto">
+                All GPUs now have consistent gradients. DDP: averaged across replicas. FSDP: sharded efficiently.
+                Next: <span className="text-green-300 font-bold">Stage 6: Optimizer Step</span> — update the weights.
+              </div>
+              <div className="mt-4 flex justify-center gap-8 text-sm">
+                <div className="text-purple-300">
+                  <span className="font-bold">AllReduce</span> for DDP
+                </div>
+                <div className="text-violet-300">
+                  <span className="font-bold">Reduce-Scatter</span> for FSDP
+                </div>
+                <div className="text-indigo-300">
+                  <span className="font-bold">All-to-All</span> for MoE
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 5: Gradient Synchronization • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">Local Grads → Collective → Synchronized Grads</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<GradientSyncStage />);
+  </script>
+</body>
+</html>

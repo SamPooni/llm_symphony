@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inference Pipeline - Prefill, Decode & Optimization</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function InferencePipeline() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-ttft': {
+          title: '⏱️ TIME TO FIRST TOKEN (TTFT)',
+          content: 'Time from request to first token output. Dominated by prefill computation.',
+          breakdown: 'Network latency: 10-50ms\nQueue wait: 0-1000ms+\nPrefill compute: 100-5000ms\nFirst decode: ~50ms',
+          targets: 'Interactive: <500ms\nBatch: <2s\nLong context: <10s'
+        },
+        'metric-tpot': {
+          title: '⚡ TIME PER OUTPUT TOKEN (TPOT)',
+          content: 'Time to generate each subsequent token. Determines streaming speed.',
+          typical: 'Small model (7B): 10-30ms\nMedium (70B): 30-100ms\nLarge (400B+): 100-300ms',
+          bottleneck: 'Decode is memory-bound\nLoading KV cache + weights\nNot compute-bound'
+        },
+        'metric-throughput': {
+          title: '📊 THROUGHPUT',
+          content: 'Total tokens generated per second across all requests. Key for cost efficiency.',
+          formula: 'Throughput = batch_size / TPOT\nHigher batch = higher throughput\nBut higher latency per request',
+          targets: 'Single GPU 70B: 100-500 tok/s\nMulti-GPU optimized: 1000+ tok/s'
+        },
+        'metric-memory': {
+          title: '💾 MEMORY USAGE',
+          content: 'GPU memory for model weights + KV cache. KV cache grows with context.',
+          breakdown: '70B weights (FP16): 140GB\nKV cache per token: ~1MB\n4K context: ~4GB KV\n128K context: ~128GB KV',
+          constraint: 'Memory limits batch size\nMemory limits context length\nKey optimization target'
+        },
+
+        // Prefill Phase
+        'prefill-concept': {
+          title: '📥 PREFILL PHASE',
+          content: 'Process entire input prompt in parallel. Compute-bound, like training forward pass.',
+          characteristics: 'All input tokens at once\nParallel computation\nCompute-bound (GPU busy)\nBuilds initial KV cache',
+          analogy: 'Like training forward pass\nBut no backward\nSingle batch of prompt'
+        },
+        'prefill-attention': {
+          title: '👁️ Prefill Attention',
+          content: 'Full causal attention over prompt. Can use FlashAttention for efficiency.',
+          computation: 'Q, K, V for all prompt tokens\nFull [seq, seq] attention\nCausal mask applied\nO(n²) but parallelizable',
+          optimization: 'FlashAttention: Memory efficient\nTensor cores fully utilized\nHigh arithmetic intensity'
+        },
+        'prefill-kv-build': {
+          title: '🔧 KV Cache Construction',
+          content: 'Compute and store K, V for all prompt tokens. Will be reused during decode.',
+          storage: 'K: [layers, seq, heads, head_dim]\nV: [layers, seq, heads, head_dim]\nPer layer, per head',
+          size: '70B model, 4K context:\n80 layers × 4096 × 8 × 128 × 2 bytes\n≈ 5GB for K+V'
+        },
+        'prefill-compute': {
+          title: '⚡ Prefill Compute',
+          content: 'Prefill is compute-bound. GPU tensor cores are the bottleneck.',
+          flops: 'Similar to training forward\n~2 × params × seq_len FLOPs\n70B, 4K: ~560 TFLOPs',
+          utilization: 'High GPU utilization\nTensor cores busy\nMemory bandwidth not limit'
+        },
+        'prefill-chunked': {
+          title: '📦 Chunked Prefill',
+          content: 'For very long prompts, split into chunks. Avoids memory spikes.',
+          mechanism: 'Split prompt into chunks (e.g., 2K)\nProcess chunk by chunk\nAppend to KV cache\nLower peak memory',
+          tradeoff: 'Slightly slower total time\nBut enables longer contexts\nUsed by vLLM, TGI'
+        },
+
+        // KV Cache
+        'kv-concept': {
+          title: '🗄️ KV CACHE CONCEPT',
+          content: 'Store computed K, V values to avoid recomputation. The key inference optimization.',
+          insight: 'Each token\'s K, V only depends on that token\nOnce computed, never changes\nReuse for all future tokens',
+          without: 'Without cache: O(n²) per token\nWith cache: O(n) per token\nMassive speedup'
+        },
+        'kv-structure': {
+          title: '📐 KV Cache Structure',
+          content: 'Separate K and V tensors per layer. Shape depends on model architecture.',
+          shape: 'Per layer:\nK: [batch, num_kv_heads, seq, head_dim]\nV: [batch, num_kv_heads, seq, head_dim]',
+          gqa: 'GQA: fewer KV heads than Q heads\nLLaMA-70B: 8 KV heads vs 64 Q\n8× smaller KV cache'
+        },
+        'kv-memory': {
+          title: '💾 KV Cache Memory',
+          content: 'Memory grows linearly with sequence length and batch size. Often the bottleneck.',
+          formula: 'KV memory = 2 × layers × seq × kv_heads × head_dim × bytes\n× batch_size',
+          example: 'LLaMA-70B, 4K context, batch=1:\n2 × 80 × 4096 × 8 × 128 × 2 = 1.3GB\nbatch=32: 42GB just for KV!'
+        },
+        'kv-paged': {
+          title: '📄 Paged Attention (vLLM)',
+          content: 'Manage KV cache like virtual memory. Non-contiguous blocks, dynamic allocation.',
+          mechanism: 'KV cache in fixed-size blocks\nBlock table maps logical → physical\nAllocate/free blocks dynamically',
+          benefits: 'No memory fragmentation\nEfficient memory sharing\nHigher batch sizes possible'
+        },
+        'kv-quantization': {
+          title: '🗜️ KV Cache Quantization',
+          content: 'Compress KV cache to 8-bit or 4-bit. Enables longer contexts.',
+          methods: 'FP16 → INT8: 2× compression\nFP16 → INT4: 4× compression\nMinimal quality loss',
+          tradeoff: 'Quality: Slight degradation\nMemory: Major savings\nSpeed: May be faster (less data)'
+        },
+
+        // Decode Phase
+        'decode-concept': {
+          title: '🔄 DECODE PHASE',
+          content: 'Generate one token at a time. Memory-bound, sequential process.',
+          characteristics: 'One token per step\nSequential (autoregressive)\nMemory-bound (loading weights)\nUses cached K, V',
+          bottleneck: 'Must load all weights each token\nWeights >> compute needed\nWaiting on memory bandwidth'
+        },
+        'decode-attention': {
+          title: '👁️ Decode Attention',
+          content: 'New token attends to all previous tokens via cached K, V.',
+          computation: 'Q: [1, heads, 1, head_dim] (new token only)\nK, V: [1, heads, seq, head_dim] (from cache)\nAttention: [1, heads, 1, seq]',
+          efficiency: 'Only compute Q for new token\nReuse cached K, V\nAppend new K, V to cache'
+        },
+        'decode-memory-bound': {
+          title: '💾 Memory-Bound Decode',
+          content: 'Decode limited by memory bandwidth, not compute. Arithmetic intensity too low.',
+          math: 'FLOPs per token: ~2 × params\nBytes loaded: ~2 × params\nArithmetic intensity: ~1 FLOP/byte\nH100 needs ~100 FLOP/byte',
+          implication: 'GPU compute underutilized\nWaiting on HBM bandwidth\nBatching helps!'
+        },
+        'decode-batching': {
+          title: '📦 Batched Decode',
+          content: 'Process multiple sequences together. Amortize weight loading across batch.',
+          benefit: 'Load weights once\nApply to B sequences\nB× better efficiency',
+          limit: 'Memory: KV cache × batch\nMust fit in GPU memory\nTypical: 8-64 sequences'
+        },
+
+        // Sampling
+        'sample-logits': {
+          title: '📊 Logit Processing',
+          content: 'Raw model outputs. Apply temperature, top-k, top-p before sampling.',
+          pipeline: 'logits → temperature → top-k → top-p → sample',
+          shape: '[batch, vocab_size]\nOne distribution per sequence'
+        },
+        'sample-temperature': {
+          title: '🌡️ Temperature',
+          content: 'Scale logits before softmax. Higher = more random, lower = more deterministic.',
+          formula: 'logits = logits / temperature\nT=0: Always pick max (greedy)\nT=1: Standard sampling\nT>1: More random',
+          usage: 'T=0.0-0.3: Factual, coding\nT=0.7-1.0: Creative writing\nT>1.0: Very random'
+        },
+        'sample-topk': {
+          title: '🔝 Top-K Sampling',
+          content: 'Only consider the K most likely tokens. Zeros out the rest.',
+          mechanism: 'Sort by probability\nKeep top K tokens\nRenormalize probabilities\nSample from K',
+          typical: 'K=50: Moderately constrained\nK=10: Very focused\nK=vocab: No constraint'
+        },
+        'sample-topp': {
+          title: '📈 Top-P (Nucleus) Sampling',
+          content: 'Keep tokens until cumulative probability reaches P. Adaptive token count.',
+          mechanism: 'Sort by probability (descending)\nCumsum until ≥ P\nKeep those tokens\nRenormalize and sample',
+          typical: 'P=0.9: Keep 90% of probability mass\nP=0.95: More diverse\nP=1.0: No constraint'
+        },
+        'sample-repetition': {
+          title: '🔁 Repetition Penalty',
+          content: 'Reduce probability of recently generated tokens. Prevents loops.',
+          mechanism: 'Track recent tokens (window)\nDivide their logits by penalty\nPenalty > 1 discourages repetition',
+          typical: 'penalty = 1.0: No effect\npenalty = 1.1-1.2: Mild\npenalty > 1.5: Strong'
+        },
+
+        // Continuous Batching
+        'continuous-concept': {
+          title: '🔄 CONTINUOUS BATCHING',
+          content: 'Don\'t wait for all sequences to finish. Add new requests as old ones complete.',
+          problem: 'Static batch: Wait for longest\nShort requests blocked by long\nGPU idle waiting',
+          solution: 'Insert new requests mid-batch\nRemove completed requests\nGPU always busy'
+        },
+        'continuous-iteration': {
+          title: '⏭️ Iteration-Level Scheduling',
+          content: 'Schedule at each decode step. Maximum flexibility.',
+          mechanism: 'Each iteration:\n1. Check for completed sequences\n2. Remove them, free KV cache\n3. Add waiting requests\n4. Run decode step',
+          benefit: 'Minimal latency for short requests\nMaximum throughput\nEfficient memory use'
+        },
+        'continuous-preemption': {
+          title: '⏸️ Preemption',
+          content: 'Pause long requests to serve short ones. Swap KV cache to CPU.',
+          mechanism: 'Long request running\nHigh-priority request arrives\nSwap KV to CPU\nServe priority request\nSwap back and continue',
+          tradeoff: 'Better latency for short\nOverhead for swap\nUsed by vLLM'
+        },
+
+        // Speculative Decoding
+        'spec-concept': {
+          title: '🚀 SPECULATIVE DECODING',
+          content: 'Use small model to draft tokens, large model to verify. Faster overall.',
+          insight: 'Small model: Fast but less accurate\nLarge model: Slow but accurate\nVerify multiple tokens at once',
+          speedup: '2-3× speedup typical\nDepends on acceptance rate\nNo quality loss!'
+        },
+        'spec-draft': {
+          title: '📝 Draft Model',
+          content: 'Small, fast model generates K candidate tokens.',
+          requirements: 'Same vocabulary as target\nMuch smaller (7B for 70B target)\nFast inference',
+          generation: 'Generate K tokens (e.g., K=4)\nStore draft probabilities\nPass to target model'
+        },
+        'spec-verify': {
+          title: '✅ Verification',
+          content: 'Target model processes all draft tokens in parallel. Accepts/rejects.',
+          mechanism: 'Forward pass on all K tokens\nCompare target vs draft probs\nAccept if target agrees\nReject and resample if not',
+          acceptance: 'Higher temp → more acceptance\nSimilar models → more acceptance\nTypical: 50-80% acceptance'
+        },
+        'spec-medusa': {
+          title: '🐍 Medusa',
+          content: 'Add multiple prediction heads to predict future tokens. Self-speculative.',
+          mechanism: 'Main model + extra heads\nHead i predicts token at position +i\nTree-based verification',
+          benefit: 'No separate draft model\nSingle model inference\n2× speedup typical'
+        },
+
+        // Quantization
+        'quant-concept': {
+          title: '🗜️ QUANTIZATION',
+          content: 'Reduce precision of weights. Smaller model, faster inference.',
+          levels: 'FP16: 16-bit (baseline)\nINT8: 8-bit (2× smaller)\nINT4: 4-bit (4× smaller)\nLower bits emerging',
+          tradeoff: 'Size: Smaller is better\nQuality: Some degradation\nSpeed: Often faster'
+        },
+        'quant-int8': {
+          title: '8️⃣ INT8 Quantization',
+          content: '8-bit integer weights. Minimal quality loss, 2× compression.',
+          methods: 'LLM.int8(): Dynamic quantization\nSmoothQuant: Activation smoothing\nGPTQ: Optimal rounding',
+          quality: 'Usually <1% accuracy drop\nGood for most use cases\nWidely supported'
+        },
+        'quant-int4': {
+          title: '4️⃣ INT4 Quantization',
+          content: '4-bit integer weights. 4× compression, some quality loss.',
+          methods: 'GPTQ: Hessian-based\nAWQ: Activation-aware\nQQQ: Quality-focused',
+          quality: '1-3% accuracy drop typical\nOK for chat/creative\nMay struggle on benchmarks'
+        },
+        'quant-gguf': {
+          title: '📦 GGUF Format',
+          content: 'llama.cpp quantization format. Popular for local inference.',
+          variants: 'Q4_0, Q4_K_M, Q5_K_M, Q8_0\nK = k-quant (grouped)\nM = medium quality',
+          usage: 'Local/edge deployment\nCPU inference\nllama.cpp, ollama'
+        },
+
+        // Serving Infrastructure
+        'serve-vllm': {
+          title: '🚀 vLLM',
+          content: 'High-throughput serving with PagedAttention. Most popular open-source option.',
+          features: 'PagedAttention: Efficient memory\nContinuous batching\nSpeculative decoding\nTensor parallel',
+          performance: '10-24× throughput vs HF\nProduction ready\nOpenAI-compatible API'
+        },
+        'serve-tgi': {
+          title: '🤗 TGI',
+          content: 'HuggingFace Text Generation Inference. Production-ready serving.',
+          features: 'Continuous batching\nFlash attention\nQuantization support\nGRPC + REST API',
+          usage: 'HuggingFace ecosystem\nEnterprise deployments\nManaged endpoints'
+        },
+        'serve-tensorrt': {
+          title: '⚡ TensorRT-LLM',
+          content: 'NVIDIA\'s optimized inference engine. Maximum performance on NVIDIA GPUs.',
+          features: 'Fused kernels\nIn-flight batching\nFP8 support (Hopper)\nMulti-GPU',
+          performance: 'Fastest on NVIDIA hardware\nRequires compilation\nLess flexible'
+        },
+        'serve-triton': {
+          title: '🔺 Triton Inference Server',
+          content: 'NVIDIA\'s model serving platform. Manages multiple models and backends.',
+          features: 'Model ensembles\nDynamic batching\nMulti-framework\nMonitoring',
+          usage: 'Multi-model serving\nEnterprise deployment\nWith TensorRT-LLM backend'
+        },
+
+        // Optimizations
+        'opt-flashdecode': {
+          title: '⚡ Flash Decoding',
+          content: 'Optimized attention kernel for decode phase. Parallelizes over KV length.',
+          insight: 'Standard: Parallelize over batch\nFlash decode: Also parallelize over KV\nBetter for small batch, long context',
+          speedup: '2-8× for long contexts\nImproves single-request latency\nUsed in FlashAttention-2+'
+        },
+        'opt-cuda-graph': {
+          title: '📊 CUDA Graphs',
+          content: 'Capture and replay GPU operations. Eliminates CPU overhead.',
+          mechanism: 'Record sequence of GPU ops\nReplay without CPU involvement\nReduce kernel launch overhead',
+          benefit: '10-30% speedup\nEspecially for small batches\nReduces latency'
+        },
+        'opt-prefix-cache': {
+          title: '📋 Prefix Caching',
+          content: 'Cache KV for common prefixes (system prompts). Reuse across requests.',
+          mechanism: 'Many requests share system prompt\nCompute KV once, store\nReuse for all requests with same prefix',
+          savings: 'Skip prefill for shared prefix\nMajor TTFT reduction\nCommon system prompts'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.breakdown && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">BREAKDOWN</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.breakdown}</pre>
+              </div>
+            )}
+            {t.features && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FEATURES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.features}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.speedup && (
+              <div className="text-xs text-cyan-400 mt-2">
+                <span className="font-bold">🚀 Speedup: </span>{t.speedup}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-emerald-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-teal-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600/30 border border-emerald-400 rounded-full mb-6">
+                <span className="text-emerald-300 font-bold">INFERENCE</span>
+                <span className="text-white">•</span>
+                <span className="text-emerald-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-teal-400">
+                Inference Pipeline
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-emerald-300 font-bold">Prefill → Decode → Sample</span> — serving LLMs at scale.
+                <span className="text-cyan-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-ttft">
+                <div className="p-5 rounded-xl bg-emerald-600/90 border-2 border-emerald-400 shadow-lg shadow-emerald-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⏱️</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">TTFT</span>
+                  </div>
+                  <div className="text-2xl font-black text-emerald-100">&lt;500ms</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Time to first token</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-tpot">
+                <div className="p-5 rounded-xl bg-cyan-600/90 border-2 border-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⚡</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">TPOT</span>
+                  </div>
+                  <div className="text-2xl font-black text-cyan-100">30-100ms</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Per output token</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-throughput">
+                <div className="p-5 rounded-xl bg-teal-600/90 border-2 border-teal-400 shadow-lg shadow-teal-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">THROUGHPUT</span>
+                  </div>
+                  <div className="text-2xl font-black text-teal-100">1000+</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Tokens/sec total</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-memory">
+                <div className="p-5 rounded-xl bg-sky-600/90 border-2 border-sky-400 shadow-lg shadow-sky-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💾</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">KV CACHE</span>
+                  </div>
+                  <div className="text-2xl font-black text-sky-100">~1MB/tok</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Memory per token</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* Main Pipeline */}
+            <div className="bg-slate-900/80 border-2 border-emerald-500/50 rounded-xl p-6 mb-10">
+              <div className="text-lg font-black text-emerald-300 mb-4 text-center">🔄 INFERENCE PIPELINE</div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="bg-slate-800 rounded-xl p-4 text-center">
+                  <div className="text-2xl mb-2">📝</div>
+                  <div className="text-slate-300 font-bold">Prompt</div>
+                  <div className="text-slate-500 text-xs">Input tokens</div>
+                </div>
+                <div className="text-emerald-400 text-2xl">→</div>
+                <Hoverable id="prefill-concept">
+                  <div className="bg-blue-900/50 border-2 border-blue-400 rounded-xl p-4 text-center flex-1">
+                    <div className="text-2xl mb-2">📥</div>
+                    <div className="text-blue-200 font-bold">PREFILL</div>
+                    <div className="text-blue-300/60 text-xs">Compute-bound</div>
+                    <div className="text-blue-300/60 text-xs">Build KV cache</div>
+                  </div>
+                </Hoverable>
+                <div className="text-emerald-400 text-2xl">→</div>
+                <Hoverable id="decode-concept">
+                  <div className="bg-purple-900/50 border-2 border-purple-400 rounded-xl p-4 text-center flex-1">
+                    <div className="text-2xl mb-2">🔄</div>
+                    <div className="text-purple-200 font-bold">DECODE</div>
+                    <div className="text-purple-300/60 text-xs">Memory-bound</div>
+                    <div className="text-purple-300/60 text-xs">Token by token</div>
+                  </div>
+                </Hoverable>
+                <div className="text-emerald-400 text-2xl">→</div>
+                <Hoverable id="sample-logits">
+                  <div className="bg-orange-900/50 border-2 border-orange-400 rounded-xl p-4 text-center flex-1">
+                    <div className="text-2xl mb-2">🎲</div>
+                    <div className="text-orange-200 font-bold">SAMPLE</div>
+                    <div className="text-orange-300/60 text-xs">Temperature</div>
+                    <div className="text-orange-300/60 text-xs">Top-k/p</div>
+                  </div>
+                </Hoverable>
+                <div className="text-emerald-400 text-2xl">→</div>
+                <div className="bg-gradient-to-br from-emerald-800 to-teal-800 border-2 border-emerald-400 rounded-xl p-4 text-center">
+                  <div className="text-2xl mb-2">✨</div>
+                  <div className="text-emerald-100 font-bold">Output</div>
+                  <div className="text-emerald-200/60 text-xs">Generated text</div>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 1: PREFILL */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">PREFILL PHASE</h2>
+                  <p className="text-blue-200/80">Process prompt in parallel, build KV cache</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="prefill-attention">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">👁️ Attention</div>
+                    <div className="text-blue-100/80 text-sm">Full causal attention</div>
+                    <div className="text-blue-100/60 text-xs mt-2">O(n²) but parallel</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prefill-kv-build">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">🔧 Build KV</div>
+                    <div className="text-indigo-100/80 text-sm">Store K, V per layer</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">Reused in decode</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prefill-compute">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-xl font-black text-violet-200 mb-2">⚡ Compute-bound</div>
+                    <div className="text-violet-100/80 text-sm">Tensor cores busy</div>
+                    <div className="text-violet-100/60 text-xs mt-2">High GPU utilization</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prefill-chunked">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">📦 Chunked</div>
+                    <div className="text-purple-100/80 text-sm">For long prompts</div>
+                    <div className="text-purple-100/60 text-xs mt-2">Lower peak memory</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 2: KV CACHE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">KV CACHE</h2>
+                  <p className="text-cyan-200/80">The key to efficient autoregressive inference</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6 mb-6">
+                <div className="space-y-4">
+                  <Hoverable id="kv-concept">
+                    <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                      <div className="text-xl font-black text-cyan-200 mb-2">🗄️ Concept</div>
+                      <div className="text-cyan-100/80 text-sm">Cache K, V to avoid recomputation</div>
+                      <div className="text-cyan-100/60 text-xs mt-2">O(n²) → O(n) per token</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="kv-structure">
+                    <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                      <div className="text-xl font-black text-teal-200 mb-2">📐 Structure</div>
+                      <div className="text-teal-100/80 text-sm">[layers, batch, heads, seq, dim]</div>
+                      <div className="text-teal-100/60 text-xs mt-2">GQA: Fewer KV heads</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                <div className="space-y-4">
+                  <Hoverable id="kv-memory">
+                    <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                      <div className="text-xl font-black text-emerald-200 mb-2">💾 Memory</div>
+                      <div className="text-emerald-100/80 text-sm">Grows with seq × batch</div>
+                      <div className="text-emerald-100/60 text-xs mt-2">Often the bottleneck</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Hoverable id="kv-paged">
+                      <div className="p-3 rounded-xl bg-green-900/50 border border-green-400">
+                        <div className="text-green-200 font-bold text-sm">📄 Paged</div>
+                        <div className="text-green-100/60 text-xs">vLLM style</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="kv-quantization">
+                      <div className="p-3 rounded-xl bg-lime-900/50 border border-lime-400">
+                        <div className="text-lime-200 font-bold text-sm">🗜️ Quantized</div>
+                        <div className="text-lime-100/60 text-xs">INT8/INT4</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 3: DECODE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">DECODE PHASE</h2>
+                  <p className="text-purple-200/80">Generate tokens one at a time, memory-bound</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="decode-attention">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">👁️ Attention</div>
+                    <div className="text-purple-100/80 text-sm">New Q, cached K/V</div>
+                    <div className="text-purple-100/60 text-xs mt-2">Append to cache</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="decode-memory-bound">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-xl font-black text-violet-200 mb-2">💾 Memory-bound</div>
+                    <div className="text-violet-100/80 text-sm">Waiting on HBM</div>
+                    <div className="text-violet-100/60 text-xs mt-2">Low arithmetic intensity</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="decode-batching">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">📦 Batching</div>
+                    <div className="text-indigo-100/80 text-sm">Amortize weight loading</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">Higher throughput</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="continuous-concept">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">🔄 Continuous</div>
+                    <div className="text-blue-100/80 text-sm">Dynamic batching</div>
+                    <div className="text-blue-100/60 text-xs mt-2">No waiting</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 4: SAMPLING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">SAMPLING</h2>
+                  <p className="text-orange-200/80">Temperature, top-k, top-p, and more</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="sample-temperature">
+                  <div className="p-3 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-1">🌡️ Temp</div>
+                    <div className="text-red-100/70 text-xs">Scale logits</div>
+                    <div className="text-red-100/50 text-xs">0=greedy</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="sample-topk">
+                  <div className="p-3 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-1">🔝 Top-K</div>
+                    <div className="text-orange-100/70 text-xs">Keep top K</div>
+                    <div className="text-orange-100/50 text-xs">K=50 typical</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="sample-topp">
+                  <div className="p-3 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-1">📈 Top-P</div>
+                    <div className="text-amber-100/70 text-xs">Nucleus sampling</div>
+                    <div className="text-amber-100/50 text-xs">P=0.9 typical</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="sample-repetition">
+                  <div className="p-3 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-1">🔁 Repeat</div>
+                    <div className="text-yellow-100/70 text-xs">Penalty</div>
+                    <div className="text-yellow-100/50 text-xs">Avoid loops</div>
+                  </div>
+                </Hoverable>
+
+                <div className="p-3 rounded-xl bg-lime-900/50 border border-lime-400">
+                  <div className="text-lg font-black text-lime-200 mb-1">🎲 Sample</div>
+                  <div className="text-lime-100/70 text-xs">Draw token</div>
+                  <div className="text-lime-100/50 text-xs">From distribution</div>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 5: OPTIMIZATIONS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">OPTIMIZATIONS</h2>
+                  <p className="text-green-200/80">Speculative decoding, quantization, and more</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Speculative Decoding */}
+                <div className="bg-slate-900/80 border border-green-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-green-300 mb-4">🚀 Speculative Decoding</div>
+                  <div className="space-y-3">
+                    <Hoverable id="spec-concept">
+                      <div className="bg-green-900/40 border border-green-400 rounded-lg p-3">
+                        <div className="text-green-200 font-bold text-sm">🚀 Concept</div>
+                        <div className="text-green-100/60 text-xs">Draft + verify = faster</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="spec-draft">
+                      <div className="bg-emerald-900/40 border border-emerald-400 rounded-lg p-3">
+                        <div className="text-emerald-200 font-bold text-sm">📝 Draft Model</div>
+                        <div className="text-emerald-100/60 text-xs">Small, fast model</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="spec-verify">
+                      <div className="bg-teal-900/40 border border-teal-400 rounded-lg p-3">
+                        <div className="text-teal-200 font-bold text-sm">✅ Verification</div>
+                        <div className="text-teal-100/60 text-xs">Accept/reject in parallel</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="spec-medusa">
+                      <div className="bg-cyan-900/40 border border-cyan-400 rounded-lg p-3">
+                        <div className="text-cyan-200 font-bold text-sm">🐍 Medusa</div>
+                        <div className="text-cyan-100/60 text-xs">Self-speculative heads</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Quantization */}
+                <div className="bg-slate-900/80 border border-green-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-green-300 mb-4">🗜️ Quantization</div>
+                  <div className="space-y-3">
+                    <Hoverable id="quant-concept">
+                      <div className="bg-yellow-900/40 border border-yellow-400 rounded-lg p-3">
+                        <div className="text-yellow-200 font-bold text-sm">🗜️ Concept</div>
+                        <div className="text-yellow-100/60 text-xs">Lower precision weights</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="quant-int8">
+                      <div className="bg-orange-900/40 border border-orange-400 rounded-lg p-3">
+                        <div className="text-orange-200 font-bold text-sm">8️⃣ INT8</div>
+                        <div className="text-orange-100/60 text-xs">2× smaller, minimal loss</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="quant-int4">
+                      <div className="bg-red-900/40 border border-red-400 rounded-lg p-3">
+                        <div className="text-red-200 font-bold text-sm">4️⃣ INT4</div>
+                        <div className="text-red-100/60 text-xs">4× smaller, some loss</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="quant-gguf">
+                      <div className="bg-rose-900/40 border border-rose-400 rounded-lg p-3">
+                        <div className="text-rose-200 font-bold text-sm">📦 GGUF</div>
+                        <div className="text-rose-100/60 text-xs">llama.cpp format</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+
+              {/* More Optimizations */}
+              <div className="mt-4 grid grid-cols-3 gap-4">
+                <Hoverable id="opt-flashdecode">
+                  <div className="bg-sky-900/40 border border-sky-400 rounded-lg p-3">
+                    <div className="text-sky-200 font-bold text-sm">⚡ Flash Decoding</div>
+                    <div className="text-sky-100/60 text-xs">Parallelize over KV length</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="opt-cuda-graph">
+                  <div className="bg-blue-900/40 border border-blue-400 rounded-lg p-3">
+                    <div className="text-blue-200 font-bold text-sm">📊 CUDA Graphs</div>
+                    <div className="text-blue-100/60 text-xs">Eliminate CPU overhead</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="opt-prefix-cache">
+                  <div className="bg-indigo-900/40 border border-indigo-400 rounded-lg p-3">
+                    <div className="text-indigo-200 font-bold text-sm">📋 Prefix Caching</div>
+                    <div className="text-indigo-100/60 text-xs">Reuse system prompt KV</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 6: SERVING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  6
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">SERVING INFRASTRUCTURE</h2>
+                  <p className="text-pink-200/80">Production-ready serving frameworks</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="serve-vllm">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">🚀 vLLM</div>
+                    <div className="text-pink-100/80 text-sm">PagedAttention</div>
+                    <div className="text-pink-100/60 text-xs mt-2">Most popular OSS</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="serve-tgi">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-xl font-black text-rose-200 mb-2">🤗 TGI</div>
+                    <div className="text-rose-100/80 text-sm">HuggingFace</div>
+                    <div className="text-rose-100/60 text-xs mt-2">HF ecosystem</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="serve-tensorrt">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">⚡ TensorRT-LLM</div>
+                    <div className="text-red-100/80 text-sm">NVIDIA optimized</div>
+                    <div className="text-red-100/60 text-xs mt-2">Max performance</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="serve-triton">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">🔺 Triton Server</div>
+                    <div className="text-orange-100/80 text-sm">Multi-model serving</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Enterprise</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-emerald-900/50 to-cyan-900/50 border-2 border-emerald-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🎯 INFERENCE PIPELINE COMPLETE
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                From prompt to output: prefill builds KV cache, decode generates tokens, sampling controls randomness.
+                Optimizations like speculative decoding and quantization maximize throughput and minimize latency.
+              </div>
+              
+              {/* Key Metrics Summary */}
+              <div className="grid grid-cols-4 gap-4 mt-6 text-sm">
+                <div className="bg-blue-900/50 border border-blue-400 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">Prefill</div>
+                  <div className="text-blue-100/70">Compute-bound</div>
+                </div>
+                <div className="bg-purple-900/50 border border-purple-400 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">Decode</div>
+                  <div className="text-purple-100/70">Memory-bound</div>
+                </div>
+                <div className="bg-cyan-900/50 border border-cyan-400 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">KV Cache</div>
+                  <div className="text-cyan-100/70">Memory bottleneck</div>
+                </div>
+                <div className="bg-green-900/50 border border-green-400 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">Batching</div>
+                  <div className="text-green-100/70">Throughput key</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Inference Pipeline • Prefill → Decode → Sample</p>
+              <p className="text-xs mt-1 text-slate-600">TTFT + TPOT × tokens = Total latency</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<InferencePipeline />);
+  </script>
+</body>
+</html>

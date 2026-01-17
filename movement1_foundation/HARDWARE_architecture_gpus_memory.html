@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hardware Architecture - GPUs, Memory & Interconnects</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function HardwareArchitecture() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // GPU Overview
+        'gpu-h100': {
+          title: '🎮 NVIDIA H100 (Hopper)',
+          content: 'Current flagship for LLM training. Massive improvements over A100.',
+          specs: 'FP16: 1,979 TFLOPS\nFP8: 3,958 TFLOPS\nHBM3: 80GB @ 3.35 TB/s\nTDP: 700W',
+          features: 'Transformer Engine (FP8)\n4th gen Tensor Cores\nNVLink 4.0 (900 GB/s)\nPCIe Gen5',
+          pricing: 'Cloud: $2-4/hr\nPurchase: $25-40K\nSupply constrained'
+        },
+        'gpu-a100': {
+          title: '🎮 NVIDIA A100 (Ampere)',
+          content: 'Previous generation workhorse. Still widely deployed.',
+          specs: 'FP16: 312 TFLOPS\nTF32: 156 TFLOPS\nHBM2e: 40/80GB @ 2 TB/s\nTDP: 400W',
+          features: '3rd gen Tensor Cores\nMIG (Multi-Instance GPU)\nNVLink 3.0 (600 GB/s)\nSparsity support',
+          usage: 'Still common in cloud\nGood for inference\nCheaper than H100'
+        },
+        'gpu-h200': {
+          title: '🎮 NVIDIA H200',
+          content: 'H100 with more HBM3e memory. Better for large models and long contexts.',
+          specs: 'Compute: Same as H100\nHBM3e: 141GB @ 4.8 TB/s\nMore memory bandwidth',
+          benefit: '76% more memory\n43% more bandwidth\nBetter for inference'
+        },
+        'gpu-b200': {
+          title: '🎮 NVIDIA B200 (Blackwell)',
+          content: 'Next generation (2024). Massive performance jump.',
+          specs: 'FP8: ~9,000 TFLOPS (est)\nHBM3e: 192GB\nNVLink 5.0\n2x H100 performance',
+          features: 'New Transformer Engine\nFP4 support\nDeformable attention\nSecond-gen MIG'
+        },
+        'gpu-mi300x': {
+          title: '🔴 AMD MI300X',
+          content: 'AMD\'s competitor to H100. More memory, competitive performance.',
+          specs: 'FP16: ~1,300 TFLOPS\nHBM3: 192GB @ 5.3 TB/s\nInfinity Fabric',
+          status: 'Growing adoption\nROCm software maturing\nCost competitive'
+        },
+
+        // Memory Hierarchy
+        'mem-registers': {
+          title: '📝 REGISTERS',
+          content: 'Fastest storage. Per-thread private memory.',
+          specs: 'Size: 256KB per SM\nLatency: 1 cycle\nBandwidth: ~100 TB/s effective',
+          usage: 'Local variables\nLoop counters\nImmediate operands'
+        },
+        'mem-shared': {
+          title: '🔄 SHARED MEMORY / L1',
+          content: 'Fast on-chip memory shared within thread block. Programmer-controlled cache.',
+          specs: 'Size: 164-228KB per SM (H100)\nLatency: ~30 cycles\nBandwidth: ~20 TB/s',
+          usage: 'Tile data for matmuls\nReduction operations\nInter-thread communication',
+          programming: 'Explicit in CUDA\nUsed heavily in FlashAttention\nBank conflicts matter'
+        },
+        'mem-l2': {
+          title: '💾 L2 CACHE',
+          content: 'Larger on-chip cache. Shared across all SMs. Hardware-managed.',
+          specs: 'Size: 50MB (H100)\nLatency: ~200 cycles\nBandwidth: ~12 TB/s',
+          usage: 'Automatic caching\nReduces HBM pressure\nHelps with reuse'
+        },
+        'mem-hbm': {
+          title: '🧊 HBM (High Bandwidth Memory)',
+          content: 'Main GPU memory. High bandwidth but high latency. The bottleneck for inference.',
+          specs: 'H100: 80GB HBM3 @ 3.35 TB/s\nA100: 80GB HBM2e @ 2 TB/s\nLatency: ~400 cycles',
+          importance: 'Model weights live here\nKV cache lives here\nActivations during training',
+          bottleneck: 'Inference is memory-bound\nMust load all weights per token\n3.35 TB/s sounds fast but...'
+        },
+        'mem-system': {
+          title: '🖥️ SYSTEM (CPU) MEMORY',
+          content: 'Host RAM. Much larger but much slower. Connected via PCIe.',
+          specs: 'Size: 512GB-2TB typical\nPCIe 5: 64 GB/s per GPU\nLatency: Microseconds',
+          usage: 'CPU offloading\nCheckpoint staging\nData preprocessing'
+        },
+
+        // Compute Units
+        'compute-sm': {
+          title: '⚙️ STREAMING MULTIPROCESSOR (SM)',
+          content: 'Basic compute unit. Multiple SMs per GPU. Each runs thread blocks.',
+          h100: 'H100: 132 SMs\nEach SM: 128 FP32 cores\n4 Tensor Cores per SM',
+          scheduling: 'Warps of 32 threads\nMultiple warps per SM\nHardware scheduler'
+        },
+        'compute-tensor': {
+          title: '🔷 TENSOR CORES',
+          content: 'Specialized matrix multiply units. Essential for deep learning.',
+          operation: 'D = A × B + C\n16×16×16 or 8×8×4 tiles\nMixed precision',
+          generations: 'V100: 1st gen (FP16)\nA100: 3rd gen (TF32, BF16)\nH100: 4th gen (FP8)',
+          speedup: '8-16× over CUDA cores\nFor matmuls and convs\nMust use specific shapes'
+        },
+        'compute-cuda': {
+          title: '🟢 CUDA CORES',
+          content: 'General-purpose compute units. Scalar operations, element-wise ops.',
+          specs: 'H100: 16,896 CUDA cores\nFP32: 67 TFLOPS\nUsed for non-matmul ops',
+          usage: 'Activations (GELU, etc)\nNormalization\nElement-wise operations'
+        },
+
+        // Precision
+        'prec-fp32': {
+          title: '🔢 FP32 (Single Precision)',
+          content: '32-bit floating point. Full precision, used for optimizer states.',
+          range: '±3.4×10³⁸\n~7 decimal digits\n4 bytes per value',
+          usage: 'Optimizer states (Adam m, v)\nMaster weights\nCritical accumulations'
+        },
+        'prec-fp16': {
+          title: '🔢 FP16 (Half Precision)',
+          content: '16-bit floating point. Good range but can overflow. Needs loss scaling.',
+          range: '±65,504\n~3 decimal digits\n2 bytes per value',
+          issues: 'Overflow in large models\nUnderflow in gradients\nNeeds loss scaling'
+        },
+        'prec-bf16': {
+          title: '🔢 BF16 (Brain Float)',
+          content: '16-bit with FP32 range. Same exponent bits as FP32. Preferred for training.',
+          range: '±3.4×10³⁸\n~2 decimal digits\n2 bytes per value',
+          benefit: 'Same range as FP32\nNo loss scaling needed\nDefault for modern training'
+        },
+        'prec-fp8': {
+          title: '🔢 FP8 (H100+)',
+          content: '8-bit floating point. New in Hopper. 2× throughput vs FP16.',
+          variants: 'E4M3: ±448, higher precision\nE5M2: ±57344, higher range\n1 byte per value',
+          usage: 'Forward pass\nSome backward ops\nTransformer Engine manages'
+        },
+        'prec-int8': {
+          title: '🔢 INT8 (Inference)',
+          content: '8-bit integer. For quantized inference. 2× compression vs FP16.',
+          range: '-128 to 127\n1 byte per value\nNeeds calibration',
+          usage: 'Weight quantization\nKV cache compression\nFaster inference'
+        },
+
+        // Interconnects
+        'link-nvlink': {
+          title: '🔗 NVLink',
+          content: 'High-speed GPU-to-GPU interconnect. Essential for tensor parallelism.',
+          generations: 'NVLink 3.0 (A100): 600 GB/s\nNVLink 4.0 (H100): 900 GB/s\nNVLink 5.0 (B200): 1.8 TB/s',
+          topology: 'Full mesh within node (8 GPUs)\nAll-to-all at full speed\nUsed for TP AllReduce',
+          vs_pcie: '18× faster than PCIe 4\n14× faster than PCIe 5\nCritical for large models'
+        },
+        'link-nvswitch': {
+          title: '🔀 NVSwitch',
+          content: 'Chip that enables full NVLink connectivity. All GPUs talk to all GPUs.',
+          role: 'Connects 8 GPUs fully\nFull bisection bandwidth\nNo degradation with more GPUs',
+          dgx: 'DGX H100: 4 NVSwitches\nEach GPU: 18 NVLinks\nTotal: 900 GB/s per GPU'
+        },
+        'link-pcie': {
+          title: '🔌 PCIe',
+          content: 'Standard CPU-GPU connection. Also connects NICs. Slower than NVLink.',
+          generations: 'PCIe 4.0: 32 GB/s (x16)\nPCIe 5.0: 64 GB/s (x16)\nPCIe 6.0: 128 GB/s (coming)',
+          usage: 'CPU ↔ GPU transfers\nNIC connection\nNot for GPU-GPU in training'
+        },
+        'link-infiniband': {
+          title: '🌐 InfiniBand',
+          content: 'High-speed network for inter-node communication. RDMA capability.',
+          generations: 'HDR: 200 Gbps\nNDR: 400 Gbps\nXDR: 800 Gbps (coming)',
+          features: 'RDMA: Direct memory access\nLow latency: ~1μs\nUsed for data parallel'
+        },
+        'link-ethernet': {
+          title: '🔌 Ethernet (RoCE)',
+          content: 'Alternative to InfiniBand. RDMA over Converged Ethernet.',
+          specs: '100/200/400 GbE\nHigher latency than IB\nCheaper infrastructure',
+          usage: 'Cloud providers often use\nRoCE for RDMA\nGood enough for many cases'
+        },
+
+        // Cluster Topology
+        'topo-node': {
+          title: '🖥️ SINGLE NODE (DGX)',
+          content: 'One server with 8 GPUs fully connected via NVLink.',
+          dgx_h100: '8× H100 GPUs\n640GB total HBM\n4× NVSwitch\n8× 400G InfiniBand',
+          usage: 'Tensor parallelism within node\nFull NVLink bandwidth\nBasic training unit'
+        },
+        'topo-rack': {
+          title: '🗄️ RACK',
+          content: 'Multiple nodes connected via InfiniBand switches.',
+          typical: '4-8 DGX nodes per rack\n32-64 GPUs per rack\nInfiniBand fabric',
+          bandwidth: 'Inter-node: 400 Gbps × 8\nFull bisection possible\nData parallel across'
+        },
+        'topo-pod': {
+          title: '🏗️ POD / SUPERPOD',
+          content: 'Multiple racks with fat-tree network. Building block for large clusters.',
+          superpod: 'NVIDIA DGX SuperPOD:\n32 DGX H100 nodes\n256 GPUs\nNon-blocking fabric',
+          usage: 'Full model training\nMultiple experiments\nShared infrastructure'
+        },
+        'topo-cluster': {
+          title: '🌐 FULL CLUSTER',
+          content: 'Multiple pods. Thousands of GPUs. May have oversubscription.',
+          scale: '1000-10000+ GPUs\nMultiple buildings possible\nNetwork becomes critical',
+          challenges: 'Network bottlenecks\nJob scheduling\nFault tolerance'
+        },
+
+        // Parallelism Mapping
+        'map-tp': {
+          title: '📊 TENSOR PARALLEL PLACEMENT',
+          content: 'Split layers across GPUs within a node. Requires NVLink.',
+          placement: 'Within single node (8 GPUs)\nUses NVLink (900 GB/s)\nTP=8 maximum typical',
+          why: 'AllReduce every layer\nNeeds low latency\nNVLink essential'
+        },
+        'map-dp': {
+          title: '📊 DATA PARALLEL PLACEMENT',
+          content: 'Replicate model across nodes. AllReduce gradients.',
+          placement: 'Across nodes\nUses InfiniBand (400 Gbps)\nCan scale to thousands',
+          why: 'AllReduce once per step\nCan tolerate higher latency\nIB bandwidth sufficient'
+        },
+        'map-pp': {
+          title: '📊 PIPELINE PARALLEL PLACEMENT',
+          content: 'Split model layers across nodes. Point-to-point communication.',
+          placement: 'Across nodes (different stages)\nUses InfiniBand\nTypically 4-8 stages',
+          why: 'Only P2P per microbatch\nLower bandwidth needs\nCan cross node boundaries'
+        },
+
+        // Power and Cooling
+        'power-gpu': {
+          title: '⚡ GPU POWER',
+          content: 'Modern GPUs are power hungry. Major operational cost.',
+          consumption: 'H100 SXM: 700W TDP\nA100: 400W TDP\nUnder load: Near TDP',
+          implications: 'Cooling requirements\nElectricity cost\nData center capacity'
+        },
+        'power-node': {
+          title: '⚡ NODE POWER',
+          content: 'Total power for a training node. Significant infrastructure need.',
+          breakdown: '8× H100: 5,600W\nCPU + memory: ~500W\nNetworking: ~200W\nTotal: ~10kW per node',
+          cooling: 'Liquid cooling common\nAir cooling challenging\nPUE matters'
+        },
+        'power-cluster': {
+          title: '⚡ CLUSTER POWER',
+          content: 'Power at scale. Megawatts for large training runs.',
+          scale: '1000 H100s: ~10 MW\nWith cooling: ~15 MW\nAnnual cost: $10M+',
+          trends: 'Power becoming limiting\nData center expansion\nRenewable energy focus'
+        },
+
+        // Cost
+        'cost-training': {
+          title: '💰 TRAINING COST',
+          content: 'Major expense for large models. Compute dominates.',
+          breakdown: 'GPT-4 training: ~$100M (est)\n70B model: $2-5M\n7B model: $100-500K',
+          factors: 'GPU hours × price\nExperiment iteration\nFailed runs count'
+        },
+        'cost-inference': {
+          title: '💰 INFERENCE COST',
+          content: 'Ongoing cost for serving. Can exceed training cost at scale.',
+          formula: 'Cost = (tokens × GPU_time × price)\nInput tokens cheaper\nOutput tokens expensive',
+          optimization: 'Quantization: 2-4×\nBatching: 2-10×\nSpeculative: 2-3×'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.specs && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SPECIFICATIONS</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.specs}</pre>
+              </div>
+            )}
+            {t.features && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FEATURES</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.features}</pre>
+              </div>
+            )}
+            {t.generations && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">GENERATIONS</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.generations}</pre>
+              </div>
+            )}
+            {t.usage && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">USAGE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.usage}</pre>
+              </div>
+            )}
+            {t.breakdown && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">BREAKDOWN</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.breakdown}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.bottleneck && (
+              <div className="text-xs text-red-400 mt-2">
+                <span className="font-bold">⚠️ </span>{t.bottleneck}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-green-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-emerald-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-teal-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-green-600/30 border border-green-400 rounded-full mb-6">
+                <span className="text-green-300 font-bold">HARDWARE</span>
+                <span className="text-white">•</span>
+                <span className="text-green-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400">
+                Hardware Architecture
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-green-300 font-bold">GPUs, Memory, Interconnects</span> — the physical foundation of LLM training.
+              </p>
+            </header>
+
+            {/* SECTION 1: GPU COMPARISON */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">GPU LANDSCAPE</h2>
+                  <p className="text-green-200/80">Current and upcoming accelerators</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="gpu-h100">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-1">H100</div>
+                    <div className="text-green-100/80 text-xs">Hopper (2022)</div>
+                    <div className="text-green-300 text-xs mt-2 font-bold">80GB • 3.35 TB/s</div>
+                    <div className="text-green-100/60 text-xs">Current flagship</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="gpu-h200">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-1">H200</div>
+                    <div className="text-emerald-100/80 text-xs">Hopper+ (2024)</div>
+                    <div className="text-emerald-300 text-xs mt-2 font-bold">141GB • 4.8 TB/s</div>
+                    <div className="text-emerald-100/60 text-xs">More memory</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="gpu-b200">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-1">B200</div>
+                    <div className="text-teal-100/80 text-xs">Blackwell (2024)</div>
+                    <div className="text-teal-300 text-xs mt-2 font-bold">192GB • Next gen</div>
+                    <div className="text-teal-100/60 text-xs">2× H100</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="gpu-a100">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-600">
+                    <div className="text-lg font-black text-slate-300 mb-1">A100</div>
+                    <div className="text-slate-400 text-xs">Ampere (2020)</div>
+                    <div className="text-slate-300 text-xs mt-2 font-bold">80GB • 2 TB/s</div>
+                    <div className="text-slate-500 text-xs">Still common</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="gpu-mi300x">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-1">MI300X</div>
+                    <div className="text-red-100/80 text-xs">AMD (2023)</div>
+                    <div className="text-red-300 text-xs mt-2 font-bold">192GB • 5.3 TB/s</div>
+                    <div className="text-red-100/60 text-xs">Competitor</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 2: MEMORY HIERARCHY */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">MEMORY HIERARCHY</h2>
+                  <p className="text-blue-200/80">From registers to system RAM</p>
+                </div>
+              </div>
+
+              {/* Memory Pyramid */}
+              <div className="bg-slate-900/80 border border-blue-500/30 rounded-xl p-6">
+                <div className="flex flex-col items-center gap-2">
+                  <Hoverable id="mem-registers">
+                    <div className="w-48 bg-blue-600 rounded-lg p-3 text-center">
+                      <div className="text-white font-black">Registers</div>
+                      <div className="text-blue-100 text-xs">256KB/SM • 1 cycle • ~100 TB/s</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-blue-400">▼</div>
+                  
+                  <Hoverable id="mem-shared">
+                    <div className="w-64 bg-indigo-600 rounded-lg p-3 text-center">
+                      <div className="text-white font-black">Shared Memory / L1</div>
+                      <div className="text-indigo-100 text-xs">228KB/SM • 30 cycles • ~20 TB/s</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-blue-400">▼</div>
+                  
+                  <Hoverable id="mem-l2">
+                    <div className="w-80 bg-violet-600 rounded-lg p-3 text-center">
+                      <div className="text-white font-black">L2 Cache</div>
+                      <div className="text-violet-100 text-xs">50MB • 200 cycles • ~12 TB/s</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-blue-400">▼</div>
+                  
+                  <Hoverable id="mem-hbm">
+                    <div className="w-96 bg-purple-600 rounded-lg p-3 text-center border-2 border-purple-300">
+                      <div className="text-white font-black">HBM (Main GPU Memory)</div>
+                      <div className="text-purple-100 text-xs">80GB • 400 cycles • 3.35 TB/s</div>
+                      <div className="text-yellow-300 text-xs font-bold mt-1">⚠️ Main bottleneck for inference</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-blue-400">▼ PCIe</div>
+                  
+                  <Hoverable id="mem-system">
+                    <div className="w-full max-w-lg bg-slate-700 rounded-lg p-3 text-center">
+                      <div className="text-white font-black">System Memory (CPU RAM)</div>
+                      <div className="text-slate-300 text-xs">512GB-2TB • μs latency • 64 GB/s (PCIe 5)</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 3: COMPUTE UNITS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">COMPUTE UNITS</h2>
+                  <p className="text-orange-200/80">SMs, Tensor Cores, CUDA Cores</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="compute-sm">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">⚙️ SM</div>
+                    <div className="text-orange-100/80 text-sm">Streaming Multiprocessor</div>
+                    <div className="text-orange-100/60 text-xs mt-2">H100: 132 SMs</div>
+                    <div className="text-orange-100/60 text-xs">Basic compute unit</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="compute-tensor">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">🔷 Tensor Cores</div>
+                    <div className="text-amber-100/80 text-sm">Matrix multiply units</div>
+                    <div className="text-amber-100/60 text-xs mt-2">4 per SM × 132 = 528</div>
+                    <div className="text-amber-100/60 text-xs">8-16× speedup for matmuls</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="compute-cuda">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">🟢 CUDA Cores</div>
+                    <div className="text-yellow-100/80 text-sm">General purpose</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">H100: 16,896 cores</div>
+                    <div className="text-yellow-100/60 text-xs">Element-wise ops</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 4: PRECISION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">NUMERICAL PRECISION</h2>
+                  <p className="text-cyan-200/80">FP32, BF16, FP8, INT8</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="prec-fp32">
+                  <div className="p-3 rounded-xl bg-slate-800 border border-slate-600">
+                    <div className="text-slate-200 font-black">FP32</div>
+                    <div className="text-slate-400 text-xs">32-bit • 4 bytes</div>
+                    <div className="text-slate-500 text-xs mt-1">Optimizer states</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prec-fp16">
+                  <div className="p-3 rounded-xl bg-yellow-900/50 border border-yellow-500">
+                    <div className="text-yellow-200 font-black">FP16</div>
+                    <div className="text-yellow-100/60 text-xs">16-bit • 2 bytes</div>
+                    <div className="text-yellow-100/50 text-xs mt-1">Needs loss scaling</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prec-bf16">
+                  <div className="p-3 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-green-200 font-black">BF16 ✓</div>
+                    <div className="text-green-100/60 text-xs">16-bit • 2 bytes</div>
+                    <div className="text-green-100/50 text-xs mt-1">Training default</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prec-fp8">
+                  <div className="p-3 rounded-xl bg-purple-900/50 border border-purple-400">
+                    <div className="text-purple-200 font-black">FP8</div>
+                    <div className="text-purple-100/60 text-xs">8-bit • 1 byte</div>
+                    <div className="text-purple-100/50 text-xs mt-1">H100+ (2× speed)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="prec-int8">
+                  <div className="p-3 rounded-xl bg-blue-900/50 border border-blue-400">
+                    <div className="text-blue-200 font-black">INT8</div>
+                    <div className="text-blue-100/60 text-xs">8-bit • 1 byte</div>
+                    <div className="text-blue-100/50 text-xs mt-1">Inference quant</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 5: INTERCONNECTS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">INTERCONNECTS</h2>
+                  <p className="text-purple-200/80">NVLink, InfiniBand, PCIe</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Intra-node */}
+                <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-purple-300 mb-4">🔗 Intra-Node (GPU↔GPU)</div>
+                  <div className="space-y-3">
+                    <Hoverable id="link-nvlink">
+                      <div className="bg-green-900/40 border border-green-400 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div className="text-green-200 font-bold">NVLink 4.0</div>
+                          <div className="text-green-300 text-sm font-mono">900 GB/s</div>
+                        </div>
+                        <div className="text-green-100/60 text-xs mt-1">GPU↔GPU direct • Tensor Parallel</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="link-nvswitch">
+                      <div className="bg-emerald-900/40 border border-emerald-400 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div className="text-emerald-200 font-bold">NVSwitch</div>
+                          <div className="text-emerald-300 text-sm">All-to-all</div>
+                        </div>
+                        <div className="text-emerald-100/60 text-xs mt-1">Full mesh connectivity</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="link-pcie">
+                      <div className="bg-slate-700 border border-slate-500 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div className="text-slate-300 font-bold">PCIe 5.0</div>
+                          <div className="text-slate-400 text-sm font-mono">64 GB/s</div>
+                        </div>
+                        <div className="text-slate-500 text-xs mt-1">CPU↔GPU • Much slower</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Inter-node */}
+                <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-purple-300 mb-4">🌐 Inter-Node (Server↔Server)</div>
+                  <div className="space-y-3">
+                    <Hoverable id="link-infiniband">
+                      <div className="bg-blue-900/40 border border-blue-400 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div className="text-blue-200 font-bold">InfiniBand NDR</div>
+                          <div className="text-blue-300 text-sm font-mono">400 Gbps</div>
+                        </div>
+                        <div className="text-blue-100/60 text-xs mt-1">RDMA • ~1μs latency • Data Parallel</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="link-ethernet">
+                      <div className="bg-slate-700 border border-slate-500 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div className="text-slate-300 font-bold">RoCE (Ethernet)</div>
+                          <div className="text-slate-400 text-sm font-mono">400 Gbps</div>
+                        </div>
+                        <div className="text-slate-500 text-xs mt-1">RDMA over Ethernet • Cloud common</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 6: CLUSTER TOPOLOGY */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  6
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">CLUSTER TOPOLOGY</h2>
+                  <p className="text-red-200/80">From single node to supercluster</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-red-500/30 rounded-xl p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <Hoverable id="topo-node">
+                    <div className="bg-red-900/50 border border-red-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-3xl mb-2">🖥️</div>
+                      <div className="text-red-200 font-bold">Node (DGX)</div>
+                      <div className="text-red-100/60 text-xs">8 GPUs • NVLink</div>
+                      <div className="text-red-300 text-xs mt-1">640GB HBM</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-red-400 text-xl">→</div>
+
+                  <Hoverable id="topo-rack">
+                    <div className="bg-orange-900/50 border border-orange-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-3xl mb-2">🗄️</div>
+                      <div className="text-orange-200 font-bold">Rack</div>
+                      <div className="text-orange-100/60 text-xs">4-8 Nodes • IB fabric</div>
+                      <div className="text-orange-300 text-xs mt-1">32-64 GPUs</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-red-400 text-xl">→</div>
+
+                  <Hoverable id="topo-pod">
+                    <div className="bg-amber-900/50 border border-amber-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-3xl mb-2">🏗️</div>
+                      <div className="text-amber-200 font-bold">Pod/SuperPOD</div>
+                      <div className="text-amber-100/60 text-xs">32 Nodes • Fat-tree</div>
+                      <div className="text-amber-300 text-xs mt-1">256 GPUs</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-red-400 text-xl">→</div>
+
+                  <Hoverable id="topo-cluster">
+                    <div className="bg-yellow-900/50 border border-yellow-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-3xl mb-2">🌐</div>
+                      <div className="text-yellow-200 font-bold">Cluster</div>
+                      <div className="text-yellow-100/60 text-xs">Multiple pods</div>
+                      <div className="text-yellow-300 text-xs mt-1">1000s GPUs</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 7: PARALLELISM MAPPING */}
+            <section className="mb-10">
+              <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-cyan-300 mb-4">📊 PARALLELISM → HARDWARE MAPPING</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Hoverable id="map-tp">
+                    <div className="bg-green-900/40 border border-green-400 rounded-lg p-4">
+                      <div className="text-green-200 font-bold">Tensor Parallel</div>
+                      <div className="text-green-100/60 text-sm mt-1">Within node (NVLink)</div>
+                      <div className="text-green-300 text-xs mt-2">TP ≤ 8 GPUs</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="map-dp">
+                    <div className="bg-blue-900/40 border border-blue-400 rounded-lg p-4">
+                      <div className="text-blue-200 font-bold">Data Parallel</div>
+                      <div className="text-blue-100/60 text-sm mt-1">Across nodes (InfiniBand)</div>
+                      <div className="text-blue-300 text-xs mt-2">DP = 100s-1000s</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="map-pp">
+                    <div className="bg-purple-900/40 border border-purple-400 rounded-lg p-4">
+                      <div className="text-purple-200 font-bold">Pipeline Parallel</div>
+                      <div className="text-purple-100/60 text-sm mt-1">Across nodes (P2P)</div>
+                      <div className="text-purple-300 text-xs mt-2">PP = 4-8 stages</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 8: POWER & COST */}
+            <section className="mb-10">
+              <div className="grid grid-cols-2 gap-6">
+                {/* Power */}
+                <div className="bg-slate-900/80 border border-yellow-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-yellow-300 mb-4">⚡ Power Consumption</div>
+                  <div className="space-y-3">
+                    <Hoverable id="power-gpu">
+                      <div className="bg-yellow-900/40 border border-yellow-400 rounded-lg p-3">
+                        <div className="flex justify-between">
+                          <span className="text-yellow-200 font-bold">H100 GPU</span>
+                          <span className="text-yellow-300 font-mono">700W</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="power-node">
+                      <div className="bg-orange-900/40 border border-orange-400 rounded-lg p-3">
+                        <div className="flex justify-between">
+                          <span className="text-orange-200 font-bold">DGX Node</span>
+                          <span className="text-orange-300 font-mono">~10 kW</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="power-cluster">
+                      <div className="bg-red-900/40 border border-red-400 rounded-lg p-3">
+                        <div className="flex justify-between">
+                          <span className="text-red-200 font-bold">1000 GPUs</span>
+                          <span className="text-red-300 font-mono">~15 MW</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Cost */}
+                <div className="bg-slate-900/80 border border-green-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-green-300 mb-4">💰 Cost</div>
+                  <div className="space-y-3">
+                    <Hoverable id="cost-training">
+                      <div className="bg-green-900/40 border border-green-400 rounded-lg p-3">
+                        <div className="text-green-200 font-bold">Training (one-time)</div>
+                        <div className="text-green-100/60 text-xs mt-1">70B: $2-5M • 400B: $50-100M</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="cost-inference">
+                      <div className="bg-emerald-900/40 border border-emerald-400 rounded-lg p-3">
+                        <div className="text-emerald-200 font-bold">Inference (ongoing)</div>
+                        <div className="text-emerald-100/60 text-xs mt-1">Can exceed training at scale</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🖥️ HARDWARE SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Modern LLM training requires careful hardware selection and topology design.
+                Memory bandwidth (HBM) limits inference, compute (Tensor Cores) limits training, 
+                and interconnects (NVLink, InfiniBand) enable scaling.
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">H100</div>
+                  <div className="text-slate-400">80GB • 3.35 TB/s</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">NVLink</div>
+                  <div className="text-slate-400">900 GB/s (TP)</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">InfiniBand</div>
+                  <div className="text-slate-400">400 Gbps (DP)</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">BF16</div>
+                  <div className="text-slate-400">Training default</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Hardware Architecture • GPUs, Memory, Interconnects</p>
+              <p className="text-xs mt-1 text-slate-600">H100 → NVLink → InfiniBand → Scale</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<HardwareArchitecture />);
+  </script>
+</body>
+</html>

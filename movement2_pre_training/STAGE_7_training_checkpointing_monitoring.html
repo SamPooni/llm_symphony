@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 7: Checkpointing & Monitoring - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function CheckpointingStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-frequency': {
+          title: '⏰ CHECKPOINT FREQUENCY',
+          content: 'How often to save checkpoints. Balance between safety and overhead.',
+          typical: 'Every 500-2000 steps\nEvery 1-4 hours of training\nMore frequent early (unstable)',
+          tradeoff: 'More frequent: Safer, more overhead\nLess frequent: Faster, more risk\nAdaptive: checkpoint on loss spikes'
+        },
+        'metric-size': {
+          title: '💾 CHECKPOINT SIZE',
+          content: 'Total size of saved checkpoint. Model + optimizer + states.',
+          breakdown: '70B model (BF16): 140GB\nOptimizer (FP32): 560GB\nTotal: ~700GB per checkpoint',
+          sharded: 'Sharded: Split across files\nN files × ~(700GB/N) each\nFaster parallel writes'
+        },
+        'metric-retention': {
+          title: '📦 RETENTION POLICY',
+          content: 'How many checkpoints to keep. Old ones deleted to save storage.',
+          typical: 'Keep last 3-5 checkpoints\nKeep every Nth for long-term\nTotal: ~2-4TB storage',
+          strategy: 'Rolling: Keep latest K\nMilestone: Keep every 10K steps\nBest: Keep lowest val loss'
+        },
+        'metric-recovery': {
+          title: '🔄 RECOVERY TIME',
+          content: 'Time to load checkpoint and resume training. Dominated by I/O.',
+          breakdown: 'Load from disk: 1-5 minutes\nDistribute to GPUs: 30s-2min\nWarmup steps: Optional',
+          optimization: 'Parallel file system (Lustre)\nSharded loading\nAsync prefetch'
+        },
+
+        // Checkpoint Contents
+        'ckpt-model': {
+          title: '🧠 Model State Dict',
+          content: 'All model parameters. The learned weights that define the model.',
+          contents: 'model.state_dict()\nAll layer weights and biases\nEmbeddings, attention, MLP, LM head',
+          size: '2 bytes/param (BF16)\n70B × 2 = 140GB'
+        },
+        'ckpt-optimizer': {
+          title: '⚙️ Optimizer State Dict',
+          content: 'Adam momentum (m) and variance (v) for each parameter. Required for exact resume.',
+          contents: 'optimizer.state_dict()\nm, v for each param (FP32)\nStep count, hyperparams',
+          size: '8 bytes/param (2×FP32)\n70B × 8 = 560GB'
+        },
+        'ckpt-scheduler': {
+          title: '📅 LR Scheduler State',
+          content: 'Learning rate schedule progress. Current step, last LR, etc.',
+          contents: 'scheduler.state_dict()\nCurrent step\nLast computed LR',
+          size: 'Tiny (~1KB)\nJust counters and config'
+        },
+        'ckpt-rng': {
+          title: '🎲 RNG States',
+          content: 'Random number generator states for reproducibility. Python, NumPy, PyTorch, CUDA.',
+          contents: 'torch.get_rng_state()\ntorch.cuda.get_rng_state_all()\nnp.random.get_state()\nrandom.getstate()',
+          why: 'Exact reproducibility\nSame data order on resume\nSame dropout patterns'
+        },
+        'ckpt-dataloader': {
+          title: '📊 DataLoader State',
+          content: 'Position in dataset. Which samples have been seen this epoch.',
+          contents: 'Current epoch\nSamples seen\nShuffle seed\nWorker states',
+          why: 'Resume at exact position\nNo duplicate samples\nDeterministic training'
+        },
+        'ckpt-config': {
+          title: '📝 Training Config',
+          content: 'All hyperparameters and settings. For reproducibility and documentation.',
+          contents: 'Model architecture config\nTraining hyperparameters\nDistributed settings\nGit commit hash',
+          format: 'JSON or YAML\nVersion controlled\nHuman readable'
+        },
+
+        // Sharded Checkpoints
+        'shard-concept': {
+          title: '🔀 Sharded Checkpoints',
+          content: 'Split checkpoint across multiple files. Each rank saves its shard independently.',
+          mechanism: 'Rank 0: shard_0.pt (params 0-N/K)\nRank 1: shard_1.pt (params N/K-2N/K)\n...\nParallel I/O',
+          benefit: 'Parallel writes: K× faster\nNo single huge file\nNative for FSDP/ZeRO'
+        },
+        'shard-fsdp': {
+          title: '📦 FSDP Checkpointing',
+          content: 'FSDP naturally shards. Can save sharded (fast) or consolidated (portable).',
+          options: 'SHARDED_STATE_DICT: Fast, rank-specific\nFULL_STATE_DICT: Consolidated, portable\nLOCAL_STATE_DICT: Flat params',
+          tradeoff: 'Sharded: Fast save/load, same topology\nFull: Slow, any topology, shareable'
+        },
+        'shard-async': {
+          title: '⚡ Async Checkpointing',
+          content: 'Save checkpoint in background while training continues. Overlap I/O with compute.',
+          mechanism: 'Copy state to CPU async\nBackground thread writes to disk\nTraining continues',
+          benefit: 'Near-zero checkpoint overhead\nNo training pause\nRequires extra CPU memory'
+        },
+
+        // Checkpoint Storage
+        'storage-local': {
+          title: '💽 Local NVMe',
+          content: 'Fast local SSD storage. Good for temporary/frequent checkpoints.',
+          specs: 'NVMe: 3-7 GB/s read/write\n70B checkpoint: 20-30s\nLimited capacity (~4TB)',
+          usage: 'Frequent saves during training\nCopy to shared storage async\nFast recovery'
+        },
+        'storage-parallel': {
+          title: '🌐 Parallel File System',
+          content: 'Lustre, GPFS, or similar. Shared across nodes with high aggregate bandwidth.',
+          specs: 'Lustre: 100+ GB/s aggregate\nShared across all nodes\nPB-scale capacity',
+          usage: 'Primary checkpoint storage\nParallel writes from all ranks\nLong-term retention'
+        },
+        'storage-cloud': {
+          title: '☁️ Cloud Object Storage',
+          content: 'S3, GCS, Azure Blob. Durable, scalable, but higher latency.',
+          specs: 'Throughput: 10-100 Gbps\nLatency: 10-100ms\nUnlimited capacity',
+          usage: 'Long-term archival\nCross-region backup\nCheckpoint distribution'
+        },
+
+        // Monitoring Metrics
+        'mon-loss': {
+          title: '📉 Training Loss',
+          content: 'The primary metric. Should decrease over training. Watch for spikes and plateaus.',
+          tracking: 'Log every step (raw)\nEMA for smoothed trend\nAlert on spike (>2× recent avg)',
+          healthy: 'Steady decrease\nOccasional small spikes OK\nPlateau may need LR adjustment'
+        },
+        'mon-grad-norm': {
+          title: '📊 Gradient Norm',
+          content: 'Magnitude of gradients before clipping. Indicates training dynamics.',
+          tracking: 'Log every step\nTrack pre-clip and post-clip\nAlert if always clipping',
+          healthy: 'Relatively stable\nOccasional spikes OK (clipped)\nExploding = problem'
+        },
+        'mon-lr': {
+          title: '📈 Learning Rate',
+          content: 'Current learning rate from scheduler. Verify schedule is correct.',
+          tracking: 'Log every step\nPlot full schedule\nVerify warmup/decay',
+          debugging: 'Wrong LR is common bug\nCheck schedule implementation\nVerify step counting'
+        },
+        'mon-throughput': {
+          title: '⚡ Throughput',
+          content: 'Tokens/second or samples/second. Measures training speed and efficiency.',
+          tracking: 'Tokens per second\nSamples per second\nStep time breakdown',
+          healthy: '70B on 2048 GPUs: ~500K tok/s\nMFU: 30-50% is good\nMonitor for degradation'
+        },
+        'mon-memory': {
+          title: '💾 GPU Memory',
+          content: 'Memory usage per GPU. Watch for leaks and fragmentation.',
+          tracking: 'Allocated vs reserved\nPeak memory per step\nMemory over time',
+          issues: 'Growing memory = leak\nFragmentation = OOM with "enough" memory\nAudit tensor lifecycle'
+        },
+        'mon-val-loss': {
+          title: '📊 Validation Loss',
+          content: 'Loss on held-out data. True measure of generalization. Overfitting if diverges from train.',
+          tracking: 'Every N steps (1K-10K)\nMultiple val sets\nTrack train-val gap',
+          overfitting: 'Val increasing while train decreasing\nEarly stopping trigger\nMay need regularization'
+        },
+
+        // Evaluation
+        'eval-benchmarks': {
+          title: '📋 Standard Benchmarks',
+          content: 'Evaluate on standard tasks during training. Track capability development.',
+          benchmarks: 'HellaSwag: Common sense\nARC: Reasoning\nMMLU: Knowledge\nGSM8K: Math\nHumanEval: Code',
+          frequency: 'Every 10K-50K steps\nTime-consuming (hours)\nEssential for tracking'
+        },
+        'eval-lm-eval': {
+          title: '🔧 LM Evaluation Harness',
+          content: 'EleutherAI\'s evaluation framework. Standardized benchmark suite.',
+          features: 'Consistent methodology\nWide benchmark coverage\nFew-shot evaluation\nOpen source',
+          usage: 'lm_eval --model hf --model_args pretrained=... --tasks hellaswag,arc_easy'
+        },
+        'eval-perplexity': {
+          title: '📊 Perplexity',
+          content: 'Exponentiated cross-entropy. Standard metric for language models.',
+          formula: 'PPL = exp(loss)\nLower is better\nDataset-specific',
+          datasets: 'WikiText: 3-8 PPL for good models\nPenn Treebank: Similar\nC4 val: Common baseline'
+        },
+
+        // Logging
+        'log-wandb': {
+          title: '📊 Weights & Biases',
+          content: 'Popular ML experiment tracking platform. Real-time dashboards, comparison.',
+          features: 'Real-time plots\nHyperparameter tracking\nRun comparison\nArtifact storage',
+          integration: 'wandb.log({"loss": loss, "lr": lr})\nAutomatic gradient tracking\nModel checkpoints'
+        },
+        'log-tensorboard': {
+          title: '📈 TensorBoard',
+          content: 'TensorFlow\'s visualization tool. Works with PyTorch. Local or hosted.',
+          features: 'Loss curves\nHistograms\nEmbedding visualization\nGraph visualization',
+          usage: 'SummaryWriter logging\nLocal or remote viewing\nFree and open source'
+        },
+        'log-console': {
+          title: '💻 Console Logging',
+          content: 'Print to stdout/stderr. Essential for debugging and quick checks.',
+          content_detail: 'Step, loss, LR, throughput\nTimestamps\nRank-specific prefixes',
+          tips: 'Log from rank 0 only\nTimed intervals (not every step)\nStructured format (JSON)'
+        },
+
+        // Failure Recovery
+        'recover-crash': {
+          title: '💥 Crash Recovery',
+          content: 'Resume from last checkpoint after hardware/software failure.',
+          steps: '1. Identify latest checkpoint\n2. Load on all ranks\n3. Resume from exact step\n4. Verify loss matches',
+          common: 'GPU failure\nOOM crash\nNetwork timeout\nNode preemption'
+        },
+        'recover-rollback': {
+          title: '⏪ Rollback',
+          content: 'Go back to earlier checkpoint if training destabilized.',
+          when: 'Loss exploded and didn\'t recover\nNaN/Inf in weights\nBad hyperparameter change',
+          steps: '1. Identify last good checkpoint\n2. Load it\n3. Adjust hyperparameters\n4. Resume'
+        },
+        'recover-spike': {
+          title: '⚠️ Loss Spike Response',
+          content: 'Handle sudden loss increases during training.',
+          automatic: 'Skip step if NaN\nReduce loss scale\nContinue training',
+          manual: 'Large sustained spike:\n1. Stop training\n2. Investigate (bad data?)\n3. Maybe rollback\n4. Fix and resume'
+        },
+
+        // Best Practices
+        'best-deterministic': {
+          title: '🎯 Deterministic Training',
+          content: 'Ensure training is reproducible from checkpoint.',
+          requirements: 'Save all RNG states\nSave data loader position\nSame config on resume\nSame world size',
+          testing: 'Train steps 100-200\nSave checkpoint at 100\nResume, compare loss at 200'
+        },
+        'best-validation': {
+          title: '✅ Checkpoint Validation',
+          content: 'Verify checkpoint integrity before relying on it.',
+          checks: 'File size matches expected\nChecksum verification\nTest load before deleting old\nRun few steps to verify',
+          corruption: 'Partial writes (crash during save)\nDisk errors\nNetwork issues (cloud)'
+        },
+        'best-documentation': {
+          title: '📝 Run Documentation',
+          content: 'Record everything about the training run.',
+          document: 'Config files (versioned)\nHyperparameters\nData preprocessing\nCode version (git hash)\nHardware setup',
+          why: 'Reproducibility\nDebugging\nKnowledge transfer\nPublication'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.contents && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">CONTENTS</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.contents}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.typical && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TYPICAL</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.typical}</pre>
+              </div>
+            )}
+            {t.tracking && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TRACKING</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.tracking}</pre>
+              </div>
+            )}
+            {t.steps && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STEPS</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.steps}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.why && (
+              <div className="text-xs text-blue-400 mt-2">
+                <span className="font-bold">❓ Why: </span>{t.why}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-sky-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-cyan-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-sky-600/30 border border-sky-400 rounded-full mb-6">
+                <span className="text-sky-300 font-bold">STAGE 7</span>
+                <span className="text-white">•</span>
+                <span className="text-sky-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-blue-400 to-cyan-400">
+                Checkpointing & Monitoring
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-sky-300 font-bold">Save progress, track metrics, ensure recoverability</span>.
+                <span className="text-blue-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-frequency">
+                <div className="p-5 rounded-xl bg-sky-600/90 border-2 border-sky-400 shadow-lg shadow-sky-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⏰</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">FREQUENCY</span>
+                  </div>
+                  <div className="text-3xl font-black text-sky-100">1K steps</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Typical interval</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-size">
+                <div className="p-5 rounded-xl bg-blue-600/90 border-2 border-blue-400 shadow-lg shadow-blue-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💾</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">CKPT SIZE</span>
+                  </div>
+                  <div className="text-3xl font-black text-blue-100">~700GB</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">70B full checkpoint</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-retention">
+                <div className="p-5 rounded-xl bg-indigo-600/90 border-2 border-indigo-400 shadow-lg shadow-indigo-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📦</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">RETENTION</span>
+                  </div>
+                  <div className="text-3xl font-black text-indigo-100">3-5</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Checkpoints kept</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-recovery">
+                <div className="p-5 rounded-xl bg-cyan-600/90 border-2 border-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔄</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">RECOVERY</span>
+                  </div>
+                  <div className="text-3xl font-black text-cyan-100">2-5 min</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Load + resume time</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: CHECKPOINT CONTENTS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-sky-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-sky-300">7.1 CHECKPOINT CONTENTS</h2>
+                  <p className="text-sky-200/80">Everything needed to resume training exactly</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="ckpt-model">
+                  <div className="p-4 rounded-xl bg-sky-900/50 border-2 border-sky-400">
+                    <div className="text-xl font-black text-sky-200 mb-2">🧠 Model Weights</div>
+                    <div className="text-sky-100/80 text-sm">All parameters (BF16)</div>
+                    <div className="text-sky-100/60 text-xs mt-2">70B × 2 = 140GB</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="ckpt-optimizer">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">⚙️ Optimizer States</div>
+                    <div className="text-blue-100/80 text-sm">Adam m, v (FP32)</div>
+                    <div className="text-blue-100/60 text-xs mt-2">70B × 8 = 560GB</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="ckpt-scheduler">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">📅 LR Scheduler</div>
+                    <div className="text-indigo-100/80 text-sm">Schedule state</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">~1KB</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="ckpt-rng">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-xl font-black text-violet-200 mb-2">🎲 RNG States</div>
+                    <div className="text-violet-100/80 text-sm">All random generators</div>
+                    <div className="text-violet-100/60 text-xs mt-2">Reproducibility</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="ckpt-dataloader">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">📊 DataLoader State</div>
+                    <div className="text-purple-100/80 text-sm">Dataset position</div>
+                    <div className="text-purple-100/60 text-xs mt-2">Resume exact batch</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="ckpt-config">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">📝 Config</div>
+                    <div className="text-pink-100/80 text-sm">All hyperparameters</div>
+                    <div className="text-pink-100/60 text-xs mt-2">JSON/YAML</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-sky-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: SHARDED & ASYNC CHECKPOINTS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">7.2 DISTRIBUTED CHECKPOINTING</h2>
+                  <p className="text-green-200/80">Sharded saves for efficiency, async for speed</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="shard-concept">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-xl font-black text-green-200 mb-2">🔀 Sharded Checkpoints</div>
+                    <div className="text-green-100/80 text-sm">Split across N files</div>
+                    <div className="text-green-100/60 text-xs mt-2">Parallel I/O</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="shard-fsdp">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">📦 FSDP Checkpointing</div>
+                    <div className="text-emerald-100/80 text-sm">Sharded or consolidated</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">Native support</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="shard-async">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-xl font-black text-teal-200 mb-2">⚡ Async Save</div>
+                    <div className="text-teal-100/80 text-sm">Background I/O</div>
+                    <div className="text-teal-100/60 text-xs mt-2">Zero overhead</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Storage Options */}
+              <div className="bg-slate-900/80 border border-green-500/30 rounded-xl p-5">
+                <div className="text-lg font-black text-green-300 mb-4">💾 Storage Options</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Hoverable id="storage-local">
+                    <div className="bg-cyan-900/40 border border-cyan-500 rounded-lg p-3">
+                      <div className="text-cyan-200 font-bold text-sm">💽 Local NVMe</div>
+                      <div className="text-cyan-100/60 text-xs">3-7 GB/s • Fast temp storage</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="storage-parallel">
+                    <div className="bg-blue-900/40 border border-blue-500 rounded-lg p-3">
+                      <div className="text-blue-200 font-bold text-sm">🌐 Lustre/GPFS</div>
+                      <div className="text-blue-100/60 text-xs">100+ GB/s • Primary storage</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="storage-cloud">
+                    <div className="bg-purple-900/40 border border-purple-500 rounded-lg p-3">
+                      <div className="text-purple-200 font-bold text-sm">☁️ S3/GCS/Azure</div>
+                      <div className="text-purple-100/60 text-xs">Durable • Long-term archive</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-green-400 to-yellow-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: MONITORING METRICS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">7.3 MONITORING METRICS</h2>
+                  <p className="text-yellow-200/80">Track everything to catch problems early</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="mon-loss">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">📉 Training Loss</div>
+                    <div className="text-red-100/80 text-sm">Primary metric</div>
+                    <div className="text-red-100/60 text-xs mt-2">Should decrease</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="mon-grad-norm">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">📊 Gradient Norm</div>
+                    <div className="text-orange-100/80 text-sm">Training dynamics</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Pre/post clip</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="mon-lr">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">📈 Learning Rate</div>
+                    <div className="text-yellow-100/80 text-sm">Verify schedule</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">Common bug source</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="mon-throughput">
+                  <div className="p-4 rounded-xl bg-lime-900/50 border-2 border-lime-400">
+                    <div className="text-xl font-black text-lime-200 mb-2">⚡ Throughput</div>
+                    <div className="text-lime-100/80 text-sm">Tokens/second</div>
+                    <div className="text-lime-100/60 text-xs mt-2">Efficiency metric</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="mon-memory">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-xl font-black text-green-200 mb-2">💾 GPU Memory</div>
+                    <div className="text-green-100/80 text-sm">Watch for leaks</div>
+                    <div className="text-green-100/60 text-xs mt-2">Peak & allocated</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="mon-val-loss">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">📊 Validation Loss</div>
+                    <div className="text-emerald-100/80 text-sm">True generalization</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">Overfitting check</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-yellow-400 to-purple-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: EVALUATION & LOGGING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">7.4 EVALUATION & LOGGING</h2>
+                  <p className="text-purple-200/80">Benchmark performance and track experiments</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Evaluation */}
+                <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-purple-300 mb-4">📋 Evaluation</div>
+                  <div className="space-y-3">
+                    <Hoverable id="eval-benchmarks">
+                      <div className="bg-purple-900/40 border border-purple-400 rounded-lg p-3">
+                        <div className="text-purple-200 font-bold text-sm">📋 Standard Benchmarks</div>
+                        <div className="text-purple-100/60 text-xs">HellaSwag, ARC, MMLU, GSM8K</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="eval-lm-eval">
+                      <div className="bg-violet-900/40 border border-violet-400 rounded-lg p-3">
+                        <div className="text-violet-200 font-bold text-sm">🔧 LM Evaluation Harness</div>
+                        <div className="text-violet-100/60 text-xs">EleutherAI standardized suite</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="eval-perplexity">
+                      <div className="bg-indigo-900/40 border border-indigo-400 rounded-lg p-3">
+                        <div className="text-indigo-200 font-bold text-sm">📊 Perplexity</div>
+                        <div className="text-indigo-100/60 text-xs">WikiText, C4 validation</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Logging */}
+                <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-purple-300 mb-4">📊 Logging Tools</div>
+                  <div className="space-y-3">
+                    <Hoverable id="log-wandb">
+                      <div className="bg-yellow-900/40 border border-yellow-400 rounded-lg p-3">
+                        <div className="text-yellow-200 font-bold text-sm">📊 Weights & Biases</div>
+                        <div className="text-yellow-100/60 text-xs">Real-time dashboards</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="log-tensorboard">
+                      <div className="bg-orange-900/40 border border-orange-400 rounded-lg p-3">
+                        <div className="text-orange-200 font-bold text-sm">📈 TensorBoard</div>
+                        <div className="text-orange-100/60 text-xs">Visualization suite</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="log-console">
+                      <div className="bg-red-900/40 border border-red-400 rounded-lg p-3">
+                        <div className="text-red-200 font-bold text-sm">💻 Console Logging</div>
+                        <div className="text-red-100/60 text-xs">Stdout/stderr • JSON format</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-purple-400 to-red-400 rounded-full" />
+            </div>
+
+            {/* SECTION 5: FAILURE RECOVERY */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">7.5 FAILURE RECOVERY</h2>
+                  <p className="text-red-200/80">Handle crashes, spikes, and training issues</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="recover-crash">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">💥 Crash Recovery</div>
+                    <div className="text-red-100/80 text-sm">Resume from checkpoint</div>
+                    <div className="text-red-100/60 text-xs mt-2">GPU fail, OOM, network</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="recover-rollback">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-xl font-black text-rose-200 mb-2">⏪ Rollback</div>
+                    <div className="text-rose-100/80 text-sm">Earlier checkpoint</div>
+                    <div className="text-rose-100/60 text-xs mt-2">If training destabilized</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="recover-spike">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">⚠️ Loss Spike</div>
+                    <div className="text-pink-100/80 text-sm">Auto-skip or investigate</div>
+                    <div className="text-pink-100/60 text-xs mt-2">Reduce scale, check data</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 6: BEST PRACTICES */}
+            <section className="mb-10">
+              <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-cyan-300 mb-4">✨ BEST PRACTICES</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Hoverable id="best-deterministic">
+                    <div className="bg-cyan-900/40 border border-cyan-400 rounded-lg p-3">
+                      <div className="text-cyan-200 font-bold text-sm">🎯 Deterministic Training</div>
+                      <div className="text-cyan-100/60 text-xs">Save all states, verify resume</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="best-validation">
+                    <div className="bg-teal-900/40 border border-teal-400 rounded-lg p-3">
+                      <div className="text-teal-200 font-bold text-sm">✅ Checkpoint Validation</div>
+                      <div className="text-teal-100/60 text-xs">Verify integrity before relying</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="best-documentation">
+                    <div className="bg-emerald-900/40 border border-emerald-400 rounded-lg p-3">
+                      <div className="text-emerald-200 font-bold text-sm">📝 Documentation</div>
+                      <div className="text-emerald-100/60 text-xs">Config, code version, setup</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Training Complete */}
+            <div className="bg-gradient-to-r from-sky-900/50 to-cyan-900/50 border-2 border-sky-400/50 rounded-xl p-8 text-center">
+              <div className="text-3xl font-black text-white mb-4">
+                🎉 TRAINING LIFECYCLE COMPLETE
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                From data pipeline to checkpointing, you've seen the complete end-to-end training process for large language models.
+                This cycle repeats for 500K+ steps over weeks to months until the model converges.
+              </div>
+              
+              {/* Full Pipeline Summary */}
+              <div className="grid grid-cols-7 gap-2 mt-6 text-xs">
+                <div className="bg-cyan-900/50 border border-cyan-400 rounded-lg p-2">
+                  <div className="text-cyan-300 font-bold">Stage 0</div>
+                  <div className="text-cyan-100/60">Data & Infra</div>
+                </div>
+                <div className="bg-pink-900/50 border border-pink-400 rounded-lg p-2">
+                  <div className="text-pink-300 font-bold">Stage 1</div>
+                  <div className="text-pink-100/60">Model Init</div>
+                </div>
+                <div className="bg-green-900/50 border border-green-400 rounded-lg p-2">
+                  <div className="text-green-300 font-bold">Stage 2</div>
+                  <div className="text-green-100/60">Forward</div>
+                </div>
+                <div className="bg-red-900/50 border border-red-400 rounded-lg p-2">
+                  <div className="text-red-300 font-bold">Stage 3</div>
+                  <div className="text-red-100/60">Loss</div>
+                </div>
+                <div className="bg-orange-900/50 border border-orange-400 rounded-lg p-2">
+                  <div className="text-orange-300 font-bold">Stage 4</div>
+                  <div className="text-orange-100/60">Backward</div>
+                </div>
+                <div className="bg-purple-900/50 border border-purple-400 rounded-lg p-2">
+                  <div className="text-purple-300 font-bold">Stage 5</div>
+                  <div className="text-purple-100/60">Sync</div>
+                </div>
+                <div className="bg-emerald-900/50 border border-emerald-400 rounded-lg p-2">
+                  <div className="text-emerald-300 font-bold">Stage 6</div>
+                  <div className="text-emerald-100/60">Optimizer</div>
+                </div>
+              </div>
+              
+              <div className="mt-6 text-sky-300 font-bold">
+                ↻ Stage 7: Checkpoint & Monitor → Repeat from Stage 2
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 7: Checkpointing & Monitoring • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">Save → Monitor → Evaluate → Recover → Repeat</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<CheckpointingStage />);
+  </script>
+</body>
+</html>

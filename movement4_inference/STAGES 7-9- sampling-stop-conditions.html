@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sampling & Stop Conditions - Inference Stages 7-9</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+    function SamplingStopConditions() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+
+      const tooltips = {
+        // Key Metrics
+        'metric-diversity': { title: '🎲 DIVERSITY', content: 'Control randomness vs determinism. Temperature=0 is greedy (always pick top). Higher temperature = more random/creative output.', example: 'T=0.0: "The capital of France is Paris"\nT=0.7: "The capital of France is Paris"\nT=1.5: "The capital of France is... Lyon?"' },
+        'metric-quality': { title: '✨ QUALITY', content: 'Balance between creativity and coherence. Too deterministic = boring/repetitive. Too random = nonsense. Sweet spot varies by task.', example: 'Code: T=0.0-0.3 (deterministic)\nChat: T=0.7-0.9 (balanced)\nCreative: T=0.9-1.2 (diverse)' },
+        'metric-control': { title: '🎛️ CONTROL', content: 'Multiple knobs: temperature, top-k, top-p, repetition penalty, presence penalty, frequency penalty, grammar constraints.', example: 'Conservative: T=0.5, top_p=0.9\nBalanced: T=0.7, top_p=0.95\nCreative: T=1.0, top_p=0.99' },
+        'metric-stop': { title: '🛑 STOP', content: 'Exit conditions end generation. EOS token, max_tokens limit, stop sequences, tool calls. Critical for cost control.', example: 'Stop when:\n- Model outputs </s>\n- Reached 4096 tokens\n- Sees "```" (code block end)\n- Outputs tool_call JSON' },
+
+        // Logits Processing
+        'logits-raw': { title: 'Raw Logits', content: 'Output of final linear layer. One value per vocabulary token. Higher = model thinks more likely. Not probabilities yet!', details: 'Shape: [batch_size, vocab_size]\nRange: unbounded (-∞ to +∞)\nNext step: Convert to probabilities via softmax', example: 'Vocab: ["the", "a", "cat", ...]\nLogits: [2.5, 1.2, 0.8, ...]\n"the" has highest logit = most likely' },
+        'logits-temperature': { title: 'Temperature Scaling', content: 'Divide logits by temperature before softmax. T<1 sharpens distribution (more confident). T>1 flattens (more random).', details: 'Formula: scaled_logits = logits / temperature\n\nT=0: argmax (greedy, deterministic)\nT=1: unchanged (model default)\nT>1: flatter distribution (more random)\nT<1: sharper distribution (more focused)', example: 'Logits: [2.0, 1.0, 0.5]\nT=1.0 probs: [0.58, 0.24, 0.18]\nT=0.5 probs: [0.76, 0.15, 0.09]\nT=2.0 probs: [0.42, 0.33, 0.25]' },
+        'logits-topk': { title: 'Top-K Filtering', content: 'Keep only the K highest-probability tokens, set rest to -infinity. Limits sampling to most likely options only.', details: 'Process:\n1. Sort tokens by logit\n2. Keep top K tokens\n3. Set rest to -inf\n4. Renormalize probabilities\n\nK=1 is greedy decoding', example: 'K=3, vocab of 50000:\nBefore: 50000 options\nAfter: Only 3 options\n\nPrevents sampling rare/weird tokens' },
+        'logits-topp': { title: 'Top-P (Nucleus) Sampling', content: 'Keep smallest set of tokens whose cumulative probability ≥ p. Adaptive - more tokens when uncertain, fewer when confident.', details: 'Process:\n1. Sort tokens by probability (descending)\n2. Compute cumulative sum\n3. Keep tokens until sum ≥ p\n4. Mask rest, renormalize\n\nAlso called "nucleus sampling"', example: 'p=0.9, probs=[0.5, 0.3, 0.15, 0.05]\nCumulative: [0.5, 0.8, 0.95, 1.0]\nKeep first 3 (sum=0.95 ≥ 0.9)\n\nAdapts to model confidence!' },
+        'logits-minp': { title: 'Min-P Filtering', content: 'Keep tokens with probability ≥ min_p × max_probability. Relative threshold adapts to confidence level.', details: 'Process:\n1. Find max probability\n2. Threshold = min_p × max_prob\n3. Keep tokens above threshold\n4. Renormalize\n\nAdvantage: Adapts to context automatically', example: 'min_p=0.1, max_prob=0.5\nThreshold=0.05\nKeep all tokens with prob ≥ 0.05\n\nConfident: few tokens kept\nUncertain: many tokens kept' },
+
+        // Penalties
+        'penalty-repetition': { title: 'Repetition Penalty', content: 'Reduce probability of tokens that already appeared. Prevents loops and repetitive text. Applied multiplicatively to logits.', details: 'Formula: logit = logit / penalty (if token in context)\n\npenalty > 1: Discourage repetition\npenalty = 1: No effect\npenalty < 1: Encourage repetition (rare)\n\nTypical: 1.0-1.2', example: 'Context: "The cat sat on the"\n"the" appeared twice\npenalty=1.1: "the" logit ÷ 1.21\nLess likely to repeat "the" again' },
+        'penalty-frequency': { title: 'Frequency Penalty', content: 'Reduce probability proportional to how many times token appeared. More appearances = bigger penalty. Linear scaling.', details: 'Formula: logit -= freq_penalty × count\n\ncount: How many times token appeared\nApplied additively to logits\nUsed by OpenAI API\n\nTypical: 0.0-2.0', example: 'Context has "the" 5 times\nfreq_penalty=0.5\nlogit("the") -= 0.5 × 5 = 2.5\n\nStrongly discourages overused words' },
+        'penalty-presence': { title: 'Presence Penalty', content: 'Flat penalty if token appeared at all, regardless of count. Encourages topic diversity. Binary: appeared or not.', details: 'Formula: logit -= presence_penalty (if token appeared)\n\nApplied once, not scaled by count\nEncourages new topics/words\nUsed by OpenAI API\n\nTypical: 0.0-2.0', example: 'Context mentions "Python"\npresence_penalty=0.5\nlogit("Python") -= 0.5\n\nEncourages mentioning other topics' },
+
+        // Structured Output
+        'struct-json': { title: 'JSON Mode', content: 'Force output to be valid JSON. Grammar constraints mask invalid tokens. Guarantees parseable output.', details: 'Implementation:\n1. Track JSON parser state\n2. At each step, determine valid next tokens\n3. Mask invalid tokens (-inf logits)\n4. Sample from valid tokens only\n\nLibraries: Outlines, Guidance, LMQL', example: 'State: {"name": |\nValid next: ", letter, digit, }\nInvalid: [, numbers, etc.\n\nCan only sample valid continuation' },
+        'struct-schema': { title: 'Schema Enforcement', content: 'Force output to match JSON schema. Type checking, required fields, enum values. Compile schema to grammar.', details: 'Process:\n1. Parse JSON schema\n2. Convert to grammar (CFG or regex)\n3. Track parser state during generation\n4. Mask invalid tokens at each step\n\nGuarantees schema compliance', example: 'Schema: {"type": "object", "properties": {"age": {"type": "integer"}}}\n\nForces: {"age": 25}\nPrevents: {"age": "twenty-five"}' },
+        'struct-grammar': { title: 'Grammar Constraints', content: 'Define custom grammar (BNF/regex) for output format. Any structured format: code, XML, custom DSL.', details: 'Grammar types:\n- CFG (Context-Free Grammar)\n- Regular expressions\n- Custom parsers\n\nAt each step, compute valid token set from grammar state', example: 'Grammar: answer ::= "yes" | "no"\n\nStep 1: Only "y" or "n" valid\nStep 2: Only "es" or "o" valid\nGuarantees "yes" or "no" output' },
+
+        // Selection Methods
+        'select-greedy': { title: 'Greedy Decoding', content: 'Always pick highest probability token. Deterministic - same input = same output. Fast but can be repetitive/boring.', details: 'Method: token = argmax(probabilities)\n\nPros:\n- Deterministic, reproducible\n- Fast (no sampling)\n- Good for factual tasks\n\nCons:\n- Can get stuck in loops\n- Less creative output', example: 'Probs: [0.6, 0.3, 0.1]\nGreedy: Always pick token 0\n\nSame prompt → same output every time' },
+        'select-sample': { title: 'Multinomial Sampling', content: 'Sample from probability distribution. Token i chosen with probability p_i. More random, more diverse outputs.', details: 'Method: token = random.choice(vocab, p=probs)\n\nPros:\n- Diverse outputs\n- More natural/creative\n- Avoids repetition\n\nCons:\n- Non-deterministic\n- Can sample bad tokens', example: 'Probs: [0.6, 0.3, 0.1]\n60% chance: token 0\n30% chance: token 1\n10% chance: token 2' },
+        'select-beam': { title: 'Beam Search', content: 'Keep top-B hypotheses at each step. Explores multiple paths. Better for tasks with single "correct" answer (translation).', details: 'Method:\n1. Keep B best sequences so far\n2. Expand each by all vocab tokens\n3. Score all B × V candidates\n4. Keep top B again\n5. Repeat until EOS\n\nRarely used for chat/creative', example: 'Beam width B=3:\nStep 1: ["The", "A", "One"]\nStep 2: ["The cat", "The dog", "A cat"]\nStep 3: ... keep best 3 at each step' },
+
+        // Stop Conditions
+        'stop-eos': { title: 'EOS Token', content: 'End-Of-Sequence token signals model wants to stop. Model-specific: </s>, <|endoftext|>, <|im_end|>, etc.', details: 'Token IDs vary by model:\n- Llama: </s> = 2\n- GPT: <|endoftext|> = 50256\n- ChatML: <|im_end|> = special\n\nChecked after every sample step', example: 'Generated: "Hello world!</s>"\nDetect </s> → stop generation\nReturn: "Hello world!"' },
+        'stop-maxlen': { title: 'Max Tokens', content: 'Hard limit on output length. Prevents runaway generation. Critical for cost control. Includes input in some APIs.', details: 'Parameters vary by API:\n- max_tokens: Output limit only\n- max_length: Input + output\n- max_new_tokens: Output only\n\nHits limit → generation stops', example: 'max_tokens=100\nGenerated 100 tokens without EOS\n→ Force stop, return partial\n\nPrevents infinite generation!' },
+        'stop-sequence': { title: 'Stop Sequences', content: 'Custom strings that trigger stop. Useful for structured output, code blocks, specific formats.', details: 'Common stop sequences:\n- "```" (end code block)\n- "\\n\\n" (paragraph end)\n- "Human:" (chat format)\n- "</answer>" (XML tags)\n\nMatched via string search on output', example: 'stop=["```", "\\n\\n\\n"]\nGenerated: "```python\\nprint(1)\\n```"\nSees "```" at end → stop\nReturn: "```python\\nprint(1)\\n```"' },
+        'stop-tool': { title: 'Tool Call Detection', content: 'Model outputs special format indicating tool call. Stop generation, parse tool call, execute, continue.', details: 'Formats:\n- OpenAI: {"tool_calls": [...]}\n- Anthropic: <tool_use>...</tool_use>\n- Custom: function_call: {...}\n\nDetect → stop → parse → execute → resume', example: 'Output: "I\'ll check the weather.\\n{\\n  \\"tool\\": \\"get_weather\\",\\n  \\"args\\": {\\"city\\": \\"NYC\\"}\\n}"\n\nDetect JSON → stop → call get_weather' },
+
+        // Token Selection Flow
+        'flow-logits': { title: 'Logits → Probs', content: 'Convert raw logits to probabilities via softmax. Probabilities sum to 1, represent likelihood of each token.', details: 'Softmax: p_i = exp(logit_i) / Σ exp(logit_j)\n\nNumerically stable version:\nlogits -= max(logits)\np = exp(logits) / sum(exp(logits))', example: 'Logits: [2.0, 1.0, 0.5]\nexp: [7.39, 2.72, 1.65]\nsum: 11.76\nProbs: [0.63, 0.23, 0.14]' },
+        'flow-filter': { title: 'Filter & Mask', content: 'Apply top-k, top-p, min-p filtering. Set excluded tokens to -infinity before softmax, or zero after.', details: 'Order typically:\n1. Temperature scaling\n2. Top-k filtering\n3. Top-p filtering\n4. Repetition penalty\n5. Final softmax\n6. Sample', example: 'After top-k=3:\nLogits: [2.0, 1.0, 0.5, -inf, -inf, ...]\nOnly 3 tokens have non-zero probability' },
+        'flow-sample': { title: 'Sample Token', content: 'Draw one token from filtered distribution. Multinomial sampling or argmax (greedy).', details: 'Sampling:\ntoken_id = torch.multinomial(probs, num_samples=1)\n\nGreedy:\ntoken_id = torch.argmax(probs)', example: 'Probs: [0.63, 0.23, 0.14, 0, 0, ...]\nSample → token_id = 0 (63% chance)\nor token_id = 1 (23% chance)' },
+        'flow-check': { title: 'Check Stop', content: 'After sampling, check all stop conditions. If any triggered, end generation. Else, continue loop.', details: 'Check order:\n1. Is token EOS? → stop\n2. Reached max_tokens? → stop\n3. Output contains stop_sequence? → stop\n4. Is tool call format? → stop\n5. None triggered → continue', example: 'Sampled token: 2 (</s>)\nIs EOS? Yes → STOP\n\nSampled token: 15496 ("Hello")\nIs EOS? No\nMax tokens? No\nStop seq? No\n→ CONTINUE' },
+
+        // Advanced
+        'adv-cfg': { title: 'Classifier-Free Guidance', content: 'Run model with and without prompt, combine outputs. Steers toward prompted behavior. Used in image/audio generation.', details: 'Process:\n1. Get logits with prompt (conditioned)\n2. Get logits without prompt (unconditioned)\n3. logits = uncond + scale × (cond - uncond)\n\nscale > 1 amplifies prompt influence', example: 'Prompt: "Write a poem"\nCond logits: poetic words high\nUncond logits: generic\nCFG: Amplifies poetic tendency' },
+        'adv-contrastive': { title: 'Contrastive Decoding', content: 'Compare large model vs small model outputs. Prefer tokens where large model is MORE confident than small model.', details: 'Intuition: Large model knows things small doesn\'t\n\nFormula:\nlogits = log(p_large) - log(p_small)\n\nAmplifies large model\'s unique knowledge', example: 'Large model confident: "Paris"\nSmall model unsure: "Paris" vs "London"\n→ Boost "Paris" (large knows better)' },
+        'adv-watermark': { title: 'Watermarking', content: 'Embed detectable patterns in output. Split vocab into "green" and "red" lists, bias toward green. Detectable statistically.', details: 'Generation:\n1. Hash context to seed RNG\n2. Split vocab: green (allowed) vs red\n3. Boost green token logits\n\nDetection:\n1. Same hash → same split\n2. Count green vs red tokens\n3. Statistical test for watermark', example: 'Context hash → green=[a,the,is] red=[an,that,are]\nBias toward green tokens\nOutput has more green than random\n→ Detectable as AI-generated' },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        let left = mousePos.x + 15, top = mousePos.y + 15;
+        if (left + 400 > window.innerWidth) left = mousePos.x - 400;
+        if (top + 300 > window.innerHeight) top = window.innerHeight - 310;
+        return (
+          <div className="fixed z-50 w-[380px] p-4 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl" style={{ left, top }}>
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-2">{t.content}</p>
+            {t.details && <div className="bg-black/50 rounded-lg p-2 mb-2"><div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div><p className="text-xs text-cyan-300 whitespace-pre-wrap">{t.details}</p></div>}
+            {t.example && <div className="bg-black/50 rounded-lg p-2"><div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div><pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre></div>}
+          </div>
+        );
+      };
+
+      const H = ({ id, children, className = '' }) => (
+        <div className={`cursor-help transition-all hover:scale-[1.02] ${className}`} onMouseEnter={() => setTooltip(id)} onMouseLeave={() => setTooltip(null)}>{children}</div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-6" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-amber-500/20 border-2 border-amber-400 mb-4">
+                <span className="text-amber-300 font-black text-lg">STAGES 7-9</span>
+                <span className="text-white">•</span>
+                <span className="text-amber-200 font-medium">From Logits to Output Token</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400">Sampling & Stop Conditions</h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto"><span className="text-amber-300 font-bold">Control the Output</span> — temperature, top-k/p, penalties, and when to stop. <span className="text-cyan-300">🖱️ Hover for details.</span></p>
+            </header>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-10">
+              <H id="metric-diversity"><div className="p-5 rounded-xl bg-purple-600 border-2 border-purple-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">🎲</span><span className="text-sm font-black text-white/90">DIVERSITY</span></div><div className="text-3xl font-black text-purple-100">T=0→1+</div><div className="text-sm text-white/80">Temperature controls randomness</div></div></H>
+              <H id="metric-quality"><div className="p-5 rounded-xl bg-emerald-600 border-2 border-emerald-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">✨</span><span className="text-sm font-black text-white/90">QUALITY</span></div><div className="text-3xl font-black text-emerald-100">BALANCE</div><div className="text-sm text-white/80">Creative vs coherent</div></div></H>
+              <H id="metric-control"><div className="p-5 rounded-xl bg-blue-600 border-2 border-blue-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">🎛️</span><span className="text-sm font-black text-white/90">CONTROL</span></div><div className="text-3xl font-black text-blue-100">MANY KNOBS</div><div className="text-sm text-white/80">T, top-k, top-p, penalties</div></div></H>
+              <H id="metric-stop"><div className="p-5 rounded-xl bg-red-600 border-2 border-red-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">🛑</span><span className="text-sm font-black text-white/90">STOP</span></div><div className="text-3xl font-black text-red-100">EXIT</div><div className="text-sm text-white/80">EOS, max_len, sequences</div></div></H>
+            </div>
+
+            {/* Stage 7: Sampling */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-amber-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-amber-500/50">7</div>
+                <div><h2 className="text-3xl font-black text-amber-300">7.0 LOGITS PROCESSING</h2><p className="text-amber-200/80">Transform raw scores into controlled probability distribution</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-950 to-yellow-950 border-2 border-amber-400 rounded-xl p-6">
+                {/* Pipeline */}
+                <div className="text-amber-300 font-black text-lg mb-4">🔄 SAMPLING PIPELINE</div>
+                <div className="flex items-center gap-2 flex-wrap mb-6">
+                  <H id="logits-raw"><div className="bg-slate-700 border-2 border-slate-500 rounded-xl p-3 text-center min-w-[90px]"><div className="text-white font-bold text-sm">Raw Logits</div><div className="text-slate-300 text-xs">[vocab_size]</div></div></H>
+                  <div className="text-amber-400">→</div>
+                  <H id="logits-temperature"><div className="bg-amber-600 border-2 border-amber-400 rounded-xl p-3 text-center min-w-[90px]"><div className="text-white font-bold text-sm">Temperature</div><div className="text-amber-200 text-xs">÷ T</div></div></H>
+                  <div className="text-amber-400">→</div>
+                  <H id="logits-topk"><div className="bg-amber-600 border-2 border-amber-400 rounded-xl p-3 text-center min-w-[90px]"><div className="text-white font-bold text-sm">Top-K</div><div className="text-amber-200 text-xs">Keep K best</div></div></H>
+                  <div className="text-amber-400">→</div>
+                  <H id="logits-topp"><div className="bg-amber-600 border-2 border-amber-400 rounded-xl p-3 text-center min-w-[90px]"><div className="text-white font-bold text-sm">Top-P</div><div className="text-amber-200 text-xs">Nucleus</div></div></H>
+                  <div className="text-amber-400">→</div>
+                  <H id="logits-minp"><div className="bg-amber-600 border-2 border-amber-400 rounded-xl p-3 text-center min-w-[90px]"><div className="text-white font-bold text-sm">Min-P</div><div className="text-amber-200 text-xs">Relative thresh</div></div></H>
+                  <div className="text-amber-400">→</div>
+                  <div className="bg-green-600 border-2 border-green-400 rounded-xl p-3 text-center min-w-[90px]"><div className="text-white font-bold text-sm">Softmax</div><div className="text-green-200 text-xs">→ Probs</div></div>
+                </div>
+
+                {/* Temperature Visual */}
+                <div className="bg-black/30 border border-amber-500/50 rounded-xl p-4 mb-6">
+                  <div className="text-amber-300 font-bold mb-3">🌡️ Temperature Effect on Distribution</div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="text-xs text-slate-400 mb-2">T = 0.3 (Sharp/Greedy)</div>
+                      <div className="flex items-end justify-center gap-1 h-20">
+                        <div className="w-8 bg-amber-400 rounded-t" style={{height: '95%'}}></div>
+                        <div className="w-8 bg-amber-600 rounded-t" style={{height: '15%'}}></div>
+                        <div className="w-8 bg-amber-800 rounded-t" style={{height: '5%'}}></div>
+                      </div>
+                      <div className="text-xs text-amber-400 mt-1">Focused</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-slate-400 mb-2">T = 1.0 (Default)</div>
+                      <div className="flex items-end justify-center gap-1 h-20">
+                        <div className="w-8 bg-amber-400 rounded-t" style={{height: '60%'}}></div>
+                        <div className="w-8 bg-amber-600 rounded-t" style={{height: '30%'}}></div>
+                        <div className="w-8 bg-amber-800 rounded-t" style={{height: '15%'}}></div>
+                      </div>
+                      <div className="text-xs text-amber-400 mt-1">Balanced</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-slate-400 mb-2">T = 1.5 (Flat/Creative)</div>
+                      <div className="flex items-end justify-center gap-1 h-20">
+                        <div className="w-8 bg-amber-400 rounded-t" style={{height: '40%'}}></div>
+                        <div className="w-8 bg-amber-600 rounded-t" style={{height: '35%'}}></div>
+                        <div className="w-8 bg-amber-800 rounded-t" style={{height: '30%'}}></div>
+                      </div>
+                      <div className="text-xs text-amber-400 mt-1">Random</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Penalties */}
+                <div className="text-orange-300 font-black text-lg mb-4">⚖️ REPETITION PENALTIES</div>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <H id="penalty-repetition"><div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4"><div className="text-2xl mb-2">🔄</div><div className="text-white font-bold">Repetition Penalty</div><div className="text-orange-200 text-xs mt-1">Divide logit by penalty if seen</div><div className="text-orange-400 text-xs font-mono mt-2">logit /= 1.1</div></div></H>
+                  <H id="penalty-frequency"><div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4"><div className="text-2xl mb-2">📊</div><div className="text-white font-bold">Frequency Penalty</div><div className="text-orange-200 text-xs mt-1">Subtract by count</div><div className="text-orange-400 text-xs font-mono mt-2">logit -= 0.5 × count</div></div></H>
+                  <H id="penalty-presence"><div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4"><div className="text-2xl mb-2">✓</div><div className="text-white font-bold">Presence Penalty</div><div className="text-orange-200 text-xs mt-1">Flat penalty if appeared</div><div className="text-orange-400 text-xs font-mono mt-2">logit -= 0.5</div></div></H>
+                </div>
+
+                {/* Structured Output */}
+                <div className="text-cyan-300 font-black text-lg mb-4">📐 STRUCTURED OUTPUT (Grammar Constraints)</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <H id="struct-json"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">{ }</div><div className="text-white font-bold">JSON Mode</div><div className="text-cyan-200 text-xs mt-1">Force valid JSON output</div></div></H>
+                  <H id="struct-schema"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">📋</div><div className="text-white font-bold">Schema Enforcement</div><div className="text-cyan-200 text-xs mt-1">Match JSON schema exactly</div></div></H>
+                  <H id="struct-grammar"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">📝</div><div className="text-white font-bold">Custom Grammar</div><div className="text-cyan-200 text-xs mt-1">BNF/regex constraints</div></div></H>
+                </div>
+              </div>
+            </section>
+
+            {/* Stage 8: Token Selection */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-yellow-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">8</div>
+                <div><h2 className="text-3xl font-black text-yellow-300">8.0 TOKEN SELECTION</h2><p className="text-yellow-200/80">Choose the next token from processed distribution</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-yellow-950 to-amber-950 border-2 border-yellow-400 rounded-xl p-6">
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <H id="select-greedy"><div className="bg-black/40 border-2 border-yellow-400 rounded-xl p-4"><div className="text-3xl mb-2">🎯</div><div className="text-white font-bold">Greedy</div><div className="text-yellow-200 text-sm mt-1">argmax(probs)</div><div className="text-slate-400 text-xs mt-2">Always pick highest. Deterministic.</div><div className="text-green-400 text-xs mt-1">✓ Fast, reproducible</div><div className="text-red-400 text-xs">✗ Repetitive, boring</div></div></H>
+                  <H id="select-sample"><div className="bg-black/40 border-2 border-yellow-400 rounded-xl p-4"><div className="text-3xl mb-2">🎲</div><div className="text-white font-bold">Sampling</div><div className="text-yellow-200 text-sm mt-1">random(probs)</div><div className="text-slate-400 text-xs mt-2">Sample from distribution.</div><div className="text-green-400 text-xs mt-1">✓ Diverse, natural</div><div className="text-red-400 text-xs">✗ Non-deterministic</div></div></H>
+                  <H id="select-beam"><div className="bg-black/40 border-2 border-slate-400 rounded-xl p-4"><div className="text-3xl mb-2">🔍</div><div className="text-white font-bold">Beam Search</div><div className="text-slate-200 text-sm mt-1">Keep top B paths</div><div className="text-slate-400 text-xs mt-2">Multiple hypotheses. Rare for chat.</div><div className="text-green-400 text-xs mt-1">✓ Better for translation</div><div className="text-red-400 text-xs">✗ Slow, not for creativity</div></div></H>
+                </div>
+
+                {/* Flow diagram */}
+                <div className="bg-black/30 border border-yellow-500/50 rounded-xl p-4">
+                  <div className="text-yellow-300 font-bold mb-3">Token Selection Flow</div>
+                  <div className="flex items-center gap-2 justify-center flex-wrap">
+                    <H id="flow-logits"><div className="bg-slate-700 border border-slate-500 rounded-lg p-2 text-center"><div className="text-white text-sm font-bold">Logits</div></div></H>
+                    <div className="text-yellow-400">→</div>
+                    <H id="flow-filter"><div className="bg-amber-700 border border-amber-500 rounded-lg p-2 text-center"><div className="text-white text-sm font-bold">Filter</div><div className="text-amber-200 text-xs">T, top-k/p</div></div></H>
+                    <div className="text-yellow-400">→</div>
+                    <div className="bg-green-700 border border-green-500 rounded-lg p-2 text-center"><div className="text-white text-sm font-bold">Softmax</div></div>
+                    <div className="text-yellow-400">→</div>
+                    <H id="flow-sample"><div className="bg-yellow-700 border border-yellow-500 rounded-lg p-2 text-center"><div className="text-white text-sm font-bold">Sample</div></div></H>
+                    <div className="text-yellow-400">→</div>
+                    <div className="bg-blue-700 border border-blue-500 rounded-lg p-2 text-center"><div className="text-white text-sm font-bold">Token ID</div></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Stage 9: Stop Conditions */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-red-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">9</div>
+                <div><h2 className="text-3xl font-black text-red-300">9.0 STOP CONDITIONS</h2><p className="text-red-200/80">When to end generation — critical for cost and correctness</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-red-950 to-rose-950 border-2 border-red-400 rounded-xl p-6">
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <H id="stop-eos"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4 text-center"><div className="text-3xl mb-2">🏁</div><div className="text-white font-bold">EOS Token</div><div className="text-red-200 text-xs mt-1">&lt;/s&gt;, &lt;|endoftext|&gt;</div><div className="text-red-400 text-xs mt-2">Model wants to stop</div></div></H>
+                  <H id="stop-maxlen"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4 text-center"><div className="text-3xl mb-2">📏</div><div className="text-white font-bold">Max Tokens</div><div className="text-red-200 text-xs mt-1">max_tokens=4096</div><div className="text-red-400 text-xs mt-2">Hard limit reached</div></div></H>
+                  <H id="stop-sequence"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4 text-center"><div className="text-3xl mb-2">🔤</div><div className="text-white font-bold">Stop Sequences</div><div className="text-red-200 text-xs mt-1">["```", "\n\n\n"]</div><div className="text-red-400 text-xs mt-2">Custom string match</div></div></H>
+                  <H id="stop-tool"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4 text-center"><div className="text-3xl mb-2">🔧</div><div className="text-white font-bold">Tool Call</div><div className="text-red-200 text-xs mt-1">{"tool_use"}</div><div className="text-red-400 text-xs mt-2">Agent needs to act</div></div></H>
+                </div>
+
+                {/* Stop Check Flow */}
+                <H id="flow-check">
+                  <div className="bg-black/30 border border-red-500/50 rounded-xl p-4">
+                    <div className="text-red-300 font-bold mb-3">🔍 Stop Check (After Every Token)</div>
+                    <div className="flex items-center justify-center gap-3 flex-wrap">
+                      <div className="bg-slate-700 rounded-lg p-2 text-center"><div className="text-white text-sm">Token sampled</div></div>
+                      <div className="text-red-400">→</div>
+                      <div className="bg-red-800 rounded-lg p-2 text-center"><div className="text-white text-sm">EOS?</div></div>
+                      <div className="text-red-400">→</div>
+                      <div className="bg-red-800 rounded-lg p-2 text-center"><div className="text-white text-sm">Max len?</div></div>
+                      <div className="text-red-400">→</div>
+                      <div className="bg-red-800 rounded-lg p-2 text-center"><div className="text-white text-sm">Stop seq?</div></div>
+                      <div className="text-red-400">→</div>
+                      <div className="bg-red-800 rounded-lg p-2 text-center"><div className="text-white text-sm">Tool call?</div></div>
+                      <div className="text-red-400">→</div>
+                      <div className="bg-green-700 rounded-lg p-2 text-center"><div className="text-white text-sm">Continue or Stop</div></div>
+                    </div>
+                  </div>
+                </H>
+              </div>
+            </section>
+
+            {/* Advanced Techniques */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-purple-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">⚡</div>
+                <div><h2 className="text-3xl font-black text-purple-300">ADVANCED TECHNIQUES</h2><p className="text-purple-200/80">Research techniques for special use cases</p></div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <H id="adv-cfg"><div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-4"><div className="text-2xl mb-2">🎯</div><div className="text-white font-bold">Classifier-Free Guidance</div><div className="text-purple-200 text-xs mt-1">Amplify prompt influence</div><div className="text-purple-400 text-xs mt-2">Used in image generation</div></div></H>
+                <H id="adv-contrastive"><div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-4"><div className="text-2xl mb-2">⚖️</div><div className="text-white font-bold">Contrastive Decoding</div><div className="text-purple-200 text-xs mt-1">Large vs small model diff</div><div className="text-purple-400 text-xs mt-2">Amplify unique knowledge</div></div></H>
+                <H id="adv-watermark"><div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-4"><div className="text-2xl mb-2">💧</div><div className="text-white font-bold">Watermarking</div><div className="text-purple-200 text-xs mt-1">Detectable patterns</div><div className="text-purple-400 text-xs mt-2">AI detection</div></div></H>
+              </div>
+            </section>
+
+            {/* Common Configurations */}
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              <div className="bg-slate-900 border-2 border-blue-500 rounded-xl p-5">
+                <div className="text-blue-300 font-black mb-2">📝 Code Generation</div>
+                <div className="text-slate-300 text-sm font-mono">T=0.0-0.3<br/>top_p=0.95<br/>No penalties</div>
+                <div className="text-blue-400 text-xs mt-2">Deterministic, focused</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-green-500 rounded-xl p-5">
+                <div className="text-green-300 font-black mb-2">💬 Chat / Assistant</div>
+                <div className="text-slate-300 text-sm font-mono">T=0.7<br/>top_p=0.9<br/>rep_penalty=1.1</div>
+                <div className="text-green-400 text-xs mt-2">Balanced, natural</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-purple-500 rounded-xl p-5">
+                <div className="text-purple-300 font-black mb-2">🎨 Creative Writing</div>
+                <div className="text-slate-300 text-sm font-mono">T=0.9-1.2<br/>top_p=0.95<br/>presence=0.5</div>
+                <div className="text-purple-400 text-xs mt-2">Diverse, exploratory</div>
+              </div>
+            </div>
+
+            {/* Output */}
+            <div className="bg-gradient-to-r from-green-600 to-emerald-600 border-2 border-green-400 rounded-xl p-6 shadow-lg shadow-green-500/30">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-4"><span className="text-5xl">✅</span><div><div className="text-2xl font-black text-white">TOKEN SELECTED (or STOPPED)</div><div className="text-green-200 font-medium">Ready for Streaming & Post-Processing</div></div></div>
+                <div className="text-right"><div className="text-green-200 font-semibold">NEXT STAGE →</div><div className="text-white font-black text-lg">Streaming & Output Delivery</div></div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">Sampling & Stop Conditions • Stages 7-9 of Inference Lifecycle</p>
+              <p className="text-amber-400 font-bold mt-1">CONTROL DIVERSITY • ENFORCE STRUCTURE • KNOW WHEN TO STOP</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SamplingStopConditions />);
+  </script>
+</body>
+</html>

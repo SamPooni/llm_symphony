@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loading Nemotron 253B - Complete Novice Tutorial</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    .glow { box-shadow: 0 0 30px rgba(139, 92, 246, 0.3); }
+    .code-block { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; font-family: 'Consolas', 'Monaco', monospace; }
+    .step-number { width: 48px; height: 48px; background: linear-gradient(135deg, #8b5cf6, #6366f1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.25rem; flex-shrink: 0; }
+    .path-card { transition: all 0.3s ease; }
+    .path-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+    .connector { width: 4px; background: linear-gradient(to bottom, #8b5cf6, #6366f1); margin-left: 22px; }
+  </style>
+</head>
+<body class="text-white p-6">
+  <div class="max-w-5xl mx-auto">
+    
+    <!-- Header -->
+    <header class="text-center mb-12">
+      <div class="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-violet-500/20 border border-violet-400/50 mb-6">
+        <span class="text-3xl">🦙</span>
+        <span class="text-violet-300 font-bold text-xl">COMPLETE NOVICE TUTORIAL</span>
+      </div>
+      <h1 class="text-5xl font-black mb-4 bg-gradient-to-r from-violet-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+        Loading Nemotron 253B
+      </h1>
+      <p class="text-xl text-slate-300 max-w-2xl mx-auto">
+        Step-by-step guide to running NVIDIA's Llama-3.1-Nemotron-Ultra-253B-v1
+      </p>
+    </header>
+
+    <!-- What is this model? -->
+    <section class="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-8 glow">
+      <h2 class="text-2xl font-bold text-violet-300 mb-4 flex items-center gap-3">
+        <span class="text-3xl">🤔</span> What is Nemotron 253B?
+      </h2>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="space-y-3">
+          <div class="flex items-start gap-3">
+            <span class="text-green-400 text-xl">✓</span>
+            <div><span class="font-bold text-white">253 Billion Parameters</span><br><span class="text-slate-400 text-sm">One of the largest open-weight models available</span></div>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-green-400 text-xl">✓</span>
+            <div><span class="font-bold text-white">128K Context Window</span><br><span class="text-slate-400 text-sm">Can process ~100,000 words at once</span></div>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-green-400 text-xl">✓</span>
+            <div><span class="font-bold text-white">Reasoning Model</span><br><span class="text-slate-400 text-sm">Shows its thinking process (like o1/DeepSeek R1)</span></div>
+          </div>
+        </div>
+        <div class="bg-slate-900/50 rounded-xl p-4">
+          <div class="text-sm text-slate-400 mb-2">Model Card</div>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-400">Name:</span><span class="text-white font-mono">Llama-3.1-Nemotron-Ultra-253B-v1</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Base:</span><span class="text-white">Llama-3.1-405B (compressed via NAS)</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Creator:</span><span class="text-green-400">NVIDIA</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">License:</span><span class="text-white">NVIDIA Open Model License</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Decision Tree -->
+    <section class="bg-gradient-to-br from-amber-900/30 to-orange-900/30 border-2 border-amber-500/50 rounded-2xl p-6 mb-8">
+      <h2 class="text-2xl font-bold text-amber-300 mb-6 flex items-center gap-3">
+        <span class="text-3xl">🎯</span> First Question: What Hardware Do You Have?
+      </h2>
+      
+      <div class="grid md:grid-cols-3 gap-4">
+        <!-- Path 1: No GPU -->
+        <div class="path-card bg-blue-900/40 border border-blue-500/50 rounded-xl p-5">
+          <div class="text-4xl mb-3">☁️</div>
+          <h3 class="text-xl font-bold text-blue-300 mb-2">No GPU / Laptop</h3>
+          <p class="text-slate-300 text-sm mb-4">Use cloud APIs - someone else runs the model</p>
+          <div class="bg-blue-950/50 rounded-lg p-3">
+            <div class="text-xs text-blue-400 font-bold mb-1">GO TO:</div>
+            <div class="text-white font-bold">Path A: API Access</div>
+            <div class="text-green-400 text-sm mt-1">✓ Easiest option</div>
+          </div>
+        </div>
+
+        <!-- Path 2: Gaming GPU -->
+        <div class="path-card bg-purple-900/40 border border-purple-500/50 rounded-xl p-5">
+          <div class="text-4xl mb-3">🎮</div>
+          <h3 class="text-xl font-bold text-purple-300 mb-2">Gaming GPU(s)</h3>
+          <p class="text-slate-300 text-sm mb-4">RTX 3090, 4090, or multiple cards (48-96GB total)</p>
+          <div class="bg-purple-950/50 rounded-lg p-3">
+            <div class="text-xs text-purple-400 font-bold mb-1">GO TO:</div>
+            <div class="text-white font-bold">Path B: Quantized (GGUF)</div>
+            <div class="text-yellow-400 text-sm mt-1">⚡ Compressed model</div>
+          </div>
+        </div>
+
+        <!-- Path 3: Pro GPU -->
+        <div class="path-card bg-green-900/40 border border-green-500/50 rounded-xl p-5">
+          <div class="text-4xl mb-3">🖥️</div>
+          <h3 class="text-xl font-bold text-green-300 mb-2">Data Center GPUs</h3>
+          <p class="text-slate-300 text-sm mb-4">8× H100/A100 (Cloud instance or own hardware)</p>
+          <div class="bg-green-950/50 rounded-lg p-3">
+            <div class="text-xs text-green-400 font-bold mb-1">GO TO:</div>
+            <div class="text-white font-bold">Path C: Full Precision</div>
+            <div class="text-green-400 text-sm mt-1">✓ Best quality</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VRAM Reference -->
+    <section class="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 mb-8">
+      <h2 class="text-xl font-bold text-slate-300 mb-4 flex items-center gap-3">
+        <span class="text-2xl">💾</span> VRAM Quick Reference
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-slate-400 border-b border-slate-700">
+              <th class="pb-2">Format</th>
+              <th class="pb-2">Model Size</th>
+              <th class="pb-2">Min VRAM</th>
+              <th class="pb-2">Example Setup</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-300">
+            <tr class="border-b border-slate-800">
+              <td class="py-2 font-mono text-green-400">BF16 (Full)</td>
+              <td>~506 GB</td>
+              <td>640 GB</td>
+              <td>8× H100 80GB</td>
+            </tr>
+            <tr class="border-b border-slate-800">
+              <td class="py-2 font-mono text-yellow-400">INT8</td>
+              <td>~253 GB</td>
+              <td>320 GB</td>
+              <td>4× H100 80GB</td>
+            </tr>
+            <tr class="border-b border-slate-800">
+              <td class="py-2 font-mono text-orange-400">Q4_K_M</td>
+              <td>~140 GB</td>
+              <td>160 GB</td>
+              <td>2× H100 or 4× A6000</td>
+            </tr>
+            <tr class="border-b border-slate-800">
+              <td class="py-2 font-mono text-red-400">Q3_K_M</td>
+              <td>~110 GB</td>
+              <td>128 GB</td>
+              <td>3× RTX 4090</td>
+            </tr>
+            <tr>
+              <td class="py-2 font-mono text-pink-400">Q2_K</td>
+              <td>~90 GB</td>
+              <td>96 GB</td>
+              <td>2× RTX 4090 + RAM offload</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ==================== PATH A: API ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-blue-600 to-cyan-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white flex items-center gap-3">
+          <span class="bg-white/20 rounded-full w-10 h-10 flex items-center justify-center">A</span>
+          PATH A: API Access (No GPU Required)
+        </h2>
+        <p class="text-blue-100 mt-1">Best for: Beginners, testing, or anyone without powerful hardware</p>
+      </div>
+      <div class="bg-slate-900 border-2 border-blue-600 border-t-0 rounded-b-2xl p-6">
+        
+        <!-- Step 1 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">1</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Choose an API Provider</h3>
+            <p class="text-slate-400 mb-4">These services run the model for you. You just send requests.</p>
+            <div class="grid md:grid-cols-2 gap-3">
+              <div class="bg-green-900/30 border border-green-500/50 rounded-lg p-4">
+                <div class="font-bold text-green-400 mb-1">🏆 NVIDIA Build (Recommended)</div>
+                <div class="text-sm text-slate-300">Free tier available</div>
+                <a href="https://build.nvidia.com" target="_blank" class="text-blue-400 text-sm hover:underline">build.nvidia.com →</a>
+              </div>
+              <div class="bg-slate-800 border border-slate-600 rounded-lg p-4">
+                <div class="font-bold text-white mb-1">OpenRouter</div>
+                <div class="text-sm text-slate-300">Pay per token, many models</div>
+                <a href="https://openrouter.ai" target="_blank" class="text-blue-400 text-sm hover:underline">openrouter.ai →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">2</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Get Your API Key</h3>
+            <p class="text-slate-400 mb-4">Sign up and copy your API key from the dashboard.</p>
+            <div class="bg-amber-900/30 border border-amber-500/50 rounded-lg p-4">
+              <div class="flex items-start gap-2">
+                <span class="text-amber-400">⚠️</span>
+                <div class="text-sm text-amber-200">Keep your API key secret! Never share it or commit it to GitHub.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">3</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Install the OpenAI Python Package</h3>
+            <p class="text-slate-400 mb-4">Most APIs use OpenAI-compatible format.</p>
+            <div class="code-block p-4">
+              <div class="text-xs text-slate-500 mb-2"># Terminal / Command Prompt</div>
+              <code class="text-green-400">pip install openai</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="flex gap-4">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">4</div>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xl font-bold text-white mb-2">Run This Code</h3>
+            <p class="text-slate-400 mb-4">Copy, paste, and run!</p>
+            <div class="code-block p-4 overflow-x-auto">
+              <pre class="text-sm"><code class="text-slate-300"><span class="text-pink-400">from</span> openai <span class="text-pink-400">import</span> OpenAI
+
+<span class="text-slate-500"># For NVIDIA Build:</span>
+client = OpenAI(
+    base_url=<span class="text-green-400">"https://integrate.api.nvidia.com/v1"</span>,
+    api_key=<span class="text-green-400">"nvapi-YOUR_KEY_HERE"</span>  <span class="text-slate-500"># Replace with your key</span>
+)
+
+<span class="text-slate-500"># For OpenRouter, use:</span>
+<span class="text-slate-500"># base_url="https://openrouter.ai/api/v1"</span>
+<span class="text-slate-500"># api_key="your-openrouter-key"</span>
+
+response = client.chat.completions.create(
+    model=<span class="text-green-400">"nvidia/llama-3.1-nemotron-ultra-253b-v1"</span>,
+    messages=[
+        {<span class="text-green-400">"role"</span>: <span class="text-green-400">"system"</span>, <span class="text-green-400">"content"</span>: <span class="text-green-400">"detailed thinking on"</span>},
+        {<span class="text-green-400">"role"</span>: <span class="text-green-400">"user"</span>, <span class="text-green-400">"content"</span>: <span class="text-green-400">"Explain why the sky is blue"</span>}
+    ],
+    temperature=<span class="text-orange-400">0.6</span>,
+    top_p=<span class="text-orange-400">0.95</span>,
+)
+
+<span class="text-cyan-400">print</span>(response.choices[<span class="text-orange-400">0</span>].message.content)</code></pre>
+            </div>
+            <div class="mt-4 bg-green-900/30 border border-green-500/50 rounded-lg p-4">
+              <div class="text-green-400 font-bold mb-1">✓ That's it!</div>
+              <div class="text-sm text-slate-300">The model runs on NVIDIA's servers. You just get the response.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== PATH B: GGUF ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-purple-600 to-pink-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white flex items-center gap-3">
+          <span class="bg-white/20 rounded-full w-10 h-10 flex items-center justify-center">B</span>
+          PATH B: Quantized GGUF (Gaming GPUs)
+        </h2>
+        <p class="text-purple-100 mt-1">Best for: RTX 3090/4090 owners, running locally with compressed model</p>
+      </div>
+      <div class="bg-slate-900 border-2 border-purple-600 border-t-0 rounded-b-2xl p-6">
+        
+        <!-- Step 1 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">1</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Check Your VRAM</h3>
+            <p class="text-slate-400 mb-4">Open a terminal and run:</p>
+            <div class="code-block p-4 mb-4">
+              <div class="text-xs text-slate-500 mb-2"># Windows (PowerShell) or Linux</div>
+              <code class="text-green-400">nvidia-smi</code>
+            </div>
+            <div class="text-sm text-slate-300">Look for "Memory" column. You need:</div>
+            <ul class="text-sm text-slate-400 mt-2 space-y-1">
+              <li>• <span class="text-green-400">48GB+</span> → Can run Q4_K_M (best quality)</li>
+              <li>• <span class="text-yellow-400">32-48GB</span> → Can run Q3_K_M</li>
+              <li>• <span class="text-orange-400">24GB</span> → Need Q2_K + CPU offloading</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">2</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Install Ollama (Easiest Method)</h3>
+            <p class="text-slate-400 mb-4">Ollama makes running local models dead simple.</p>
+            <div class="grid md:grid-cols-2 gap-3 mb-4">
+              <a href="https://ollama.com/download/windows" target="_blank" class="bg-blue-900/30 border border-blue-500/50 rounded-lg p-4 hover:bg-blue-900/50 transition">
+                <div class="font-bold text-blue-400">🪟 Windows</div>
+                <div class="text-sm text-slate-300">Download installer</div>
+              </a>
+              <a href="https://ollama.com/download/mac" target="_blank" class="bg-slate-800 border border-slate-600 rounded-lg p-4 hover:bg-slate-700 transition">
+                <div class="font-bold text-white">🍎 Mac</div>
+                <div class="text-sm text-slate-300">Download installer</div>
+              </a>
+            </div>
+            <div class="code-block p-4">
+              <div class="text-xs text-slate-500 mb-2"># Linux</div>
+              <code class="text-green-400">curl -fsSL https://ollama.com/install.sh | sh</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">3</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Download the Quantized Model</h3>
+            <p class="text-slate-400 mb-4">This will take a while (90-140GB download).</p>
+            <div class="code-block p-4 mb-4">
+              <div class="text-xs text-slate-500 mb-2"># Terminal</div>
+              <code class="text-green-400">ollama pull hf.co/nicoboss/Llama-3_1-Nemotron-Ultra-253B-v1-GGUF:Q4_K_M</code>
+            </div>
+            <div class="text-sm text-slate-400">
+              <div class="mb-1">Alternative quantizations:</div>
+              <div class="font-mono text-xs space-y-1">
+                <div><span class="text-purple-400">Q4_K_M</span> - Best quality (~140GB)</div>
+                <div><span class="text-purple-400">Q3_K_M</span> - Good quality (~110GB)</div>
+                <div><span class="text-purple-400">Q2_K</span> - Smallest (~90GB)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="flex gap-4">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">4</div>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xl font-bold text-white mb-2">Run the Model</h3>
+            <div class="code-block p-4 mb-4">
+              <div class="text-xs text-slate-500 mb-2"># Start chatting</div>
+              <code class="text-green-400">ollama run hf.co/nicoboss/Llama-3_1-Nemotron-Ultra-253B-v1-GGUF:Q4_K_M</code>
+            </div>
+            <div class="bg-green-900/30 border border-green-500/50 rounded-lg p-4">
+              <div class="text-green-400 font-bold mb-1">✓ Done!</div>
+              <div class="text-sm text-slate-300">Type your message and press Enter. The model runs entirely on your machine.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alternative: llama.cpp -->
+        <div class="mt-8 pt-6 border-t border-slate-700">
+          <h4 class="text-lg font-bold text-slate-300 mb-3">Alternative: llama.cpp (More Control)</h4>
+          <div class="code-block p-4 overflow-x-auto">
+            <pre class="text-sm"><code class="text-slate-300"><span class="text-slate-500"># 1. Install llama.cpp</span>
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+make LLAMA_CUDA=1  <span class="text-slate-500"># For NVIDIA GPUs</span>
+
+<span class="text-slate-500"># 2. Download model manually from HuggingFace</span>
+<span class="text-slate-500"># https://huggingface.co/nicoboss/Llama-3_1-Nemotron-Ultra-253B-v1-GGUF</span>
+
+<span class="text-slate-500"># 3. Run</span>
+./llama-cli \
+  -m Llama-3_1-Nemotron-Ultra-253B-v1.Q4_K_M.gguf \
+  --n-gpu-layers 999 \
+  -c 4096 \
+  -p "detailed thinking on\n\nUser: Hello\nAssistant:"</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== PATH C: Full Precision ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-green-600 to-emerald-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white flex items-center gap-3">
+          <span class="bg-white/20 rounded-full w-10 h-10 flex items-center justify-center">C</span>
+          PATH C: Full Precision (Data Center GPUs)
+        </h2>
+        <p class="text-green-100 mt-1">Best for: 8× H100/A100, cloud instances, production deployments</p>
+      </div>
+      <div class="bg-slate-900 border-2 border-green-600 border-t-0 rounded-b-2xl p-6">
+        
+        <!-- Cloud Options -->
+        <div class="bg-slate-800/50 rounded-xl p-4 mb-6">
+          <h4 class="font-bold text-slate-300 mb-3">☁️ Don't have 8× H100s? Rent them:</h4>
+          <div class="grid md:grid-cols-3 gap-3 text-sm">
+            <div class="bg-slate-900 rounded-lg p-3">
+              <div class="font-bold text-white">RunPod</div>
+              <div class="text-slate-400">~$25-30/hr for 8×H100</div>
+            </div>
+            <div class="bg-slate-900 rounded-lg p-3">
+              <div class="font-bold text-white">Lambda Labs</div>
+              <div class="text-slate-400">~$25/hr for 8×H100</div>
+            </div>
+            <div class="bg-slate-900 rounded-lg p-3">
+              <div class="font-bold text-white">AWS p5.48xlarge</div>
+              <div class="text-slate-400">~$98/hr (8×H100)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">1</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Install Dependencies</h3>
+            <div class="code-block p-4">
+              <pre class="text-sm"><code class="text-green-400">pip install torch transformers accelerate huggingface_hub
+pip install vllm  <span class="text-slate-500"># For production serving</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">2</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Login to HuggingFace</h3>
+            <div class="code-block p-4">
+              <code class="text-green-400">huggingface-cli login</code>
+            </div>
+            <p class="text-sm text-slate-400 mt-2">Get your token from huggingface.co/settings/tokens</p>
+          </div>
+        </div>
+
+        <!-- Step 3: Option A -->
+        <div class="flex gap-4 mb-6">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">3</div>
+            <div class="connector flex-1 mt-2"></div>
+          </div>
+          <div class="flex-1 pb-6">
+            <h3 class="text-xl font-bold text-white mb-2">Option A: HuggingFace Transformers</h3>
+            <p class="text-slate-400 mb-4">Simple, good for experimentation.</p>
+            <div class="code-block p-4 overflow-x-auto">
+              <pre class="text-sm"><code class="text-slate-300"><span class="text-pink-400">import</span> torch
+<span class="text-pink-400">import</span> transformers
+
+model_id = <span class="text-green-400">"nvidia/Llama-3_1-Nemotron-Ultra-253B-v1"</span>
+
+model_kwargs = {
+    <span class="text-green-400">"torch_dtype"</span>: torch.bfloat16,
+    <span class="text-green-400">"trust_remote_code"</span>: <span class="text-orange-400">True</span>,
+    <span class="text-green-400">"device_map"</span>: <span class="text-green-400">"auto"</span>  <span class="text-slate-500"># Spreads across all GPUs</span>
+}
+
+tokenizer = transformers.AutoTokenizer.from_pretrained(model_id)
+tokenizer.pad_token_id = tokenizer.eos_token_id
+
+pipeline = transformers.pipeline(
+    <span class="text-green-400">"text-generation"</span>,
+    model=model_id,
+    tokenizer=tokenizer,
+    max_new_tokens=<span class="text-orange-400">4096</span>,
+    temperature=<span class="text-orange-400">0.6</span>,
+    top_p=<span class="text-orange-400">0.95</span>,
+    **model_kwargs
+)
+
+<span class="text-slate-500"># Reasoning ON</span>
+response = pipeline([
+    {<span class="text-green-400">"role"</span>: <span class="text-green-400">"system"</span>, <span class="text-green-400">"content"</span>: <span class="text-green-400">"detailed thinking on"</span>},
+    {<span class="text-green-400">"role"</span>: <span class="text-green-400">"user"</span>, <span class="text-green-400">"content"</span>: <span class="text-green-400">"Prove sqrt(2) is irrational"</span>}
+])
+<span class="text-cyan-400">print</span>(response)</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Option B -->
+        <div class="flex gap-4">
+          <div class="flex flex-col items-center">
+            <div class="step-number text-white">4</div>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-xl font-bold text-white mb-2">Option B: vLLM (Production)</h3>
+            <p class="text-slate-400 mb-4">Much faster, serves multiple users.</p>
+            <div class="code-block p-4 overflow-x-auto mb-4">
+              <pre class="text-sm"><code class="text-slate-300"><span class="text-slate-500"># Start server</span>
+python -m vllm.entrypoints.openai.api_server \
+    --model nvidia/Llama-3_1-Nemotron-Ultra-253B-v1 \
+    --tensor-parallel-size 8 \
+    --dtype bfloat16 \
+    --trust-remote-code \
+    --port 8000</code></pre>
+            </div>
+            <div class="code-block p-4 overflow-x-auto">
+              <pre class="text-sm"><code class="text-slate-300"><span class="text-slate-500"># Query it (same as API!)</span>
+<span class="text-pink-400">from</span> openai <span class="text-pink-400">import</span> OpenAI
+
+client = OpenAI(base_url=<span class="text-green-400">"http://localhost:8000/v1"</span>, api_key=<span class="text-green-400">"dummy"</span>)
+response = client.chat.completions.create(
+    model=<span class="text-green-400">"nvidia/Llama-3_1-Nemotron-Ultra-253B-v1"</span>,
+    messages=[
+        {<span class="text-green-400">"role"</span>: <span class="text-green-400">"system"</span>, <span class="text-green-400">"content"</span>: <span class="text-green-400">"detailed thinking on"</span>},
+        {<span class="text-green-400">"role"</span>: <span class="text-green-400">"user"</span>, <span class="text-green-400">"content"</span>: <span class="text-green-400">"Write a REST API in Python"</span>}
+    ]
+)</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Reasoning Mode Explanation -->
+    <section class="bg-gradient-to-br from-violet-900/30 to-purple-900/30 border-2 border-violet-500/50 rounded-2xl p-6 mb-8">
+      <h2 class="text-2xl font-bold text-violet-300 mb-4 flex items-center gap-3">
+        <span class="text-3xl">🧠</span> Understanding Reasoning Mode
+      </h2>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="bg-slate-900/50 rounded-xl p-4">
+          <div class="text-lg font-bold text-green-400 mb-2">✓ Reasoning ON</div>
+          <div class="code-block p-3 mb-3">
+            <code class="text-xs text-slate-300">{"role": "system", "content": "detailed thinking on"}</code>
+          </div>
+          <ul class="text-sm text-slate-300 space-y-2">
+            <li>• Model shows its thinking in <code class="text-violet-400">&lt;think&gt;...&lt;/think&gt;</code> tags</li>
+            <li>• Better for complex tasks (math, coding, analysis)</li>
+            <li>• Use temperature=0.6, top_p=0.95</li>
+            <li>• Slower but more accurate</li>
+          </ul>
+        </div>
+        <div class="bg-slate-900/50 rounded-xl p-4">
+          <div class="text-lg font-bold text-orange-400 mb-2">○ Reasoning OFF</div>
+          <div class="code-block p-3 mb-3">
+            <code class="text-xs text-slate-300">{"role": "system", "content": "detailed thinking off"}</code>
+          </div>
+          <ul class="text-sm text-slate-300 space-y-2">
+            <li>• Model gives direct answers</li>
+            <li>• Better for simple Q&A, chat</li>
+            <li>• Use temperature=0 (greedy decoding)</li>
+            <li>• Faster responses</li>
+          </ul>
+        </div>
+      </div>
+      <div class="mt-4 bg-amber-900/30 border border-amber-500/50 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+          <span class="text-amber-400">💡</span>
+          <div class="text-sm text-amber-200">
+            <strong>Important:</strong> Put ALL your instructions in the user message, not the system prompt. 
+            The system prompt should ONLY be "detailed thinking on" or "detailed thinking off".
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Troubleshooting -->
+    <section class="bg-red-900/20 border border-red-500/30 rounded-2xl p-6 mb-8">
+      <h2 class="text-2xl font-bold text-red-300 mb-4 flex items-center gap-3">
+        <span class="text-3xl">🔧</span> Common Problems & Fixes
+      </h2>
+      <div class="space-y-4">
+        <div class="bg-slate-900/50 rounded-lg p-4">
+          <div class="font-bold text-white mb-1">❌ "CUDA out of memory"</div>
+          <div class="text-sm text-slate-300">Your GPU doesn't have enough VRAM. Try a smaller quantization (Q3 instead of Q4) or use API instead.</div>
+        </div>
+        <div class="bg-slate-900/50 rounded-lg p-4">
+          <div class="font-bold text-white mb-1">❌ Model downloads slowly</div>
+          <div class="text-sm text-slate-300">The model is 100-500GB. Use a wired connection and be patient. Consider overnight downloads.</div>
+        </div>
+        <div class="bg-slate-900/50 rounded-lg p-4">
+          <div class="font-bold text-white mb-1">❌ "trust_remote_code" error</div>
+          <div class="text-sm text-slate-300">Add <code class="text-green-400">trust_remote_code=True</code> to your model loading code.</div>
+        </div>
+        <div class="bg-slate-900/50 rounded-lg p-4">
+          <div class="font-bold text-white mb-1">❌ Slow generation</div>
+          <div class="text-sm text-slate-300">This is a 253B model - it's naturally slow. Use vLLM or TensorRT-LLM for 2-5× speedup.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="bg-gradient-to-r from-green-600 to-emerald-600 rounded-2xl p-6 mb-8">
+      <h2 class="text-2xl font-bold text-white mb-4 text-center">🎉 Quick Summary</h2>
+      <div class="grid md:grid-cols-3 gap-4 text-center">
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-4xl mb-2">☁️</div>
+          <div class="font-bold text-white">No GPU?</div>
+          <div class="text-green-100 text-sm">Use NVIDIA API</div>
+          <div class="text-xs text-green-200 mt-1">5 min setup</div>
+        </div>
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-4xl mb-2">🎮</div>
+          <div class="font-bold text-white">Gaming GPU?</div>
+          <div class="text-green-100 text-sm">Use Ollama + GGUF</div>
+          <div class="text-xs text-green-200 mt-1">30 min setup + download</div>
+        </div>
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-4xl mb-2">🖥️</div>
+          <div class="font-bold text-white">8× H100?</div>
+          <div class="text-green-100 text-sm">Use vLLM full precision</div>
+          <div class="text-xs text-green-200 mt-1">1 hr setup + download</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+      <p>Llama-3.1-Nemotron-Ultra-253B-v1 Loading Tutorial</p>
+      <p class="text-violet-400 mt-1">Model by NVIDIA • Tutorial for CS²B Technologies</p>
+    </footer>
+
+  </div>
+</body>
+</html>

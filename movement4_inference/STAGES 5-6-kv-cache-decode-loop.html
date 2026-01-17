@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KV Cache & Decode Loop - Inference Stages 5-6</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+    function KVCacheDecodeLoop() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+
+      const tooltips = {
+        // Key Metrics
+        'metric-memory': { title: '💾 MEMORY BOUND', content: 'Decode is memory-bandwidth bound, NOT compute bound. Loading weights from HBM is the bottleneck. Tensor cores often underutilized.', example: 'H100 HBM: 3.35 TB/s\n70B model weights: 140GB\nTime to load once: 42ms\nCompute time: <1ms' },
+        'metric-sequential': { title: '🔄 SEQUENTIAL', content: 'Each token depends on all previous tokens. Cannot parallelize across output tokens. This is why generation is slow.', example: 'Output 100 tokens:\n= 100 sequential decode steps\n= 100 × (attention + MLP)\nCannot parallelize!' },
+        'metric-kv': { title: '📦 KV CACHE', content: 'Stores attention keys/values from all previous positions. Grows with each token. Usually #1 memory consumer.', example: '70B, 8K context:\nKV = 2 × 80 × 8 × 8K × 128 × 2\n≈ 2.5GB per sequence' },
+        'metric-throughput': { title: '⚡ TOKENS/SEC', content: 'Measured in tokens per second. Batching helps: amortize weight loading across multiple sequences.', example: 'Single sequence: 30 tok/s\nBatch of 8: 150 tok/s total\nBatch of 32: 400 tok/s total\nBatching is critical!' },
+
+        // KV Cache Deep Dive
+        'kv-what': { title: 'What is KV Cache?', content: 'During attention, each token computes Query (Q), Key (K), and Value (V). KV cache stores K and V for ALL previous positions so we don\'t recompute them.', details: 'Without cache: Recompute K,V for all N tokens every step = O(N²) per token\nWith cache: Only compute K,V for new token, read cached = O(N) per token', example: 'Step 1: Compute K₁,V₁, cache them\nStep 2: Compute K₂,V₂, cache them, read K₁,V₁\nStep N: Compute Kₙ,Vₙ, read K₁...Kₙ₋₁' },
+        'kv-size': { title: 'KV Cache Size', content: 'Size formula: 2 × num_layers × num_kv_heads × seq_len × head_dim × dtype_bytes. Scales linearly with sequence length.', details: 'Components:\n- 2: Keys AND Values\n- num_layers: 80 for 70B\n- num_kv_heads: 8 with GQA\n- seq_len: grows each token\n- head_dim: typically 128\n- dtype: 2 bytes FP16', example: 'Llama 70B, 8K seq, FP16:\n2 × 80 × 8 × 8192 × 128 × 2\n= 2.68 GB per sequence\n\nBatch of 8 = 21.4 GB!' },
+        'kv-gqa': { title: 'Grouped Query Attention', content: 'Share K,V heads across multiple Q heads. Reduces KV cache size by 4-8x with minimal quality loss.', details: 'Standard MHA: 32 Q heads, 32 KV heads\nGQA: 32 Q heads, 8 KV heads (4 Q per KV)\nMQA: 32 Q heads, 1 KV head (extreme)\n\nKV cache reduction: 4x for GQA, 32x for MQA', example: 'Llama 2 70B: 8 KV heads (GQA)\nLlama 2 7B: 32 KV heads (MHA)\nMistral: 8 KV heads (GQA)\nFalcon: 1 KV head (MQA)' },
+        'kv-quantize': { title: 'KV Cache Quantization', content: 'Store KV cache in lower precision (FP8, INT8) to reduce memory. 2x savings with minimal quality loss.', details: 'FP16 → FP8: 2x memory reduction\nFP16 → INT8: 2x reduction\nFP16 → INT4: 4x reduction (more quality loss)\n\nApplied per-layer or globally', example: 'Before: 2.5GB KV cache (FP16)\nAfter FP8: 1.25GB\nAfter INT4: 0.63GB\n\nQuality: FP8 ≈ FP16, INT4 may degrade' },
+        'kv-paged': { title: 'PagedAttention (vLLM)', content: 'Treat KV cache like virtual memory. Allocate in blocks, no pre-allocation waste. Enables 2-4x higher batch sizes.', details: 'Problem: Must pre-allocate max_seq_len per request\nWaste: Avg completion << max, 50-90% unused\n\nSolution: Allocate blocks on demand\nBlock size: typically 16-256 tokens\nMapping: Logical → Physical blocks', example: 'Traditional:\n- Request 1: alloc 8K, use 500 = 94% waste\n- Request 2: alloc 8K, use 2K = 75% waste\n\nPaged:\n- Request 1: alloc 32 blocks as needed\n- Request 2: alloc 125 blocks as needed\n- Zero waste!' },
+        'kv-prefix': { title: 'Prefix Caching', content: 'Reuse KV cache for shared prefixes across requests. System prompt computed once, shared by all.', details: 'Use case: Same system prompt for all requests\nSavings: Skip prefill for shared prefix\n\nImplementation:\n- Hash prefix tokens\n- Store KV in cache with hash key\n- New request: lookup, reuse if hit', example: 'System prompt: 1000 tokens\n100 requests/second\n\nWithout prefix cache:\n100 × 1000 = 100K tokens prefilled/s\n\nWith prefix cache:\n1 × 1000 = 1K tokens (first only)\n99% savings!' },
+
+        // Decode Loop
+        'decode-overview': { title: 'Decode Loop Overview', content: 'Runs ONCE per output token. Each iteration: read KV cache, compute attention for new token, run MLP, get logits, sample next token.', details: 'Per iteration:\n1. Embed new token\n2. For each layer:\n   - Attention: Q_new × K_all → weights → V_all\n   - Update KV cache with new K,V\n   - MLP/FFN forward pass\n3. Project to logits\n4. Sample next token\n5. Check stop condition', example: 'Generate 100 tokens:\n= 100 decode iterations\n= 100 × 80 layers × (attn + MLP)\n≈ 2-5 seconds total' },
+        'decode-attention': { title: 'Decode Attention', content: 'New token\'s Query attends to ALL previous Keys. Output is weighted sum of all Values. Cost: O(seq_len) per token.', details: 'Computation:\n1. Q = new_hidden × W_Q  [1 × head_dim]\n2. scores = Q × K_cache^T  [1 × seq_len]\n3. weights = softmax(scores)\n4. output = weights × V_cache  [1 × head_dim]\n\nBottleneck: Reading K,V cache from HBM', example: 'Seq len 4096, 32 heads:\nK_cache read: 32 × 4096 × 128 × 2 = 32MB\nV_cache read: 32MB\nTotal: 64MB per layer per token\n80 layers = 5GB memory reads!' },
+        'decode-mlp': { title: 'MLP / FFN', content: 'Two large matrix multiplications with activation in between. Contains ~2/3 of model parameters. Memory-bound.', details: 'Architecture:\n1. up = hidden × W_up     [d → 4d]\n2. gate = hidden × W_gate [d → 4d] (SwiGLU)\n3. activated = up * silu(gate)\n4. down = activated × W_down [4d → d]\n\nParams per layer: 3 × d × 4d = 12d²', example: 'Llama 70B (d=8192):\nW_up: 8192 × 28672 = 235M params\nW_gate: 235M params\nW_down: 235M params\nTotal: 705M params/layer × 80 = 56B' },
+        'decode-bottleneck': { title: 'Memory Bandwidth Bottleneck', content: 'Must load entire model weights for each token. Weight loading time >> compute time. This is why batching helps.', details: 'H100 specs:\n- HBM bandwidth: 3.35 TB/s\n- Compute: 1979 TFLOPS (FP8)\n\n70B model decode:\n- Weight load: 140GB / 3.35 TB/s = 42ms\n- Compute: <1ms\n- 98% time is memory transfer!', example: 'Single sequence:\n- Load 140GB weights → 42ms\n- Generate 1 token\n- Throughput: 24 tok/s\n\nBatch of 32:\n- Load 140GB weights → 42ms\n- Generate 32 tokens\n- Throughput: 760 tok/s' },
+
+        // Batching
+        'batch-continuous': { title: 'Continuous Batching', content: 'Dynamically add/remove sequences from batch as they start/finish. No waiting for slowest sequence. Maximizes GPU utilization.', details: 'Traditional (static) batching:\n- Wait for batch to fill\n- Process until ALL complete\n- Short sequences wait for long\n\nContinuous batching:\n- New request → add to batch immediately\n- Sequence done → remove, add new one\n- Never idle waiting', example: 'Static batch of 4:\n[100 tok, 500 tok, 50 tok, 200 tok]\nMust wait for 500 tok to finish\n\nContinuous:\n50 tok done → add new request\n100 tok done → add new request\nAlways processing max batch' },
+        'batch-inflight': { title: 'In-Flight Batching', content: 'TensorRT-LLM term for continuous batching. Sequences join/leave batch between iterations without restart.', details: 'Implementation:\n- Maintain active sequence list\n- Each iteration: process all active\n- Check completions after each iter\n- Insert new requests between iters\n\nBenefit: Near-100% GPU utilization', example: 'Iteration 1: [A, B, C, D] active\nIteration 2: C completes, E joins\n           [A, B, D, E] active\nIteration 3: A completes, F joins\n           [B, D, E, F] active' },
+        'batch-chunked': { title: 'Chunked Prefill', content: 'Split long prefills into chunks, interleave with decode. Prevents long prefills from blocking decode batches.', details: 'Problem: 100K token prefill blocks decode for seconds\n\nSolution:\n- Split prefill into 1K token chunks\n- After each chunk, run decode batch\n- Interleave prefill and decode\n\nResult: Consistent decode latency', example: 'Without chunking:\nPrefill 100K → 5 seconds blocked\nDecode batch waits...\n\nWith chunking:\nPrefill 1K → decode batch → prefill 1K → decode batch\nDecode latency stays consistent' },
+
+        // Memory Management
+        'mem-hbm': { title: 'HBM (GPU Memory)', content: 'High Bandwidth Memory on GPU. Where model weights, KV cache, and activations live. Limited and precious.', details: 'H100 80GB HBM3:\n- Capacity: 80GB\n- Bandwidth: 3.35 TB/s\n\nA100 80GB HBM2e:\n- Capacity: 80GB\n- Bandwidth: 2.0 TB/s\n\nMust fit: weights + KV cache + activations', example: '70B FP16 on H100 80GB:\n- Weights: 140GB ❌ (need multi-GPU)\n\n70B INT4 on H100 80GB:\n- Weights: 35GB ✓\n- KV cache: 20GB (batch)\n- Activations: 5GB\n- Total: 60GB ✓' },
+        'mem-offload': { title: 'KV Cache Offloading', content: 'Move inactive KV cache to CPU RAM or SSD. Bring back when sequence becomes active. Trades latency for capacity.', details: 'Tiers:\n1. GPU HBM: Active sequences (fast)\n2. CPU RAM: Recently inactive (medium)\n3. SSD: Cold sequences (slow)\n\nSwap policy: LRU or priority-based', example: 'H100 80GB + 512GB CPU RAM:\n- GPU: 16 active sequences\n- CPU: 200 cached sequences\n- Swap time: ~10ms\n\nEnables much larger effective batch' },
+        'mem-speculative': { title: 'Speculative Decoding', content: 'Use small "draft" model to generate candidates, large model verifies in parallel. Can 2-3x decode speed.', details: 'Process:\n1. Draft model generates K tokens quickly\n2. Target model verifies all K in one forward pass\n3. Accept matching prefix, reject rest\n4. Repeat from first rejection\n\nRequirement: Draft model much faster than target', example: 'Target: 70B (slow, accurate)\nDraft: 7B (fast, less accurate)\n\nDraft generates: "The cat sat on the"\nTarget verifies: "The cat sat" ✓ "on" ✗\nAccept 3 tokens in 1 target forward pass!' },
+
+        // Optimizations
+        'opt-flash-decode': { title: 'Flash Decoding', content: 'Flash Attention optimized for decode (single query). Parallelizes across KV sequence length for long contexts.', details: 'Standard decode attention:\n- Sequential over KV length\n- Poor parallelism for long sequences\n\nFlash Decoding:\n- Split KV into chunks\n- Parallel attention per chunk\n- Reduce partial results\n\nSpeedup: 2-8x for long contexts', example: 'Context 32K tokens, 1 query:\nStandard: Process 32K sequentially\nFlash Decode: Split into 64 chunks of 512\nParallel on 64 thread blocks\n8x speedup!' },
+        'opt-medusa': { title: 'Medusa Heads', content: 'Add multiple prediction heads to predict several future tokens at once. Like speculative decoding without draft model.', details: 'Architecture:\n- Base model + N extra "Medusa" heads\n- Each head predicts token at position +1, +2, +3...\n- Tree attention verifies candidates\n\nBenefit: 2-3x speedup, single model', example: 'Standard: Predict token N, then N+1, then N+2\n\nMedusa: Predict N, N+1, N+2 simultaneously\n- Head 1: predicts N+1\n- Head 2: predicts N+2\n- Verify with tree attention\n- Accept valid prefix' },
+        'opt-kv-compression': { title: 'KV Compression', content: 'Compress KV cache by dropping unimportant tokens or merging similar ones. Reduces memory for long contexts.', details: 'Techniques:\n- Token dropping: Remove low-attention tokens\n- Token merging: Combine similar tokens\n- Sliding window: Only keep recent N\n- Landmark: Keep important "landmark" tokens\n\nTrade-off: Memory vs quality', example: 'StreamingLLM:\n- Keep first 4 "sink" tokens\n- Keep last 1000 tokens (sliding)\n- Drop middle\n\nResult: Constant memory, infinite generation\nQuality: Good for long contexts' },
+
+        // Loop Visualization
+        'loop-step1': { title: 'Step 1: Embed Token', content: 'Look up embedding vector for the new token. Same embedding table as prefill.', details: 'Input: token_id (integer)\nOutput: embedding vector [hidden_dim]\nOperation: Table lookup, very fast', example: 'token_id = 15496 ("Hello")\nembedding = E[15496]\nShape: [1, 4096]' },
+        'loop-step2': { title: 'Step 2: Attention', content: 'Compute Q for new token, attend to all cached K,V. Update KV cache with new K,V.', details: '1. Q = hidden × W_Q\n2. K_new, V_new = hidden × W_K, W_V\n3. Append K_new, V_new to cache\n4. scores = Q × [K_cache; K_new]^T\n5. output = softmax(scores) × [V_cache; V_new]', example: 'Cache has 1000 tokens\nNew token computes Q\nAttends to 1001 K,V pairs\nCache now has 1001 tokens' },
+        'loop-step3': { title: 'Step 3: MLP/FFN', content: 'Feed-forward network. Up-project, activate, down-project. Contains most parameters.', details: 'up = hidden × W_up\ngate = hidden × W_gate\nactivated = up * silu(gate)\noutput = activated × W_down', example: 'hidden [1, 4096]\n→ up [1, 16384]\n→ activated [1, 16384]\n→ output [1, 4096]' },
+        'loop-step4': { title: 'Step 4: Repeat Layers', content: 'Steps 2-3 repeat for each transformer layer. 80 layers for 70B model.', details: 'For layer in range(num_layers):\n    hidden = attention(hidden, kv_cache[layer])\n    hidden = mlp(hidden)\n\nResidual connections and LayerNorm between', example: 'Layer 0: hidden → attn → mlp → hidden\nLayer 1: hidden → attn → mlp → hidden\n...\nLayer 79: hidden → attn → mlp → hidden' },
+        'loop-step5': { title: 'Step 5: Project to Logits', content: 'Final hidden state projected to vocabulary size. These are the logits for next token prediction.', details: 'logits = hidden × W_output\nShape: [1, vocab_size]\n\nW_output often tied to embedding matrix (transposed)', example: 'hidden [1, 4096]\nW_output [4096, 100000]\nlogits [1, 100000]\n\nlogits[i] = score for token i' },
+        'loop-step6': { title: 'Step 6: Sample & Check', content: 'Apply sampling (temperature, top-k/p), select token, check if stop condition met.', details: '1. Apply temperature scaling\n2. Apply top-k and/or top-p filtering\n3. Sample from distribution (or argmax)\n4. Check: EOS token? Max length? Stop sequence?\n5. If stop: exit loop\n6. Else: new token → step 1', example: 'logits → temperature(0.7) → top_p(0.9)\n→ sample → token_id = 42\n\nIs 42 == EOS? No\nLength < max? Yes\nContinue to next iteration' },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        let left = mousePos.x + 15, top = mousePos.y + 15;
+        if (left + 400 > window.innerWidth) left = mousePos.x - 400;
+        if (top + 300 > window.innerHeight) top = window.innerHeight - 310;
+        return (
+          <div className="fixed z-50 w-[380px] p-4 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl" style={{ left, top }}>
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-2">{t.content}</p>
+            {t.details && <div className="bg-black/50 rounded-lg p-2 mb-2"><div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div><p className="text-xs text-cyan-300 whitespace-pre-wrap">{t.details}</p></div>}
+            {t.example && <div className="bg-black/50 rounded-lg p-2"><div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div><pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre></div>}
+          </div>
+        );
+      };
+
+      const H = ({ id, children, className = '' }) => (
+        <div className={`cursor-help transition-all hover:scale-[1.02] ${className}`} onMouseEnter={() => setTooltip(id)} onMouseLeave={() => setTooltip(null)}>{children}</div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-6" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-emerald-500/20 border-2 border-emerald-400 mb-4">
+                <span className="text-emerald-300 font-black text-lg">STAGES 5-6</span>
+                <span className="text-white">•</span>
+                <span className="text-emerald-200 font-medium">The Autoregressive Core</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-green-400 to-lime-400">KV Cache & Decode Loop</h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto"><span className="text-emerald-300 font-bold">Token by Token</span> — memory-bound, sequential, batching is everything. <span className="text-cyan-300">🖱️ Hover for details.</span></p>
+            </header>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-10">
+              <H id="metric-memory"><div className="p-5 rounded-xl bg-amber-600 border-2 border-amber-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">💾</span><span className="text-sm font-black text-white/90">BOTTLENECK</span></div><div className="text-3xl font-black text-amber-100">MEMORY</div><div className="text-sm text-white/80">Bandwidth bound, not compute</div></div></H>
+              <H id="metric-sequential"><div className="p-5 rounded-xl bg-red-600 border-2 border-red-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">🔄</span><span className="text-sm font-black text-white/90">NATURE</span></div><div className="text-3xl font-black text-red-100">SEQUENTIAL</div><div className="text-sm text-white/80">Cannot parallelize outputs</div></div></H>
+              <H id="metric-kv"><div className="p-5 rounded-xl bg-emerald-600 border-2 border-emerald-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">📦</span><span className="text-sm font-black text-white/90">KV CACHE</span></div><div className="text-3xl font-black text-emerald-100">2-20GB</div><div className="text-sm text-white/80">Per sequence, grows each token</div></div></H>
+              <H id="metric-throughput"><div className="p-5 rounded-xl bg-blue-600 border-2 border-blue-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">⚡</span><span className="text-sm font-black text-white/90">THROUGHPUT</span></div><div className="text-3xl font-black text-blue-100">30-500</div><div className="text-sm text-white/80">Tokens/sec (batch dependent)</div></div></H>
+            </div>
+
+            {/* Section 5: KV Cache */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-emerald-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/50">5</div>
+                <div><h2 className="text-3xl font-black text-emerald-300">5.0 KV CACHE</h2><p className="text-emerald-200/80">The memory that makes fast decoding possible</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-emerald-950 to-green-950 border-2 border-emerald-400 rounded-xl p-6">
+                {/* What is KV Cache */}
+                <div className="mb-6">
+                  <div className="text-emerald-300 font-black text-lg mb-4">📦 KV CACHE FUNDAMENTALS</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <H id="kv-what"><div className="bg-black/40 border-2 border-emerald-400 rounded-xl p-4">
+                      <div className="text-2xl mb-2">🧠</div>
+                      <div className="text-white font-bold">What is KV Cache?</div>
+                      <div className="text-emerald-200 text-sm mt-2">Stores Keys & Values from all previous positions. Avoids recomputing attention for past tokens.</div>
+                      <div className="mt-3 font-mono text-xs bg-black/50 rounded p-2 text-slate-300">
+                        Without: O(N²) per token<br/>
+                        With: O(N) per token
+                      </div>
+                    </div></H>
+                    <H id="kv-size"><div className="bg-black/40 border-2 border-emerald-400 rounded-xl p-4">
+                      <div className="text-2xl mb-2">📏</div>
+                      <div className="text-white font-bold">Cache Size Formula</div>
+                      <div className="text-emerald-200 text-sm mt-2">2 × layers × kv_heads × seq_len × head_dim × dtype</div>
+                      <div className="mt-3 font-mono text-xs bg-black/50 rounded p-2 text-slate-300">
+                        70B, 8K seq, FP16:<br/>
+                        2×80×8×8192×128×2 = 2.68GB
+                      </div>
+                    </div></H>
+                  </div>
+                </div>
+
+                {/* KV Cache Optimizations */}
+                <div className="mb-6">
+                  <div className="text-green-300 font-black text-lg mb-4">🚀 KV CACHE OPTIMIZATIONS</div>
+                  <div className="grid grid-cols-4 gap-4">
+                    <H id="kv-gqa"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4 text-center">
+                      <div className="text-2xl mb-2">👥</div>
+                      <div className="text-white font-bold text-sm">GQA</div>
+                      <div className="text-green-200 text-xs mt-1">Share K,V heads</div>
+                      <div className="text-green-400 font-mono text-xs mt-2">4-8× smaller</div>
+                    </div></H>
+                    <H id="kv-quantize"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4 text-center">
+                      <div className="text-2xl mb-2">📉</div>
+                      <div className="text-white font-bold text-sm">Quantization</div>
+                      <div className="text-green-200 text-xs mt-1">FP8/INT8 cache</div>
+                      <div className="text-green-400 font-mono text-xs mt-2">2× smaller</div>
+                    </div></H>
+                    <H id="kv-paged"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4 text-center">
+                      <div className="text-2xl mb-2">📄</div>
+                      <div className="text-white font-bold text-sm">PagedAttention</div>
+                      <div className="text-green-200 text-xs mt-1">Virtual memory</div>
+                      <div className="text-green-400 font-mono text-xs mt-2">No waste</div>
+                    </div></H>
+                    <H id="kv-prefix"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4 text-center">
+                      <div className="text-2xl mb-2">🔗</div>
+                      <div className="text-white font-bold text-sm">Prefix Caching</div>
+                      <div className="text-green-200 text-xs mt-1">Share system prompt</div>
+                      <div className="text-green-400 font-mono text-xs mt-2">Skip prefill</div>
+                    </div></H>
+                  </div>
+                </div>
+
+                {/* Visual: KV Cache Growing */}
+                <div className="bg-black/30 border border-emerald-500/50 rounded-xl p-4">
+                  <div className="text-emerald-300 font-bold mb-3">📈 KV Cache Growth During Generation</div>
+                  <div className="flex items-end gap-1 h-24">
+                    {[1,2,3,4,5,6,7,8,9,10,11,12].map((i) => (
+                      <div key={i} className="flex-1 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t" style={{height: `${i * 8}%`}}>
+                        <div className="text-xs text-center text-white/70 mt-1">{i}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-400 mt-2">
+                    <span>Token 1</span>
+                    <span>Each token adds K,V to cache</span>
+                    <span>Token N</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="flex flex-col items-center">
+                <div className="w-1 h-8 bg-gradient-to-b from-emerald-400 to-lime-400 rounded-full" />
+                <div className="px-4 py-2 bg-lime-500/20 border border-lime-400 rounded-full text-lime-300 text-sm font-bold">KV CACHE → DECODE</div>
+                <div className="w-1 h-8 bg-gradient-to-b from-lime-400 to-green-400 rounded-full" />
+              </div>
+            </div>
+
+            {/* Section 6: Decode Loop */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-lime-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-lime-500/50">6</div>
+                <div><h2 className="text-3xl font-black text-lime-300">6.0 DECODE LOOP</h2><p className="text-lime-200/80">One token at a time — the autoregressive core</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-lime-950 to-green-950 border-2 border-lime-400 rounded-xl p-6">
+                {/* Loop Visualization */}
+                <div className="mb-6">
+                  <H id="decode-overview"><div className="text-lime-300 font-black text-lg mb-4 cursor-help">🔄 DECODE ITERATION (Runs per output token)</div></H>
+                  <div className="relative">
+                    {/* Main loop steps */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <H id="loop-step1"><div className="bg-lime-600 border-2 border-lime-400 rounded-xl p-3 text-center min-w-[100px]">
+                        <div className="text-white font-bold text-sm">1. Embed</div>
+                        <div className="text-lime-200 text-xs">Token → Vector</div>
+                      </div></H>
+                      <div className="text-lime-400 text-xl">→</div>
+                      <H id="loop-step2"><div className="bg-lime-600 border-2 border-lime-400 rounded-xl p-3 text-center min-w-[100px]">
+                        <div className="text-white font-bold text-sm">2. Attention</div>
+                        <div className="text-lime-200 text-xs">Q × K,V cache</div>
+                      </div></H>
+                      <div className="text-lime-400 text-xl">→</div>
+                      <H id="loop-step3"><div className="bg-lime-600 border-2 border-lime-400 rounded-xl p-3 text-center min-w-[100px]">
+                        <div className="text-white font-bold text-sm">3. MLP</div>
+                        <div className="text-lime-200 text-xs">FFN forward</div>
+                      </div></H>
+                      <div className="text-lime-400 text-xl">→</div>
+                      <H id="loop-step4"><div className="bg-amber-600 border-2 border-amber-400 rounded-xl p-3 text-center min-w-[100px]">
+                        <div className="text-white font-bold text-sm">4. ×80 Layers</div>
+                        <div className="text-amber-200 text-xs">Repeat 2-3</div>
+                      </div></H>
+                      <div className="text-lime-400 text-xl">→</div>
+                      <H id="loop-step5"><div className="bg-lime-600 border-2 border-lime-400 rounded-xl p-3 text-center min-w-[100px]">
+                        <div className="text-white font-bold text-sm">5. Logits</div>
+                        <div className="text-lime-200 text-xs">→ Vocab size</div>
+                      </div></H>
+                      <div className="text-lime-400 text-xl">→</div>
+                      <H id="loop-step6"><div className="bg-green-600 border-2 border-green-400 rounded-xl p-3 text-center min-w-[100px]">
+                        <div className="text-white font-bold text-sm">6. Sample</div>
+                        <div className="text-green-200 text-xs">Check stop</div>
+                      </div></H>
+                    </div>
+                    {/* Loop back arrow */}
+                    <div className="mt-4 flex justify-center">
+                      <div className="px-6 py-2 bg-amber-500/20 border border-amber-400 rounded-full text-amber-300 text-sm font-bold flex items-center gap-2">
+                        <span>↩️</span>
+                        <span>If not stopped: Next token → Step 1</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Decode Details */}
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <H id="decode-attention"><div className="bg-black/40 border-2 border-lime-400 rounded-xl p-4">
+                    <div className="text-lime-300 font-bold mb-2">👁️ Decode Attention</div>
+                    <div className="text-slate-300 text-sm mb-2">New Q attends to ALL cached K,V</div>
+                    <div className="font-mono text-xs bg-black/50 rounded p-2 text-slate-400">
+                      scores = Q_new × K_cache^T<br/>
+                      output = softmax(scores) × V_cache<br/>
+                      <span className="text-amber-400">Cost: O(seq_len) per token</span>
+                    </div>
+                  </div></H>
+                  <H id="decode-mlp"><div className="bg-black/40 border-2 border-lime-400 rounded-xl p-4">
+                    <div className="text-lime-300 font-bold mb-2">🧮 MLP / FFN</div>
+                    <div className="text-slate-300 text-sm mb-2">Two large matmuls, ~2/3 of params</div>
+                    <div className="font-mono text-xs bg-black/50 rounded p-2 text-slate-400">
+                      up = hidden × W_up (4× expand)<br/>
+                      down = silu(up) × W_down<br/>
+                      <span className="text-amber-400">Bottleneck: Weight loading</span>
+                    </div>
+                  </div></H>
+                </div>
+
+                {/* Bottleneck Explanation */}
+                <H id="decode-bottleneck"><div className="bg-red-950/50 border-2 border-red-400 rounded-xl p-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <span className="text-4xl">⚠️</span>
+                    <div>
+                      <div className="text-red-300 font-black">MEMORY BANDWIDTH BOTTLENECK</div>
+                      <div className="text-slate-300 text-sm">Must load 140GB weights for EACH token. Weight load: 42ms, Compute: &lt;1ms</div>
+                      <div className="text-amber-400 text-sm font-bold mt-1">Solution: BATCHING amortizes weight loading across sequences</div>
+                    </div>
+                  </div>
+                </div></H>
+
+                {/* Batching Strategies */}
+                <div className="text-blue-300 font-black text-lg mb-4">📦 BATCHING STRATEGIES</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <H id="batch-continuous"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4">
+                    <div className="text-2xl mb-2">🔄</div>
+                    <div className="text-white font-bold">Continuous Batching</div>
+                    <div className="text-blue-200 text-xs mt-1">Add/remove sequences dynamically</div>
+                    <div className="text-blue-400 text-xs mt-2">vLLM, TGI</div>
+                  </div></H>
+                  <H id="batch-inflight"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4">
+                    <div className="text-2xl mb-2">✈️</div>
+                    <div className="text-white font-bold">In-Flight Batching</div>
+                    <div className="text-blue-200 text-xs mt-1">Join/leave between iterations</div>
+                    <div className="text-blue-400 text-xs mt-2">TensorRT-LLM</div>
+                  </div></H>
+                  <H id="batch-chunked"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4">
+                    <div className="text-2xl mb-2">📄</div>
+                    <div className="text-white font-bold">Chunked Prefill</div>
+                    <div className="text-blue-200 text-xs mt-1">Interleave prefill & decode</div>
+                    <div className="text-blue-400 text-xs mt-2">Consistent latency</div>
+                  </div></H>
+                </div>
+              </div>
+            </section>
+
+            {/* Memory & Advanced Optimizations */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-purple-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">⚡</div>
+                <div><h2 className="text-3xl font-black text-purple-300">ADVANCED OPTIMIZATIONS</h2><p className="text-purple-200/80">Making decode faster</p></div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-4">
+                  <div className="text-purple-300 font-black mb-3">💾 MEMORY MANAGEMENT</div>
+                  <div className="space-y-2">
+                    <H id="mem-hbm"><div className="bg-black/40 border border-purple-400 rounded-lg p-3 flex items-center gap-3">
+                      <span className="text-xl">🎯</span>
+                      <div><div className="text-white font-bold text-sm">HBM (GPU Memory)</div><div className="text-purple-200 text-xs">80GB H100, must fit everything</div></div>
+                    </div></H>
+                    <H id="mem-offload"><div className="bg-black/40 border border-purple-400 rounded-lg p-3 flex items-center gap-3">
+                      <span className="text-xl">📤</span>
+                      <div><div className="text-white font-bold text-sm">KV Offloading</div><div className="text-purple-200 text-xs">Move inactive to CPU/SSD</div></div>
+                    </div></H>
+                    <H id="mem-speculative"><div className="bg-black/40 border border-purple-400 rounded-lg p-3 flex items-center gap-3">
+                      <span className="text-xl">🎲</span>
+                      <div><div className="text-white font-bold text-sm">Speculative Decoding</div><div className="text-purple-200 text-xs">Draft model + verify, 2-3× speed</div></div>
+                    </div></H>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-cyan-950 to-blue-950 border-2 border-cyan-400 rounded-xl p-4">
+                  <div className="text-cyan-300 font-black mb-3">🚀 SPEED OPTIMIZATIONS</div>
+                  <div className="space-y-2">
+                    <H id="opt-flash-decode"><div className="bg-black/40 border border-cyan-400 rounded-lg p-3 flex items-center gap-3">
+                      <span className="text-xl">⚡</span>
+                      <div><div className="text-white font-bold text-sm">Flash Decoding</div><div className="text-cyan-200 text-xs">Parallel over KV length, 2-8× faster</div></div>
+                    </div></H>
+                    <H id="opt-medusa"><div className="bg-black/40 border border-cyan-400 rounded-lg p-3 flex items-center gap-3">
+                      <span className="text-xl">🐍</span>
+                      <div><div className="text-white font-bold text-sm">Medusa Heads</div><div className="text-cyan-200 text-xs">Predict multiple tokens at once</div></div>
+                    </div></H>
+                    <H id="opt-kv-compression"><div className="bg-black/40 border border-cyan-400 rounded-lg p-3 flex items-center gap-3">
+                      <span className="text-xl">🗜️</span>
+                      <div><div className="text-white font-bold text-sm">KV Compression</div><div className="text-cyan-200 text-xs">Drop/merge tokens, sliding window</div></div>
+                    </div></H>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Summary Stats */}
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-4 text-center">
+                <div className="text-2xl mb-1">🔄</div>
+                <div className="text-xl font-black text-white">1 iter/token</div>
+                <div className="text-slate-400 text-xs">Sequential generation</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-4 text-center">
+                <div className="text-2xl mb-1">💾</div>
+                <div className="text-xl font-black text-white">98% memory</div>
+                <div className="text-slate-400 text-xs">Time loading weights</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-4 text-center">
+                <div className="text-2xl mb-1">📦</div>
+                <div className="text-xl font-black text-white">32× faster</div>
+                <div className="text-slate-400 text-xs">With batching</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-4 text-center">
+                <div className="text-2xl mb-1">🎯</div>
+                <div className="text-xl font-black text-white">~30 tok/s</div>
+                <div className="text-slate-400 text-xs">Per sequence (70B)</div>
+              </div>
+            </div>
+
+            {/* Output */}
+            <div className="bg-gradient-to-r from-green-600 to-emerald-600 border-2 border-green-400 rounded-xl p-6 shadow-lg shadow-green-500/30">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-4"><span className="text-5xl">✅</span><div><div className="text-2xl font-black text-white">TOKENS GENERATED</div><div className="text-green-200 font-medium">Loop continues until stop condition</div></div></div>
+                <div className="text-right"><div className="text-green-200 font-semibold">NEXT STAGE →</div><div className="text-white font-black text-lg">Sampling & Stop Conditions</div></div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">KV Cache & Decode Loop • Stages 5-6 of Inference Lifecycle</p>
+              <p className="text-emerald-400 font-bold mt-1">MEMORY BOUND • SEQUENTIAL • BATCHING IS EVERYTHING</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<KVCacheDecodeLoop />);
+  </script>
+</body>
+</html>

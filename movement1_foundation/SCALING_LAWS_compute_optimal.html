@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scaling Laws - LLM Training Decisions</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function ScalingLaws() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Core Concepts
+        'concept-scaling': {
+          title: '📈 SCALING LAWS',
+          content: 'Empirical relationships between model size, data, compute, and performance. Enable predicting loss before training.',
+          discovery: 'Kaplan et al. 2020: First scaling laws\nHoffmann et al. 2022: Chinchilla update\nContinued refinement ongoing',
+          importance: 'Guide architecture decisions\nPredict training costs\nOptimal resource allocation'
+        },
+        'concept-powerlaw': {
+          title: '📐 POWER LAW RELATIONSHIPS',
+          content: 'Loss decreases as a power law with scale. Linear on log-log plots.',
+          formula: 'L(x) = (x/x₀)^(-α) + L_∞\nL = loss, x = scale factor\nα = scaling exponent\nL_∞ = irreducible loss',
+          typical: 'α ≈ 0.05-0.1 for params\nα ≈ 0.05-0.1 for data\nα ≈ 0.05 for compute'
+        },
+        'concept-compute': {
+          title: '⚡ COMPUTE (FLOPs)',
+          content: 'Total floating point operations for training. The fundamental resource.',
+          formula: 'C ≈ 6 × N × D\nC = compute (FLOPs)\nN = parameters\nD = tokens',
+          why6: 'Forward: 2×N per token\nBackward: 4×N per token\nTotal: 6×N per token'
+        },
+
+        // Chinchilla
+        'chinchilla-overview': {
+          title: '🐭 CHINCHILLA SCALING',
+          content: 'DeepMind\'s 2022 finding: Previous models were undertrained. Optimal ratio is ~20 tokens per parameter.',
+          finding: 'For compute-optimal training:\nD ≈ 20 × N\nD = tokens, N = parameters',
+          implication: 'GPT-3 (175B, 300B tokens): Undertrained\nChinchilla (70B, 1.4T tokens): Optimal\nSame compute, better loss!'
+        },
+        'chinchilla-formula': {
+          title: '📊 CHINCHILLA FORMULA',
+          content: 'Given compute budget C, optimal allocation between N and D.',
+          formulas: 'N_opt ∝ C^0.5\nD_opt ∝ C^0.5\nN_opt ≈ (C / 6×20)^0.5\nD_opt ≈ 20 × N_opt',
+          example: 'C = 10²⁴ FLOPs:\nN_opt ≈ 67B params\nD_opt ≈ 1.4T tokens\n(This is Chinchilla!)'
+        },
+        'chinchilla-ratio': {
+          title: '📈 TOKEN/PARAM RATIO',
+          content: 'How many tokens to train on per parameter. Chinchilla says ~20.',
+          evolution: 'GPT-3: 1.7 tokens/param\nChinchilla: 20 tokens/param\nLLaMA: 40+ tokens/param\nLLaMA-2: 100+ tokens/param',
+          trend: 'Industry moving to overtrain\nInference cost matters more\nSmaller model + more data'
+        },
+
+        // Beyond Chinchilla
+        'beyond-overtrain': {
+          title: '🔥 OVERTRAINING',
+          content: 'Train beyond compute-optimal. Smaller model, much more data. Better for inference.',
+          reasoning: 'Training: One-time cost\nInference: Repeated cost\nSmaller model = cheaper inference',
+          examples: 'LLaMA-7B: 1T tokens (140× ratio)\nMistral-7B: Heavily overtrained\nPhi-2: Extreme overtraining'
+        },
+        'beyond-dataconstrained': {
+          title: '📚 DATA CONSTRAINTS',
+          content: 'What if you run out of high-quality data? Repeat data or use synthetic.',
+          strategies: 'Repeat epochs: Some degradation\nSynthetic data: Model-generated\nData mixing: Upsample quality\nMultilingual: More sources',
+          research: 'Muennighoff et al.: 4 epochs OK\nBeyond: Diminishing returns\nQuality > Quantity'
+        },
+
+        // Loss Prediction
+        'predict-loss': {
+          title: '🎯 LOSS PREDICTION',
+          content: 'Predict final loss from small-scale experiments. Major cost savings.',
+          method: '1. Train small models\n2. Fit scaling curve\n3. Extrapolate to target\n4. Validate with medium run',
+          accuracy: '~0.1 nats error on log scale\nGets better with more points\nMay underestimate emergent costs'
+        },
+        'predict-isoflop': {
+          title: '📊 ISOFLOP CURVES',
+          content: 'Lines of constant compute on N vs D plot. Find optimal point on each.',
+          usage: 'Plot loss vs N at fixed C\nFind minimum for each C\nConnect minima = optimal frontier',
+          insight: 'Reveals optimal N/D ratio\nShows diminishing returns\nGuides budget allocation'
+        },
+
+        // Practical Applications
+        'practical-budget': {
+          title: '💰 COMPUTE BUDGET PLANNING',
+          content: 'Given budget, determine optimal model size and training length.',
+          process: '1. Estimate available FLOPs\n2. Use Chinchilla to get N, D\n3. Adjust for inference needs\n4. Plan infrastructure',
+          example: 'Budget: $10M training\n~10²³ FLOPs available\nChinchilla: ~10B params\nOvertrained: ~3B params'
+        },
+        'practical-infra': {
+          title: '🖥️ INFRASTRUCTURE SIZING',
+          content: 'How many GPUs for how long? Scaling laws inform decisions.',
+          calculation: 'Time = 6ND / (GPU_count × GPU_flops × MFU)\nMFU = Model FLOP Utilization (30-50%)',
+          example: '70B model, 2T tokens:\nC = 6 × 70B × 2T = 8.4×10²³\n2048 H100 @ 40% MFU:\n~3 months'
+        },
+
+        // Model Examples
+        'example-gpt3': {
+          title: '🤖 GPT-3',
+          content: 'OpenAI 2020. Large model, relatively little data by modern standards.',
+          specs: 'N = 175B parameters\nD = 300B tokens\nRatio: 1.7 tokens/param\nC ≈ 3.1×10²³ FLOPs',
+          hindsight: 'Significantly undertrained\nCould achieve same loss with 40B model\nBut inference wasn\'t the focus then'
+        },
+        'example-chinchilla': {
+          title: '🐭 Chinchilla',
+          content: 'DeepMind 2022. The compute-optimal model that changed everything.',
+          specs: 'N = 70B parameters\nD = 1.4T tokens\nRatio: 20 tokens/param\nC ≈ 5.8×10²³ FLOPs',
+          result: 'Beat Gopher (280B) on benchmarks\nUsing ~4× fewer parameters\nSame compute budget'
+        },
+        'example-llama': {
+          title: '🦙 LLaMA',
+          content: 'Meta 2023. Overtrained for inference efficiency.',
+          specs: 'LLaMA-7B: 1T tokens (143× ratio)\nLLaMA-13B: 1T tokens (77× ratio)\nLLaMA-65B: 1.4T tokens (22× ratio)',
+          philosophy: 'Optimize for inference cost\nOvertrain smaller models\nOpen weights changed field'
+        },
+        'example-llama2': {
+          title: '🦙 LLaMA-2',
+          content: 'Meta 2023. Even more aggressive overtraining.',
+          specs: 'LLaMA-2-7B: 2T tokens (286× ratio)\nLLaMA-2-70B: 2T tokens (29× ratio)\n40% more training than LLaMA',
+          trend: 'Continued overtraining trend\nEmphasis on small model quality\nInference cost dominates'
+        },
+
+        // Emerging Considerations
+        'emerging-inference': {
+          title: '⚡ INFERENCE-AWARE SCALING',
+          content: 'Factor in inference cost when choosing model size. Smaller model may be better overall.',
+          analysis: 'Total Cost = Train Cost + (Inference Cost × Queries)\nAt scale, inference dominates\nOvertrain to minimize inference',
+          recommendation: 'Short deployment: Bigger model OK\nLong deployment: Smaller, overtrained\nMobile/edge: Very small, very overtrained'
+        },
+        'emerging-quality': {
+          title: '📊 DATA QUALITY SCALING',
+          content: 'Not just quantity. Quality multipliers in scaling.',
+          findings: 'High-quality data: 10× effective\nFiltered web: 2-5× better than raw\nCurated: Even higher',
+          implications: 'Phi models: Quality over quantity\nTextbook-style data\nMay change scaling exponents'
+        },
+        'emerging-moe': {
+          title: '🔀 MoE SCALING',
+          content: 'Mixture of Experts changes the equations. More params, same FLOPs.',
+          insight: 'MoE: N_total but N_active per token\nScaling: Based on N_active\nBest of both: Capacity + efficiency',
+          examples: 'Mixtral 8x7B: 47B total, 12B active\nGPT-4 rumored MoE\nDifferent scaling regime'
+        },
+
+        // Visualization helpers
+        'viz-lossplot': {
+          title: '📉 LOSS VS COMPUTE',
+          content: 'Log-log plot showing power law relationship. Linear trend = power law.',
+          interpretation: 'Slope = -α (scaling exponent)\nIntercept = Loss at reference\nExtend line to predict'
+        },
+        'viz-frontier': {
+          title: '🎯 PARETO FRONTIER',
+          content: 'Optimal trade-off curve. Points on frontier are Pareto-optimal.',
+          meaning: 'Below frontier: Suboptimal\nOn frontier: Best for that compute\nAbove frontier: Impossible'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.formulas && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULAS</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.formulas}</pre>
+              </div>
+            )}
+            {t.specs && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SPECIFICATIONS</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.specs}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.finding && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">KEY FINDING</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.finding}</pre>
+              </div>
+            )}
+            {t.implication && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">💡 </span>{t.implication}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-amber-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-orange-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-yellow-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-amber-600/30 border border-amber-400 rounded-full mb-6">
+                <span className="text-amber-300 font-bold">SCALING LAWS</span>
+                <span className="text-white">•</span>
+                <span className="text-amber-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-yellow-400">
+                LLM Scaling Laws
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-amber-300 font-bold">Predict performance from scale</span> — the science of training decisions.
+                <span className="text-orange-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Core Formula */}
+            <div className="bg-gradient-to-r from-amber-900/50 to-orange-900/50 border-2 border-amber-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center">
+                <div className="text-2xl font-black text-white mb-4">🔑 THE FUNDAMENTAL EQUATION</div>
+                <Hoverable id="concept-compute">
+                  <div className="inline-block bg-black/50 rounded-xl p-6 font-mono text-3xl text-amber-300 border border-amber-500/50">
+                    C ≈ 6 × N × D
+                  </div>
+                </Hoverable>
+                <div className="mt-4 text-slate-300">
+                  <span className="text-amber-400 font-bold">C</span> = Compute (FLOPs) &nbsp;|&nbsp;
+                  <span className="text-orange-400 font-bold">N</span> = Parameters &nbsp;|&nbsp;
+                  <span className="text-yellow-400 font-bold">D</span> = Data (tokens)
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 1: CORE CONCEPTS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-amber-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-amber-300">CORE CONCEPTS</h2>
+                  <p className="text-amber-200/80">The foundations of scaling laws</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="concept-scaling">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">📈 Scaling Laws</div>
+                    <div className="text-amber-100/80 text-sm">Empirical power laws</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Loss ∝ Scale^(-α)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="concept-powerlaw">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">📐 Power Laws</div>
+                    <div className="text-orange-100/80 text-sm">Linear on log-log plots</div>
+                    <div className="text-orange-100/60 text-xs mt-2">L = (x/x₀)^(-α)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="concept-compute">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">⚡ Compute</div>
+                    <div className="text-yellow-100/80 text-sm">The fundamental resource</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">C = 6ND</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 2: CHINCHILLA */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">CHINCHILLA SCALING</h2>
+                  <p className="text-cyan-200/80">The compute-optimal paradigm</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="chinchilla-overview">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">🐭 Overview</div>
+                    <div className="text-cyan-100/80 text-sm">20 tokens per parameter</div>
+                    <div className="text-cyan-100/60 text-xs mt-2">D ≈ 20 × N optimal</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="chinchilla-formula">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">📊 Formula</div>
+                    <div className="text-blue-100/80 text-sm">N_opt ∝ C^0.5</div>
+                    <div className="text-blue-100/60 text-xs mt-2">D_opt ∝ C^0.5</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="chinchilla-ratio">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">📈 Ratio Evolution</div>
+                    <div className="text-indigo-100/80 text-sm">GPT-3: 1.7 → LLaMA-2: 100+</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">Trend: Overtrain more</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Chinchilla Visual */}
+              <div className="bg-slate-900/80 border border-cyan-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-cyan-300 mb-4 text-center">🐭 Chinchilla's Key Insight</div>
+                <div className="flex items-center justify-center gap-8">
+                  <div className="text-center">
+                    <div className="text-4xl mb-2">🦣</div>
+                    <div className="text-slate-300 font-bold">Gopher (280B)</div>
+                    <div className="text-slate-500 text-sm">300B tokens</div>
+                    <div className="text-red-400 text-sm">Undertrained</div>
+                  </div>
+                  <div className="text-cyan-400 text-4xl">=</div>
+                  <div className="text-center">
+                    <div className="text-4xl mb-2">🐭</div>
+                    <div className="text-cyan-300 font-bold">Chinchilla (70B)</div>
+                    <div className="text-cyan-500 text-sm">1.4T tokens</div>
+                    <div className="text-green-400 text-sm">Compute-optimal</div>
+                  </div>
+                  <div className="text-slate-500 text-2xl">&nbsp;&nbsp;&nbsp;(Same compute, better loss!)</div>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 3: BEYOND CHINCHILLA */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">BEYOND CHINCHILLA</h2>
+                  <p className="text-purple-200/80">Modern approaches: Overtrain for inference</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="beyond-overtrain">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">🔥 Overtraining</div>
+                    <div className="text-purple-100/80 text-sm">Smaller model + more data</div>
+                    <div className="text-purple-100/60 text-xs mt-2">Better for inference cost</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="beyond-dataconstrained">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">📚 Data Constraints</div>
+                    <div className="text-pink-100/80 text-sm">Running out of data?</div>
+                    <div className="text-pink-100/60 text-xs mt-2">Repeat, synthetic, multilingual</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 4: MODEL EXAMPLES */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">MODEL EXAMPLES</h2>
+                  <p className="text-green-200/80">How major models applied scaling laws</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <Hoverable id="example-gpt3">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-600">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">🤖</span>
+                      <div>
+                        <div className="text-white font-black">GPT-3</div>
+                        <div className="text-slate-400 text-xs">OpenAI 2020</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-slate-700 rounded p-2 text-center">
+                        <div className="text-slate-300 font-bold">175B</div>
+                        <div className="text-slate-500">params</div>
+                      </div>
+                      <div className="bg-slate-700 rounded p-2 text-center">
+                        <div className="text-slate-300 font-bold">300B</div>
+                        <div className="text-slate-500">tokens</div>
+                      </div>
+                      <div className="bg-red-900/50 rounded p-2 text-center">
+                        <div className="text-red-300 font-bold">1.7×</div>
+                        <div className="text-red-400">ratio</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="example-chinchilla">
+                  <div className="p-4 rounded-xl bg-cyan-900/30 border-2 border-cyan-500">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">🐭</span>
+                      <div>
+                        <div className="text-cyan-200 font-black">Chinchilla</div>
+                        <div className="text-cyan-400 text-xs">DeepMind 2022</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-cyan-900/50 rounded p-2 text-center">
+                        <div className="text-cyan-200 font-bold">70B</div>
+                        <div className="text-cyan-400">params</div>
+                      </div>
+                      <div className="bg-cyan-900/50 rounded p-2 text-center">
+                        <div className="text-cyan-200 font-bold">1.4T</div>
+                        <div className="text-cyan-400">tokens</div>
+                      </div>
+                      <div className="bg-green-900/50 rounded p-2 text-center">
+                        <div className="text-green-300 font-bold">20×</div>
+                        <div className="text-green-400">ratio ✓</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="example-llama">
+                  <div className="p-4 rounded-xl bg-orange-900/30 border-2 border-orange-500">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">🦙</span>
+                      <div>
+                        <div className="text-orange-200 font-black">LLaMA</div>
+                        <div className="text-orange-400 text-xs">Meta 2023</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-orange-900/50 rounded p-2 text-center">
+                        <div className="text-orange-200 font-bold">7-65B</div>
+                        <div className="text-orange-400">params</div>
+                      </div>
+                      <div className="bg-orange-900/50 rounded p-2 text-center">
+                        <div className="text-orange-200 font-bold">1-1.4T</div>
+                        <div className="text-orange-400">tokens</div>
+                      </div>
+                      <div className="bg-yellow-900/50 rounded p-2 text-center">
+                        <div className="text-yellow-300 font-bold">22-143×</div>
+                        <div className="text-yellow-400">overtrained</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="example-llama2">
+                  <div className="p-4 rounded-xl bg-red-900/30 border-2 border-red-500">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">🦙</span>
+                      <div>
+                        <div className="text-red-200 font-black">LLaMA-2</div>
+                        <div className="text-red-400 text-xs">Meta 2023</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-red-900/50 rounded p-2 text-center">
+                        <div className="text-red-200 font-bold">7-70B</div>
+                        <div className="text-red-400">params</div>
+                      </div>
+                      <div className="bg-red-900/50 rounded p-2 text-center">
+                        <div className="text-red-200 font-bold">2T</div>
+                        <div className="text-red-400">tokens</div>
+                      </div>
+                      <div className="bg-amber-900/50 rounded p-2 text-center">
+                        <div className="text-amber-300 font-bold">29-286×</div>
+                        <div className="text-amber-400">very overtrained</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 5: PRACTICAL APPLICATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">PRACTICAL APPLICATION</h2>
+                  <p className="text-blue-200/80">Using scaling laws for decisions</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <Hoverable id="predict-loss">
+                    <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                      <div className="text-xl font-black text-blue-200 mb-2">🎯 Loss Prediction</div>
+                      <div className="text-blue-100/80 text-sm">Predict final loss from small runs</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="practical-budget">
+                    <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                      <div className="text-xl font-black text-indigo-200 mb-2">💰 Budget Planning</div>
+                      <div className="text-indigo-100/80 text-sm">Optimal N, D from compute budget</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                <div className="space-y-4">
+                  <Hoverable id="predict-isoflop">
+                    <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                      <div className="text-xl font-black text-violet-200 mb-2">📊 IsoFLOP Curves</div>
+                      <div className="text-violet-100/80 text-sm">Find optimal point on compute curve</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="practical-infra">
+                    <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                      <div className="text-xl font-black text-purple-200 mb-2">🖥️ Infrastructure Sizing</div>
+                      <div className="text-purple-100/80 text-sm">GPUs × time from scaling laws</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 6: EMERGING */}
+            <section className="mb-10">
+              <div className="bg-slate-900/60 border border-amber-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-amber-300 mb-4">🔮 EMERGING CONSIDERATIONS</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Hoverable id="emerging-inference">
+                    <div className="bg-amber-900/40 border border-amber-400 rounded-lg p-4">
+                      <div className="text-amber-200 font-bold">⚡ Inference-Aware</div>
+                      <div className="text-amber-100/60 text-sm mt-1">Optimize total cost</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="emerging-quality">
+                    <div className="bg-orange-900/40 border border-orange-400 rounded-lg p-4">
+                      <div className="text-orange-200 font-bold">📊 Data Quality</div>
+                      <div className="text-orange-100/60 text-sm mt-1">Quality multipliers</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="emerging-moe">
+                    <div className="bg-yellow-900/40 border border-yellow-400 rounded-lg p-4">
+                      <div className="text-yellow-200 font-bold">🔀 MoE Scaling</div>
+                      <div className="text-yellow-100/60 text-sm mt-1">Different equations</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-amber-900/50 to-orange-900/50 border-2 border-amber-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                📊 SCALING LAWS SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Scaling laws enable predicting model performance before expensive training runs.
+                The field has evolved from compute-optimal (Chinchilla) to inference-aware (LLaMA) training.
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mt-6 text-sm max-w-2xl mx-auto">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-amber-300 font-bold">C = 6ND</div>
+                  <div className="text-slate-400">Compute formula</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">D ≈ 20N</div>
+                  <div className="text-slate-400">Chinchilla optimal</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">D >> 20N</div>
+                  <div className="text-slate-400">Modern overtrain</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Scaling Laws • C = 6ND • Chinchilla to LLaMA</p>
+              <p className="text-xs mt-1 text-slate-600">Kaplan 2020 → Hoffmann 2022 → Ongoing research</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ScalingLaws />);
+  </script>
+</body>
+</html>

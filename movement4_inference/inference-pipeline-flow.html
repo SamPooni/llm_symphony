@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>End-to-End Inference Pipeline - Flow Diagram</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #020617; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    @keyframes dash { to { stroke-dashoffset: -24; } }
+    .animate-dash { animation: dash 1s linear infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function InferencePipelineDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      // Comprehensive tooltips for all pipeline stages
+      const tooltips = {
+        // Pre-Model Processing
+        'client': {
+          title: '🌐 Client Request',
+          content: 'The entry point. Requests arrive via REST (HTTP/JSON), gRPC (Protobuf), WebSocket/SSE (streaming), or internal service mesh calls.',
+          details: 'Payload includes: messages array, model ID, sampling params (temperature, max_tokens, top_p), tool schemas, attachments (images, audio), tenant/API key.',
+          example: 'POST /v1/chat/completions\n{"model": "gpt-4", "messages": [...], "temperature": 0.7}'
+        },
+        'gateway': {
+          title: '🔐 API Gateway',
+          content: 'NOT optional in production. First line of defense. Handles authentication (API keys, OAuth, mTLS), rate limiting, request validation, and abuse detection.',
+          details: 'Components: Auth middleware, rate limiter (Redis), schema validator, abuse detector. Implementations: Envoy, Kong, NGINX, AWS API Gateway.',
+          metric: 'FAIL FAST HERE — GPU time is expensive. Reject bad requests before they consume compute.'
+        },
+        'router': {
+          title: '🎯 Model Router',
+          content: 'Decides WHICH exact model instance handles the request. This is a scheduling problem, not just a lookup.',
+          details: 'Routing signals: Latency SLA, cost budget, context length, capabilities (tools, vision, JSON mode). Routes to: base model, LoRA adapter, quantized/full precision, specific GPU type.',
+          metric: 'Matches request requirements to available capacity. Load balances across replicas.'
+        },
+        'normalize': {
+          title: '🛡️ Input Normalization',
+          content: 'Defensive engineering. Validates and sanitizes input before tokenization.',
+          details: 'Operations: Validate JSON schema, normalize Unicode (NFC/NFKC), strip zero-width/control characters, escape tool arguments, sanitize file paths.',
+          metric: 'Prevents: Tokenizer divergence, prompt injection edge cases, encoding attacks. Ensures reproducibility.'
+        },
+        'tokenize': {
+          title: '🔤 Tokenization',
+          content: 'Text → Token IDs. The fundamental currency of LLMs. Uses BPE (GPT), SentencePiece (Google), or WordPiece (BERT).',
+          details: 'Outputs: input_ids (token numbers), attention_mask (valid positions), position_ids (sometimes implicit). Vocab sizes: 32K-100K+.',
+          metric: 'CPU-bound | Token count determines: prefill cost, KV cache size, billing. ~4 chars/token for English.'
+        },
+        'prompt': {
+          title: '📝 Prompt Assembly',
+          content: 'Context construction. ORDER MATTERS! Components assembled in specific sequence.',
+          details: 'Order: (1) System prompt, (2) Developer instructions, (3) Conversation history, (4) RAG retrieved context, (5) Tool schemas, (6) User message. Overflow: truncate oldest, summarize, or reject.',
+          metric: 'Garbage context = garbage output. Context window enforced here.'
+        },
+        
+        // GPU Execution
+        'prefill': {
+          title: '⚡ Prefill (Context Encoding)',
+          content: 'The entire prompt processed ONCE. Full self-attention over all input tokens. This is where long prompts hurt.',
+          details: 'Operations: QKV projections (heavy GEMMs), multi-head attention O(n²), layer norm, MLP/FFN. Creates KV cache for all layers.',
+          metric: 'Compute-heavy | O(n²) attention | Scales with context length² | GPU-bound'
+        },
+        'kv': {
+          title: '💾 KV Cache',
+          content: 'Persistent memory of attention states. Keys and Values stored for ALL layers. Enables fast autoregressive decoding.',
+          details: 'Lives in GPU HBM. Size: 2 × layers × heads × head_dim × seq_len × dtype. Optimizations: PagedAttention (vLLM), FP8/INT8 quantization, prefix caching.',
+          metric: 'Usually #1 memory consumer | 70B @ 8K ctx ≈ 16GB | Critical for batch size'
+        },
+        'attention': {
+          title: '👁️ Attention (Decode)',
+          content: 'Per-token attention. New token attends to ALL past tokens via cached keys/values.',
+          details: 'Q (new) × K^T (all cached) → weights → sum(weights × V). Cost grows linearly with sequence length. Uses Flash Attention for efficiency.',
+          metric: 'O(n) per token | Memory-bandwidth bound | Reads entire KV cache'
+        },
+        'mlp': {
+          title: '🧮 MLP / FFN',
+          content: 'Feed-forward network after attention. Large matrix multiplications. Often the parameter bottleneck.',
+          details: 'Typical: 4× hidden expansion. Up-projection → GeLU/SiLU → Down-projection. Contains ~2/3 of model parameters.',
+          metric: 'Tensor core dominated | Weight loading from HBM is bottleneck'
+        },
+        'logits': {
+          title: '📊 Logits Computation',
+          content: 'Final projection to vocabulary size. Output vector has one value per possible next token.',
+          details: 'hidden_state × vocab_matrix → logits vector. Vocabulary: 30K-100K+ tokens. Softmax converts to probabilities.',
+          metric: 'Large output dimension | Softmax follows for sampling'
+        },
+        'sample': {
+          title: '🎲 Sampling',
+          content: 'Logits processing to control generation. Applied every token.',
+          details: 'Techniques: Temperature (0=deterministic, 1+=creative), Top-k (keep k highest), Top-p/nucleus (cumulative probability), Repetition penalty, Grammar masks (JSON/tools).',
+          metric: 'Light compute | Controls diversity vs determinism | Structure enforcement'
+        },
+        'stop': {
+          title: '🛑 Stop Condition Check',
+          content: 'Checked after EACH token. Determines whether to continue or exit the decode loop.',
+          details: 'Conditions: EOS token (<|endoftext|>, </s>), max_tokens reached, stop sequence matched, tool invocation pattern detected.',
+          metric: 'Exit triggers: end generation → proceed to output delivery'
+        },
+        
+        // Post-Model Delivery
+        'stream': {
+          title: '📡 Streaming Output',
+          content: 'Tokens sent incrementally as generated. CRITICAL for user experience.',
+          details: 'Protocols: Server-Sent Events (SSE), WebSocket. Partial detokenization handles incomplete UTF-8 sequences. Reduces perceived latency dramatically.',
+          metric: 'Product feature, not just infra | Hides decode latency | Essential for chat UX'
+        },
+        'detok': {
+          title: '📄 Detokenization',
+          content: 'Tokens → UTF-8 text. Merges subword tokens back into words.',
+          details: 'Handles: SentencePiece ▁ markers, BPE merges, partial tokens mid-stream, emoji/unicode, whitespace normalization.',
+          metric: 'CPU-bound | Fast | Final text reconstruction'
+        },
+        'postproc': {
+          title: '🔧 Post-Processing',
+          content: 'Final transforms before delivery to client.',
+          details: 'Operations: JSON schema validation (structured output), PII redaction, citation attachment (RAG), safety filter (toxicity/harm classifiers), format cleanup.',
+          metric: 'Quality & safety gates | May trigger retry if validation fails'
+        },
+        'response': {
+          title: '✅ Response Delivery',
+          content: 'Final chunk sent, stream closed, request finalized. The inference journey ends here.',
+          details: 'Actions: Send final chunk, close SSE/WebSocket, HTTP 200, release GPU memory, update quotas, finalize billing.',
+          metric: 'Journey complete | Triggers telemetry & billing finalization'
+        },
+        
+        // Bottleneck labels
+        'cpu-bottleneck': {
+          title: 'CPU Bottleneck',
+          content: 'Tokenization is CPU-bound. BPE encoding is sequential. Usually not the limiting factor.',
+          metric: '~1-10ms for typical prompts'
+        },
+        'gpu-bottleneck': {
+          title: 'GPU Compute Bottleneck',
+          content: 'Prefill is compute-bound. O(n²) attention dominates. Benefits from tensor cores.',
+          metric: 'Long prompts hurt here | Scales with context²'
+        },
+        'memory-bottleneck': {
+          title: 'Memory Bandwidth Bottleneck',
+          content: 'Decode is memory-bandwidth bound. Loading weights from HBM is the bottleneck, not compute.',
+          metric: 'KV cache size limits batch | Weight loading dominates'
+        },
+        'network-bottleneck': {
+          title: 'Network Bottleneck',
+          content: 'Streaming can be network-bound for very fast generation.',
+          metric: 'Usually not limiting | SSE/WebSocket overhead'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 280 > window.innerHeight) top = window.innerHeight - 290;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.details && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div>
+                <p className="text-xs text-cyan-300">{t.details}</p>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.metric && (
+              <div className="text-xs text-amber-400">
+                <span className="font-bold">📊 </span>{t.metric}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 p-6 overflow-x-auto" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background effects */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-purple-500/5 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-cyan-500/5 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-green-500/5 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-[1800px] mx-auto">
+            {/* Header */}
+            <header className="text-center mb-8">
+              <h1 className="text-4xl font-black mb-2 bg-gradient-to-r from-orange-400 via-pink-500 to-purple-500 bg-clip-text text-transparent">
+                End-to-End Inference Pipeline
+              </h1>
+              <p className="text-slate-400">Request → Tokens → Response • <span className="text-cyan-400">🖱️ Hover over any stage for detailed tooltips</span></p>
+            </header>
+
+            {/* Main Pipeline SVG */}
+            <svg viewBox="0 0 1700 950" className="w-full min-w-[1200px]">
+              <defs>
+                {/* Gradients */}
+                <linearGradient id="intakeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#F59E0B" />
+                  <stop offset="100%" stopColor="#EF4444" />
+                </linearGradient>
+                <linearGradient id="normalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#EC4899" />
+                  <stop offset="100%" stopColor="#F43F5E" />
+                </linearGradient>
+                <linearGradient id="tokenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#8B5CF6" />
+                  <stop offset="100%" stopColor="#A855F7" />
+                </linearGradient>
+                <linearGradient id="promptGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6366F1" />
+                  <stop offset="100%" stopColor="#818CF8" />
+                </linearGradient>
+                <linearGradient id="prefillGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#06B6D4" />
+                  <stop offset="100%" stopColor="#22D3EE" />
+                </linearGradient>
+                <linearGradient id="kvGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#10B981" />
+                  <stop offset="100%" stopColor="#34D399" />
+                </linearGradient>
+                <linearGradient id="decodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#76B900" />
+                  <stop offset="100%" stopColor="#A3E635" />
+                </linearGradient>
+                <linearGradient id="sampleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#FBBF24" />
+                  <stop offset="100%" stopColor="#FCD34D" />
+                </linearGradient>
+                <linearGradient id="streamGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#14B8A6" />
+                  <stop offset="100%" stopColor="#2DD4BF" />
+                </linearGradient>
+                <linearGradient id="outputGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#10B981" />
+                  <stop offset="100%" stopColor="#6EE7B7" />
+                </linearGradient>
+                
+                {/* Glow filter */}
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                  <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+                
+                {/* Arrow markers */}
+                <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#F59E0B" />
+                </marker>
+                <marker id="arrowCyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#06B6D4" />
+                </marker>
+                <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#10B981" />
+                </marker>
+                <marker id="arrowPurple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#8B5CF6" />
+                </marker>
+                <marker id="arrowYellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#FBBF24" />
+                </marker>
+              </defs>
+
+              {/* SECTION LABELS */}
+              <g transform="translate(50, 30)">
+                <rect x="0" y="0" width="350" height="30" rx="15" fill="#F59E0B" opacity="0.2"/>
+                <text x="175" y="20" textAnchor="middle" fill="#F59E0B" fontSize="12" fontWeight="bold">PRE-MODEL PROCESSING</text>
+              </g>
+              
+              <g transform="translate(450, 30)">
+                <rect x="0" y="0" width="700" height="30" rx="15" fill="#06B6D4" opacity="0.2"/>
+                <text x="350" y="20" textAnchor="middle" fill="#06B6D4" fontSize="12" fontWeight="bold">MODEL EXECUTION (GPU)</text>
+              </g>
+              
+              <g transform="translate(1200, 30)">
+                <rect x="0" y="0" width="450" height="30" rx="15" fill="#10B981" opacity="0.2"/>
+                <text x="225" y="20" textAnchor="middle" fill="#10B981" fontSize="12" fontWeight="bold">POST-MODEL DELIVERY</text>
+              </g>
+
+              {/* ROW 1: REQUEST INTAKE */}
+              
+              {/* Client Request */}
+              <g transform="translate(50, 80)" 
+                 onMouseEnter={() => setTooltip('client')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#intakeGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="30" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">CLIENT</text>
+                <text x="60" y="48" textAnchor="middle" fill="#FCD34D" fontSize="10">HTTP/gRPC</text>
+                <text x="60" y="62" textAnchor="middle" fill="#94A3B8" fontSize="8">REST • WebSocket</text>
+              </g>
+              
+              {/* Arrow */}
+              <line x1="175" y1="115" x2="195" y2="115" stroke="#F59E0B" strokeWidth="3" markerEnd="url(#arrowOrange)"/>
+              
+              {/* API Gateway */}
+              <g transform="translate(200, 80)"
+                 onMouseEnter={() => setTooltip('gateway')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#intakeGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">API GATEWAY</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FCD34D" fontSize="9">Auth • Rate Limit</text>
+                <text x="60" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">Envoy • Kong • NGINX</text>
+              </g>
+              
+              {/* Arrow */}
+              <line x1="325" y1="115" x2="345" y2="115" stroke="#F59E0B" strokeWidth="3" markerEnd="url(#arrowOrange)"/>
+              
+              {/* Router */}
+              <g transform="translate(350, 80)"
+                 onMouseEnter={() => setTooltip('router')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#intakeGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">ROUTER</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FCD34D" fontSize="9">Model Selection</text>
+                <text x="60" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">QoS • Load Balance</text>
+              </g>
+
+              {/* ROW 2: INPUT PROCESSING */}
+              
+              {/* Vertical connector from Router */}
+              <path d="M 410 150 L 410 180 L 110 180 L 110 210" stroke="#EC4899" strokeWidth="3" fill="none" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Normalize */}
+              <g transform="translate(50, 215)"
+                 onMouseEnter={() => setTooltip('normalize')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#normalGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#EC4899" fontSize="11" fontWeight="bold">NORMALIZE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FBCFE8" fontSize="9">Unicode • Validate</text>
+                <text x="60" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">Strip Control Chars</text>
+              </g>
+              
+              {/* Arrow */}
+              <line x1="175" y1="250" x2="195" y2="250" stroke="#8B5CF6" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Tokenize */}
+              <g transform="translate(200, 215)"
+                 onMouseEnter={() => setTooltip('tokenize')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#tokenGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#8B5CF6" fontSize="11" fontWeight="bold">TOKENIZE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#C4B5FD" fontSize="9">Text → Token IDs</text>
+                <text x="60" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">BPE • SentencePiece</text>
+              </g>
+              
+              {/* Arrow */}
+              <line x1="325" y1="250" x2="345" y2="250" stroke="#6366F1" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Prompt Assembly */}
+              <g transform="translate(350, 215)"
+                 onMouseEnter={() => setTooltip('prompt')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#promptGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#6366F1" fontSize="11" fontWeight="bold">ASSEMBLE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#A5B4FC" fontSize="9">Context Build</text>
+                <text x="60" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">Sys + RAG + User</text>
+              </g>
+
+              {/* ROW 3: MODEL EXECUTION (THE HEART) */}
+              
+              {/* Vertical connector to Model */}
+              <path d="M 410 285 L 410 320 L 530 320 L 530 350" stroke="#06B6D4" strokeWidth="3" fill="none" markerEnd="url(#arrowCyan)"/>
+              
+              {/* GPU Execution Zone */}
+              <rect x="490" y="355" width="560" height="250" rx="20" fill="#06B6D4" opacity="0.05" stroke="#06B6D4" strokeWidth="2" strokeDasharray="5,5"/>
+              <text x="770" y="380" textAnchor="middle" fill="#06B6D4" fontSize="11" fontWeight="bold" opacity="0.5">⚡ GPU EXECUTION ZONE</text>
+              
+              {/* Prefill */}
+              <g transform="translate(510, 400)"
+                 onMouseEnter={() => setTooltip('prefill')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="90" rx="16" fill="url(#prefillGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="84" rx="14" fill="#0a1a2e" opacity="0.95"/>
+                <text x="70" y="28" textAnchor="middle" fill="#06B6D4" fontSize="13" fontWeight="bold">PREFILL</text>
+                <text x="70" y="45" textAnchor="middle" fill="#67E8F9" fontSize="10">Full Attention</text>
+                <text x="70" y="60" textAnchor="middle" fill="#67E8F9" fontSize="10">QKV Projections</text>
+                <text x="70" y="78" textAnchor="middle" fill="#94A3B8" fontSize="8">O(n²) • Compute Heavy</text>
+              </g>
+              
+              {/* Arrow to KV Cache */}
+              <line x1="655" y1="445" x2="685" y2="445" stroke="#10B981" strokeWidth="3" markerEnd="url(#arrowGreen)"/>
+              
+              {/* KV Cache */}
+              <g transform="translate(690, 400)"
+                 onMouseEnter={() => setTooltip('kv')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="90" rx="16" fill="url(#kvGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="84" rx="14" fill="#0a2e1e" opacity="0.95"/>
+                <text x="70" y="28" textAnchor="middle" fill="#10B981" fontSize="13" fontWeight="bold">KV CACHE</text>
+                <text x="70" y="45" textAnchor="middle" fill="#6EE7B7" fontSize="10">Keys + Values</text>
+                <text x="70" y="60" textAnchor="middle" fill="#6EE7B7" fontSize="10">Per Layer</text>
+                <text x="70" y="78" textAnchor="middle" fill="#94A3B8" fontSize="8">HBM • PagedAttn</text>
+              </g>
+              
+              {/* Arrow to Decode */}
+              <line x1="835" y1="445" x2="865" y2="445" stroke="#76B900" strokeWidth="3" markerEnd="url(#arrowGreen)"/>
+              
+              {/* Decode Loop Box */}
+              <g transform="translate(870, 395)">
+                <rect x="0" y="0" width="160" height="200" rx="16" fill="#76B900" opacity="0.1" stroke="#76B900" strokeWidth="2"/>
+                <text x="80" y="20" textAnchor="middle" fill="#76B900" fontSize="10" fontWeight="bold">DECODE LOOP</text>
+                
+                {/* Attention */}
+                <g transform="translate(15, 30)"
+                   onMouseEnter={() => setTooltip('attention')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="40" rx="8" fill="url(#decodeGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="126" height="36" rx="7" fill="#1a2e1a" opacity="0.95"/>
+                  <text x="65" y="17" textAnchor="middle" fill="#A3E635" fontSize="10" fontWeight="bold">ATTENTION</text>
+                  <text x="65" y="32" textAnchor="middle" fill="#94A3B8" fontSize="8">Query KV Cache</text>
+                </g>
+                
+                {/* Arrow */}
+                <line x1="80" y1="75" x2="80" y2="85" stroke="#76B900" strokeWidth="2" markerEnd="url(#arrowGreen)"/>
+                
+                {/* MLP */}
+                <g transform="translate(15, 90)"
+                   onMouseEnter={() => setTooltip('mlp')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="40" rx="8" fill="url(#decodeGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="126" height="36" rx="7" fill="#1a2e1a" opacity="0.95"/>
+                  <text x="65" y="17" textAnchor="middle" fill="#A3E635" fontSize="10" fontWeight="bold">MLP / FFN</text>
+                  <text x="65" y="32" textAnchor="middle" fill="#94A3B8" fontSize="8">Tensor Core GEMMs</text>
+                </g>
+                
+                {/* Arrow */}
+                <line x1="80" y1="135" x2="80" y2="145" stroke="#76B900" strokeWidth="2" markerEnd="url(#arrowGreen)"/>
+                
+                {/* Logits */}
+                <g transform="translate(15, 150)"
+                   onMouseEnter={() => setTooltip('logits')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="40" rx="8" fill="url(#decodeGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="126" height="36" rx="7" fill="#1a2e1a" opacity="0.95"/>
+                  <text x="65" y="17" textAnchor="middle" fill="#A3E635" fontSize="10" fontWeight="bold">LOGITS</text>
+                  <text x="65" y="32" textAnchor="middle" fill="#94A3B8" fontSize="8">Vocab Size Vector</text>
+                </g>
+              </g>
+              
+              {/* Loop back arrow */}
+              <path d="M 950 600 Q 950 640 760 640 Q 570 640 570 530 L 570 495" 
+                    stroke="#FBBF24" strokeWidth="2" fill="none" strokeDasharray="8,4">
+              </path>
+              <text x="760" y="660" textAnchor="middle" fill="#FBBF24" fontSize="10">Loop until stop condition</text>
+
+              {/* ROW 4: SAMPLING & OUTPUT */}
+              
+              {/* Arrow from Decode to Sampling */}
+              <line x1="1035" y1="495" x2="1070" y2="495" stroke="#FBBF24" strokeWidth="3" markerEnd="url(#arrowYellow)"/>
+              
+              {/* Sampling */}
+              <g transform="translate(1075, 450)"
+                 onMouseEnter={() => setTooltip('sample')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="90" rx="16" fill="url(#sampleGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="84" rx="14" fill="#2e2a0a" opacity="0.95"/>
+                <text x="70" y="28" textAnchor="middle" fill="#FBBF24" fontSize="13" fontWeight="bold">SAMPLING</text>
+                <text x="70" y="45" textAnchor="middle" fill="#FDE68A" fontSize="10">Temperature</text>
+                <text x="70" y="60" textAnchor="middle" fill="#FDE68A" fontSize="10">Top-k / Top-p</text>
+                <text x="70" y="78" textAnchor="middle" fill="#94A3B8" fontSize="8">Grammar Masks</text>
+              </g>
+              
+              {/* Arrow to Stop Check - going down */}
+              <path d="M 1145 545 L 1145 620 L 1380 620 L 1380 560" stroke="#EF4444" strokeWidth="3" fill="none" markerEnd="url(#arrowOrange)"/>
+              
+              {/* Stop Check */}
+              <g transform="translate(1320, 470)"
+                 onMouseEnter={() => setTooltip('stop')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="85" rx="12" fill="#EF4444" opacity="0.2" stroke="#EF4444" strokeWidth="2"/>
+                <rect x="3" y="3" width="114" height="79" rx="10" fill="#1a1a2e" opacity="0.95"/>
+                <text x="60" y="25" textAnchor="middle" fill="#EF4444" fontSize="11" fontWeight="bold">STOP CHECK</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FCA5A5" fontSize="9">EOS Token?</text>
+                <text x="60" y="55" textAnchor="middle" fill="#FCA5A5" fontSize="9">Max Tokens?</text>
+                <text x="60" y="68" textAnchor="middle" fill="#94A3B8" fontSize="8">Tool Call?</text>
+              </g>
+
+              {/* ROW 5: OUTPUT DELIVERY */}
+              
+              {/* Arrow from Stop Check to Streaming */}
+              <path d="M 1380 470 L 1380 290 L 1300 290" stroke="#14B8A6" strokeWidth="3" fill="none" markerEnd="url(#arrowGreen)"/>
+              
+              {/* Streaming */}
+              <g transform="translate(1180, 250)"
+                 onMouseEnter={() => setTooltip('stream')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="80" rx="12" fill="url(#streamGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="74" rx="10" fill="#0a2e2e" opacity="0.95"/>
+                <text x="60" y="25" textAnchor="middle" fill="#14B8A6" fontSize="11" fontWeight="bold">STREAMING</text>
+                <text x="60" y="42" textAnchor="middle" fill="#5EEAD4" fontSize="9">SSE / WebSocket</text>
+                <text x="60" y="58" textAnchor="middle" fill="#5EEAD4" fontSize="9">Partial Tokens</text>
+                <text x="60" y="72" textAnchor="middle" fill="#94A3B8" fontSize="8">Reduces Latency</text>
+              </g>
+              
+              {/* Arrow */}
+              <line x1="1175" y1="290" x2="1155" y2="290" stroke="#0EA5E9" strokeWidth="3" markerEnd="url(#arrowCyan)"/>
+              
+              {/* Detokenize */}
+              <g transform="translate(1035, 250)"
+                 onMouseEnter={() => setTooltip('detok')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="80" rx="12" fill="#0EA5E9" opacity="0.8"/>
+                <rect x="3" y="3" width="114" height="74" rx="10" fill="#0a1a2e" opacity="0.95"/>
+                <text x="60" y="25" textAnchor="middle" fill="#0EA5E9" fontSize="11" fontWeight="bold">DETOKENIZE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#7DD3FC" fontSize="9">Tokens → Text</text>
+                <text x="60" y="58" textAnchor="middle" fill="#7DD3FC" fontSize="9">Merge Subwords</text>
+                <text x="60" y="72" textAnchor="middle" fill="#94A3B8" fontSize="8">CPU • UTF-8</text>
+              </g>
+              
+              {/* Arrow */}
+              <line x1="1030" y1="290" x2="1010" y2="290" stroke="#8B5CF6" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Post-Process */}
+              <g transform="translate(890, 250)"
+                 onMouseEnter={() => setTooltip('postproc')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="80" rx="12" fill="#8B5CF6" opacity="0.8"/>
+                <rect x="3" y="3" width="114" height="74" rx="10" fill="#1a1a2e" opacity="0.95"/>
+                <text x="60" y="25" textAnchor="middle" fill="#8B5CF6" fontSize="11" fontWeight="bold">POST-PROC</text>
+                <text x="60" y="42" textAnchor="middle" fill="#C4B5FD" fontSize="9">JSON Validate</text>
+                <text x="60" y="58" textAnchor="middle" fill="#C4B5FD" fontSize="9">Safety Filter</text>
+                <text x="60" y="72" textAnchor="middle" fill="#94A3B8" fontSize="8">Redact • Citations</text>
+              </g>
+
+              {/* FINAL OUTPUT */}
+              
+              {/* Arrow to Response */}
+              <path d="M 890 290 L 820 290 L 820 130 L 1530 130 L 1530 180" stroke="#10B981" strokeWidth="3" fill="none" markerEnd="url(#arrowGreen)"/>
+              
+              {/* Response Box */}
+              <g transform="translate(1470, 185)"
+                 onMouseEnter={() => setTooltip('response')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="100" rx="16" fill="url(#outputGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="94" rx="14" fill="#0a2e1a" opacity="0.95"/>
+                <text x="70" y="30" textAnchor="middle" fill="#10B981" fontSize="14" fontWeight="bold">✅ RESPONSE</text>
+                <text x="70" y="50" textAnchor="middle" fill="#6EE7B7" fontSize="10">Final Output</text>
+                <text x="70" y="67" textAnchor="middle" fill="#6EE7B7" fontSize="10">Stream Closed</text>
+                <text x="70" y="88" textAnchor="middle" fill="#94A3B8" fontSize="8">Request Complete</text>
+              </g>
+
+              {/* TELEMETRY (Side Channel) */}
+              <g transform="translate(1470, 310)">
+                <rect x="0" y="0" width="140" height="80" rx="12" fill="#64748B" opacity="0.2" stroke="#64748B" strokeWidth="1" strokeDasharray="4,4"/>
+                <text x="70" y="25" textAnchor="middle" fill="#94A3B8" fontSize="10" fontWeight="bold">📊 TELEMETRY</text>
+                <text x="70" y="42" textAnchor="middle" fill="#64748B" fontSize="9">Latency • Tokens</text>
+                <text x="70" y="56" textAnchor="middle" fill="#64748B" fontSize="9">GPU Stats • Billing</text>
+                <text x="70" y="72" textAnchor="middle" fill="#475569" fontSize="8">Out-of-band logging</text>
+              </g>
+
+              {/* DATA LABELS */}
+              <g transform="translate(155, 95)">
+                <rect x="0" y="0" width="40" height="16" rx="4" fill="#F59E0B" opacity="0.3"/>
+                <text x="20" y="12" textAnchor="middle" fill="#FCD34D" fontSize="8" fontWeight="bold">JSON</text>
+              </g>
+              
+              <g transform="translate(155, 230)">
+                <rect x="0" y="0" width="40" height="16" rx="4" fill="#EC4899" opacity="0.3"/>
+                <text x="20" y="12" textAnchor="middle" fill="#FBCFE8" fontSize="8" fontWeight="bold">TEXT</text>
+              </g>
+              
+              <g transform="translate(305, 230)">
+                <rect x="0" y="0" width="55" height="16" rx="4" fill="#8B5CF6" opacity="0.3"/>
+                <text x="27" y="12" textAnchor="middle" fill="#C4B5FD" fontSize="8" fontWeight="bold">TOKENS</text>
+              </g>
+              
+              <g transform="translate(490, 310)">
+                <rect x="0" y="0" width="80" height="16" rx="4" fill="#06B6D4" opacity="0.3"/>
+                <text x="40" y="12" textAnchor="middle" fill="#67E8F9" fontSize="8" fontWeight="bold">EMBEDDINGS</text>
+              </g>
+              
+              <g transform="translate(1040, 475)">
+                <rect x="0" y="0" width="50" height="16" rx="4" fill="#FBBF24" opacity="0.3"/>
+                <text x="25" y="12" textAnchor="middle" fill="#FDE68A" fontSize="8" fontWeight="bold">LOGITS</text>
+              </g>
+
+              {/* BOTTLENECK INDICATORS */}
+              <g transform="translate(260, 295)"
+                 onMouseEnter={() => setTooltip('cpu-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="40" height="14" rx="4" fill="#3B82F6" opacity="0.8"/>
+                <text x="20" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">CPU</text>
+              </g>
+              
+              <g transform="translate(545, 500)"
+                 onMouseEnter={() => setTooltip('gpu-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="70" height="14" rx="4" fill="#EF4444" opacity="0.8"/>
+                <text x="35" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">GPU COMPUTE</text>
+              </g>
+              
+              <g transform="translate(720, 500)"
+                 onMouseEnter={() => setTooltip('memory-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="75" height="14" rx="4" fill="#F59E0B" opacity="0.8"/>
+                <text x="37" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">MEMORY BW</text>
+              </g>
+              
+              <g transform="translate(1210, 340)"
+                 onMouseEnter={() => setTooltip('network-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="60" height="14" rx="4" fill="#8B5CF6" opacity="0.8"/>
+                <text x="30" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">NETWORK</text>
+              </g>
+            </svg>
+
+            {/* Legend */}
+            <div className="mt-8 flex flex-wrap justify-center gap-6 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-orange-500 to-red-500"></div>
+                <span className="text-slate-400">Pre-Model</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-pink-500 to-purple-500"></div>
+                <span className="text-slate-400">Input Processing</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-cyan-500 to-emerald-500"></div>
+                <span className="text-slate-400">GPU Execution</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500"></div>
+                <span className="text-slate-400">Sampling</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-teal-500 to-green-500"></div>
+                <span className="text-slate-400">Output Delivery</span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-8 text-center text-slate-500 text-sm">
+              <p>End-to-End Inference Pipeline • Interactive Flow Diagram with Tooltips</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<InferencePipelineDiagram />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Training Pipeline | CS²B Technologies</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #0f0f1a 100%);
+      min-height: 100vh;
+      color: #e0e0e0;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes flowDown { 0% { transform: translateY(-5px); opacity: 0.3; } 50% { opacity: 1; } 100% { transform: translateY(5px); opacity: 0.3; } }
+    .animate-fade-in { animation: fadeInUp 0.5s ease-out forwards; }
+    .flow-indicator { animation: flowDown 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    // SINGLE GLOBAL TOOLTIP - Prevents stacking!
+    const GlobalTooltip = ({ tooltip }) => {
+      if (!tooltip.show) return null;
+      return (
+        <div style={{
+          position: 'fixed',
+          left: tooltip.x,
+          top: tooltip.y,
+          transform: 'translate(-50%, -100%)',
+          marginTop: '-14px',
+          background: 'rgba(15, 15, 25, 0.98)',
+          border: '1px solid rgba(255, 255, 255, 0.18)',
+          borderRadius: '12px',
+          padding: '14px 18px',
+          fontSize: '12px',
+          color: '#bbb',
+          zIndex: 99999,
+          boxShadow: '0 15px 50px rgba(0, 0, 0, 0.6)',
+          backdropFilter: 'blur(12px)',
+          width: '320px',
+          textAlign: 'left',
+          lineHeight: 1.6,
+          pointerEvents: 'none'
+        }}>
+          <div style={{ fontWeight: 700, color: '#fff', marginBottom: '6px', fontSize: '14px' }}>
+            {tooltip.title}
+            {tooltip.color && <span style={{ display: 'inline-block', fontSize: '9px', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', fontWeight: 600, textTransform: 'uppercase', background: tooltip.color, color: '#fff' }}>INFO</span>}
+          </div>
+          <div>{tooltip.content}</div>
+          <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', border: '10px solid transparent', borderTopColor: 'rgba(15, 15, 25, 0.98)' }} />
+        </div>
+      );
+    };
+
+    const TrainingPipelineDiagram = () => {
+      const [activeLayer, setActiveLayer] = useState(null);
+      const [selectedPhase, setSelectedPhase] = useState(null);
+      const [hoveredItem, setHoveredItem] = useState(null);
+      const [tooltip, setTooltip] = useState({ show: false, title: '', content: '', color: null, x: 0, y: 0 });
+
+      const showTooltip = useCallback((e, title, content, color = null) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setTooltip({
+          show: true,
+          title,
+          content,
+          color,
+          x: rect.left + rect.width / 2,
+          y: rect.top
+        });
+      }, []);
+
+      const hideTooltip = useCallback(() => {
+        setTooltip(prev => ({ ...prev, show: false }));
+      }, []);
+
+      // ============================================
+      // LAYER 1: MODEL / TRAINING CODE
+      // ============================================
+      const modelItems = [
+        { 
+          name: 'Transformers', 
+          tooltip: 'Self-attention based architectures (BERT, GPT, T5, LLaMA) that form the backbone of modern LLMs. Key innovation: attention mechanism allows modeling long-range dependencies.'
+        },
+        { 
+          name: 'LLMs', 
+          tooltip: 'Large Language Models with billions of parameters trained on massive text corpora. Examples: GPT-4, Claude, LLaMA, Gemini. Trained using next-token prediction objective.'
+        },
+        { 
+          name: 'Multimodal', 
+          tooltip: 'Models processing multiple modalities (text, image, audio, video) like GPT-4V, Gemini, LLaVA. Combine vision encoders with language models for unified understanding.'
+        },
+        { 
+          name: 'MoE', 
+          tooltip: 'Mixture of Experts: sparse models that route inputs to specialized sub-networks. Only a fraction of parameters active per token. Examples: Mixtral, Switch Transformer. Enables scaling without proportional compute increase.'
+        },
+        { 
+          name: 'Vision', 
+          tooltip: 'Computer vision models including ViT (Vision Transformer), CLIP, DINO, Stable Diffusion. Used for image classification, detection, generation, and multimodal alignment.'
+        },
+        { 
+          name: 'Speech', 
+          tooltip: 'Audio/speech models like Whisper (ASR), Wav2Vec, AudioLM. Handle speech recognition, synthesis (TTS), speaker identification, and audio understanding tasks.'
+        }
+      ];
+
+      // ============================================
+      // LAYER 2: CORE TRAINING FRAMEWORKS
+      // ============================================
+      const frameworkItems = [
+        { 
+          name: 'PyTorch', 
+          badge: 'Dominant',
+          desc: 'Dynamic graphs, FSDP/DDP, TorchInductor',
+          tooltip: 'Dominant framework used by OpenAI, Meta, NVIDIA, Anthropic. Features: eager execution, dynamic computation graphs, excellent debugging. Key APIs: torch.nn, autograd, torch.distributed. Powers most frontier model training.'
+        },
+        { 
+          name: 'TensorFlow', 
+          badge: 'TPU-native',
+          desc: 'XLA compilation, TF Serving',
+          tooltip: 'Google\'s framework with native TPU support via XLA compiler. Strong for production deployment (TF Serving, TF Lite). Graph-based execution enables aggressive optimization. Used in many enterprise ML pipelines.'
+        },
+        { 
+          name: 'JAX', 
+          badge: 'Research',
+          desc: 'Functional, XLA-first, Flax/Haiku',
+          tooltip: 'Google DeepMind\'s preferred framework. Functional programming model with automatic differentiation. XLA-first design for TPU optimization. Key features: jax.jit, jax.vmap, jax.pmap. Paired with Flax/Haiku for neural networks.'
+        }
+      ];
+
+      // ============================================
+      // LAYER 3: DISTRIBUTED TRAINING
+      // ============================================
+      const distributedItems = [
+        { 
+          name: 'FSDP', 
+          desc: 'Native PyTorch sharding',
+          tooltip: 'Fully Sharded Data Parallel: PyTorch\'s native solution for large model training. Shards model parameters, gradients, and optimizer states across GPUs. Reduces memory per GPU proportionally to world size. Successor to DistributedDataParallel (DDP).'
+        },
+        { 
+          name: 'DeepSpeed', 
+          desc: 'ZeRO stages 1-3, offload',
+          tooltip: 'Microsoft\'s distributed training library. ZeRO optimization partitions optimizer states (Stage 1), gradients (Stage 2), and parameters (Stage 3). Supports CPU/NVMe offload for memory-constrained training. Enables trillion-parameter scale.'
+        },
+        { 
+          name: 'Megatron-LM', 
+          desc: 'Tensor + Pipeline parallelism',
+          tooltip: 'NVIDIA\'s framework for training massive transformers. Tensor parallelism splits individual layers across GPUs. Pipeline parallelism splits model stages. Combined with data parallelism for 3D parallelism. Powers many 100B+ model training runs.'
+        }
+      ];
+
+      const parallelismTypes = [
+        { 
+          name: 'Data Parallel', 
+          tooltip: 'Replicate model across GPUs, split data batches. Each GPU processes different samples independently. Gradients averaged via AllReduce collective. Simple but limited by model size fitting on single GPU.'
+        },
+        { 
+          name: 'Tensor Parallel', 
+          tooltip: 'Split individual layers/tensors across GPUs. Matrix multiplications distributed across devices. Requires high-bandwidth interconnect (NVLink). Reduces memory per GPU but adds communication overhead.'
+        },
+        { 
+          name: 'Pipeline Parallel', 
+          tooltip: 'Split model into sequential stages across GPUs. Micro-batching enables overlapped computation. Reduces memory per device. Challenges: pipeline bubbles, activation memory. GPipe and PipeDream are key techniques.'
+        },
+        { 
+          name: 'Expert Parallel', 
+          tooltip: 'For MoE models: distribute experts across GPUs. Tokens routed to relevant experts via learned gating. Enables massive models with sparse activation. Requires efficient all-to-all communication.'
+        }
+      ];
+
+      // ============================================
+      // LAYER 4: COMPILER & GRAPH LOWERING
+      // ============================================
+      const compilerItems = [
+        { 
+          name: 'TorchInductor', 
+          desc: 'PyTorch compiler backend',
+          tooltip: 'PyTorch 2.0\'s default compiler backend. Generates optimized Triton kernels for GPU, C++/OpenMP for CPU. Enabled via torch.compile(). Achieves 1.5-3x speedups through operator fusion, memory planning. Key part of PyTorch\'s compiler strategy.'
+        },
+        { 
+          name: 'XLA', 
+          desc: 'TPU/GPU compilation',
+          tooltip: 'Accelerated Linear Algebra compiler from Google. JIT compiles computation graphs into optimized HLO. Native for TPUs, also supports GPUs via jax2tf. Performs whole-program optimization, operator fusion, memory optimization.'
+        },
+        { 
+          name: 'MLIR', 
+          desc: 'Future IR standard',
+          tooltip: 'Multi-Level Intermediate Representation from LLVM project. Emerging standard for ML compiler infrastructure. Enables progressive lowering through multiple dialects. Used by TensorFlow, JAX, PyTorch (torch-mlir). Key for hardware portability.'
+        },
+        { 
+          name: 'StableHLO', 
+          desc: 'Portable graph format',
+          tooltip: 'Stable High-Level Operations: portable ML computation format. Successor to XLA HLO with stability guarantees. Bridge between frameworks and hardware backends. Enables framework-agnostic deployment to diverse accelerators.'
+        }
+      ];
+
+      // ============================================
+      // LAYER 5: KERNEL & RUNTIME
+      // ============================================
+      const kernelItems = [
+        { 
+          name: 'CUDA', 
+          vendor: 'NVIDIA',
+          tooltip: 'NVIDIA\'s parallel computing platform - the gold standard for GPU computing. Ecosystem includes cuBLAS (linear algebra), cuDNN (deep learning primitives), NCCL (collective communications), cuFFT (transforms). Massive optimization investment and developer ecosystem.'
+        },
+        { 
+          name: 'ROCm', 
+          vendor: 'AMD',
+          tooltip: 'AMD\'s open-source GPU computing stack. CUDA alternative for MI300X/MI250 GPUs. Includes rocBLAS, MIOpen (DL primitives), RCCL (collectives). HIP provides CUDA source compatibility. Growing ecosystem for AI training.'
+        },
+        { 
+          name: 'Neuron', 
+          vendor: 'AWS',
+          tooltip: 'AWS\'s SDK for Trainium and Inferentia chips. Custom compiler transforms PyTorch/TensorFlow models for NeuronCores. Integrated with SageMaker and EC2. Optimized for specific model architectures (transformers).'
+        },
+        { 
+          name: 'SynapseAI', 
+          vendor: 'Intel',
+          tooltip: 'Intel Habana\'s software stack for Gaudi accelerators. Graph compiler optimizes for Gaudi architecture. PyTorch integration via habana_frameworks. Includes communication library for scale-out training.'
+        },
+        { 
+          name: 'Triton', 
+          vendor: 'OpenAI',
+          tooltip: 'OpenAI\'s Python-based GPU kernel language. Write kernels in Python, compile to efficient CUDA/PTX. Used by TorchInductor for code generation. Dramatically lowers barrier to custom kernel development. Key for FlashAttention and similar innovations.'
+        }
+      ];
+
+      // ============================================
+      // LAYER 6: HARDWARE ACCELERATORS
+      // ============================================
+      const hardwareItems = [
+        { 
+          name: 'NVIDIA GPUs', 
+          models: 'H100 / B200 / GB200',
+          tooltip: 'Dominant AI accelerators. H100: 80GB HBM3, 3.35TB/s bandwidth, 4th-gen Tensor Cores. B200 (Blackwell): 192GB HBM3e, 8TB/s bandwidth. GB200: Grace-Blackwell superchip combining ARM CPU + Blackwell GPU. NVLink/NVSwitch for scale-out.'
+        },
+        { 
+          name: 'Google TPUs', 
+          models: 'v4 / v5p',
+          tooltip: 'Google\'s custom AI chips. TPU v4: 275 TFLOPS BF16, 32GB HBM. TPU v5p: Latest generation, 2x v4 performance. ICI (Inter-Chip Interconnect) for pod-scale training. Optimized for large-batch transformer workloads. Available via Google Cloud.'
+        },
+        { 
+          name: 'AWS Trainium', 
+          models: 'Trainium2',
+          tooltip: 'AWS\'s custom training chip. Trainium2: 4x performance vs Trainium1, integrated in Trn2 instances. NeuronCore architecture with custom memory. Cost-effective for AWS-native workloads. Tight SageMaker integration.'
+        },
+        { 
+          name: 'Intel Gaudi', 
+          models: 'Gaudi 3',
+          tooltip: 'Intel/Habana\'s AI accelerator. Gaudi 3: Competitive with H100 on LLM training. 128GB HBM2e memory. Integrated RDMA NICs for scale-out. Attractive price/performance. Available on AWS, Azure, GCP.'
+        },
+        { 
+          name: 'Custom ASICs', 
+          models: 'MTIA / Maia',
+          tooltip: 'Big tech custom silicon. Meta MTIA: Internal training/inference chip for recommendation and ranking. Microsoft Maia: Azure AI accelerator for OpenAI workloads. Optimized for specific model architectures and scale requirements.'
+        }
+      ];
+
+      // ============================================
+      // TRAINING LOOP STEPS
+      // ============================================
+      const trainingLoop = [
+        { 
+          step: 1, 
+          name: 'Data Loading', 
+          desc: 'Preprocessing, tokenization, batching', 
+          icon: '📥', 
+          tooltip: 'Load data from storage (S3, GCS, HDFS), apply tokenization, create batches. Often CPU-bound bottleneck. Optimizations: multiple DataLoader workers, prefetching, memory mapping, streaming datasets. Libraries: WebDataset, Mosaic StreamingDataset.'
+        },
+        { 
+          step: 2, 
+          name: 'Forward Pass', 
+          desc: 'Compute activations and loss', 
+          icon: '➡️', 
+          tooltip: 'Input flows through network layers sequentially. Each layer computes activations using weights. Attention mechanisms compute query-key-value operations. Final layer computes loss (cross-entropy for LLMs). GPU compute-intensive, benefits from Tensor Cores.'
+        },
+        { 
+          step: 3, 
+          name: 'Backward Pass', 
+          desc: 'Gradient computation via autograd', 
+          icon: '⬅️', 
+          tooltip: 'Backpropagation computes gradients of loss w.r.t. all parameters using chain rule. Autograd builds computation graph during forward pass, traverses in reverse. Memory-intensive: stores activations for gradient computation. Activation checkpointing trades compute for memory.'
+        },
+        { 
+          step: 4, 
+          name: 'Gradient Sync', 
+          desc: 'AllReduce across workers', 
+          icon: '🔄', 
+          tooltip: 'In distributed training, gradients must be synchronized across all workers. AllReduce collective averages gradients. NCCL/RCCL optimize for GPU topology. Ring-AllReduce, tree-AllReduce, bucket fusion. Overlapping with backward pass via gradient bucketing.'
+        },
+        { 
+          step: 5, 
+          name: 'Optimizer Step', 
+          desc: 'Weight updates (Adam, etc.)', 
+          icon: '📈', 
+          tooltip: 'Optimizer applies gradients to update weights. Adam: adaptive learning rates using first/second moments. AdamW: decoupled weight decay. LAMB/LARS: layer-wise adaptive rates for large batches. Also handles gradient clipping, learning rate scheduling.'
+        },
+        { 
+          step: 6, 
+          name: 'Checkpointing', 
+          desc: 'Save model state periodically', 
+          icon: '💾', 
+          tooltip: 'Periodically save model weights, optimizer state (moments), LR scheduler, RNG state, step count. Enables recovery from failures (essential at scale). Async checkpointing avoids blocking. Distributed checkpointing (FSDP) shards across workers.'
+        }
+      ];
+
+      // ============================================
+      // HARDWARE → FRAMEWORK MAPPING
+      // ============================================
+      const hardwareMapping = [
+        { 
+          hw: 'NVIDIA GPUs', 
+          framework: 'PyTorch + CUDA', 
+          primary: true, 
+          tooltip: 'The dominant combination for AI training. PyTorch\'s native CUDA support + cuDNN for optimized kernels + NCCL for distributed training. Used for most frontier model training including GPT-4, Claude, LLaMA. Mature ecosystem with extensive tooling.'
+        },
+        { 
+          hw: 'Google TPUs', 
+          framework: 'JAX + XLA', 
+          primary: true, 
+          tooltip: 'Google\'s preferred stack for internal AI development. JAX\'s functional programming model maps naturally to XLA compilation. Excellent for large-batch training. Used for PaLM, Gemini training. Tight integration between hardware and software.'
+        },
+        { 
+          hw: 'AWS Trainium', 
+          framework: 'PyTorch + Neuron', 
+          primary: false, 
+          tooltip: 'AWS\'s solution for cost-effective training. Neuron SDK provides PyTorch compatibility layer with custom compiler. Good for AWS-native workloads with SageMaker integration. Growing model support and optimization.'
+        },
+        { 
+          hw: 'Intel Gaudi', 
+          framework: 'PyTorch + SynapseAI', 
+          primary: false, 
+          tooltip: 'Intel\'s competitive offering. SynapseAI provides PyTorch integration with graph compilation. Attractive price/performance vs NVIDIA. Growing availability across cloud providers (AWS, Azure, GCP).'
+        }
+      ];
+
+      // ============================================
+      // SCALE BADGES
+      // ============================================
+      const scaleBadges = [
+        { 
+          name: 'DeepSpeed', 
+          tooltip: 'Microsoft\'s distributed training library. ZeRO optimizer partitions state across GPUs. Enables training models 10x larger than GPU memory. Used for Megatron-Turing NLG 530B, BLOOM 176B. Key techniques: ZeRO-1/2/3, offload, infinity.'
+        },
+        { 
+          name: 'Megatron', 
+          tooltip: 'NVIDIA\'s large model training framework. Tensor parallelism splits layers across GPUs. Pipeline parallelism splits stages. 3D parallelism (DP + TP + PP) for maximum scale. Powers many 100B+ training runs including Megatron-Turing.'
+        },
+        { 
+          name: 'FSDP', 
+          tooltip: 'PyTorch\'s Fully Sharded Data Parallel. Native PyTorch distributed training primitive. Shards parameters, gradients, optimizer states. Memory-efficient alternative to DDP. Integrated with torch.compile for additional speedups.'
+        }
+      ];
+
+      // ============================================
+      // COMPLETE LAYERS ARRAY
+      // ============================================
+      const layers = [
+        {
+          id: 'model',
+          title: 'Model / Training Code',
+          subtitle: 'What you build',
+          color: '#FF6B6B',
+          gradient: 'linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%)',
+          items: modelItems,
+          icon: '🧠',
+          description: 'Neural network architectures and training scripts that define your AI model. This is where researchers and engineers write the actual model code using nn.Module, define loss functions, and configure training.',
+          detailedTooltip: 'Includes: model architecture definitions, attention mechanisms, positional encodings, loss functions, and training configuration. The entry point for all AI training work.'
+        },
+        {
+          id: 'frameworks',
+          title: 'Core Training Frameworks',
+          subtitle: 'The foundation',
+          color: '#4ECDC4',
+          gradient: 'linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%)',
+          items: frameworkItems,
+          icon: '⚡',
+          description: 'Foundational software stacks for defining and executing training computations. Provide autograd (automatic differentiation), tensor operations, and basic distributed primitives.',
+          detailedTooltip: 'Key APIs: torch.nn (layers), torch.autograd (gradients), torch.distributed (communication), tf.GradientTape, jax.grad, jax.jit, jax.pmap. The foundation everything else builds on.'
+        },
+        {
+          id: 'distributed',
+          title: 'Distributed Training Layer',
+          subtitle: 'Scale to billions',
+          color: '#667EEA',
+          gradient: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
+          items: distributedItems,
+          parallelism: parallelismTypes,
+          icon: '🔄',
+          description: 'Systems enabling training across multiple GPUs, nodes, and data centers. Essential for models that don\'t fit on a single GPU or require massive compute.',
+          detailedTooltip: 'Communication primitives: AllReduce, AllGather, ReduceScatter, Point-to-Point. Libraries: NCCL (NVIDIA), RCCL (AMD), Gloo (CPU), MPI. Enables training at 1000+ GPU scale.'
+        },
+        {
+          id: 'compiler',
+          title: 'Compiler & Graph Lowering',
+          subtitle: 'Where performance lives',
+          color: '#F093FB',
+          gradient: 'linear-gradient(135deg, #F093FB 0%, #F5576C 100%)',
+          items: compilerItems,
+          icon: '🔧',
+          description: 'Compilers transform high-level model code into optimized hardware instructions. Increasingly where performance differentiation happens between platforms.',
+          detailedTooltip: 'Optimizations: operator fusion (combine ops), memory planning (reuse buffers), kernel selection, layout optimization, quantization passes. In 2026, compilers matter more than frameworks.',
+          insight: 'In 2026, compilers are more important than frameworks for performance.'
+        },
+        {
+          id: 'kernel',
+          title: 'Kernel & Runtime Layer',
+          subtitle: 'Metal meets math',
+          color: '#11998E',
+          gradient: 'linear-gradient(135deg, #11998E 0%, #38EF7D 100%)',
+          items: kernelItems,
+          icon: '⚙️',
+          description: 'Low-level runtime libraries executing matrix operations on accelerators. These interface directly with hardware and define raw performance.',
+          detailedTooltip: 'Key libraries: cuBLAS (matrix multiply), cuDNN (conv, attention, norms), NCCL (collectives), cuFFT (transforms). Hand-optimized for specific GPU architectures. Critical for achieving peak FLOPS.'
+        },
+        {
+          id: 'hardware',
+          title: 'Hardware Accelerators',
+          subtitle: 'The silicon',
+          color: '#F2994A',
+          gradient: 'linear-gradient(135deg, #F2994A 0%, #F2C94C 100%)',
+          items: hardwareItems,
+          icon: '🖥️',
+          description: 'Physical accelerator chips performing tensor computations. The foundation that determines raw compute capability, memory bandwidth, and interconnect.',
+          detailedTooltip: 'Key specs: HBM capacity (how much model fits), memory bandwidth (decode speed), interconnect bandwidth (scale-out), TFLOPs (raw compute), power consumption (TCO). NVIDIA dominates but alternatives growing.'
+        }
+      ];
+
+      const styles = {
+        container: { minHeight: '100vh', padding: '40px 24px', position: 'relative', overflow: 'hidden' },
+        backgroundEffects: {
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none',
+          backgroundImage: 'radial-gradient(circle at 20% 80%, rgba(102, 126, 234, 0.1) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(240, 147, 251, 0.1) 0%, transparent 50%), radial-gradient(circle at 50% 50%, rgba(78, 205, 196, 0.05) 0%, transparent 40%)'
+        },
+        content: { maxWidth: '1400px', margin: '0 auto', position: 'relative', zIndex: 1 }
+      };
+
+      return (
+        <div style={styles.container}>
+          <GlobalTooltip tooltip={tooltip} />
+          <div style={styles.backgroundEffects} />
+          
+          <div style={styles.content}>
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: '50px' }} className="animate-fade-in">
+              <div style={{ display: 'inline-block', padding: '8px 20px', background: 'rgba(102, 126, 234, 0.15)', border: '1px solid rgba(102, 126, 234, 0.3)', borderRadius: '24px', fontSize: '11px', letterSpacing: '2.5px', color: '#667EEA', marginBottom: '24px', fontWeight: '600' }}>
+                PRODUCTION SYSTEMS ARCHITECTURE • 2026
+              </div>
+              <h1 style={{ fontSize: 'clamp(40px, 7vw, 72px)', fontWeight: '800', background: 'linear-gradient(135deg, #fff 0%, #667EEA 50%, #F093FB 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '20px', lineHeight: '1.1', letterSpacing: '-1px' }}>
+                AI Training Pipeline
+              </h1>
+              <p style={{ fontSize: '18px', color: '#888', maxWidth: '700px', margin: '0 auto', lineHeight: '1.7' }}>
+                From model code to silicon — the complete stack for training frontier AI models
+              </p>
+            </div>
+
+            {/* Strategic Insight */}
+            <div 
+              style={{ background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(240, 147, 251, 0.12) 100%)', border: '1px solid rgba(102, 126, 234, 0.25)', borderRadius: '20px', padding: '28px 36px', marginBottom: '50px', display: 'flex', alignItems: 'center', gap: '28px', backdropFilter: 'blur(10px)', cursor: 'pointer' }} 
+              className="animate-fade-in"
+              onMouseEnter={(e) => showTooltip(e, 'Key Takeaway', 'Hardware vendors are now competing on compiler quality, not just raw compute. The framework you choose matters less than the compiler and runtime stack underneath.', '#667EEA')}
+              onMouseLeave={hideTooltip}
+            >
+              <div style={{ width: '72px', height: '72px', borderRadius: '18px', background: 'linear-gradient(135deg, #667EEA 0%, #F093FB 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', flexShrink: 0, boxShadow: '0 12px 40px rgba(102, 126, 234, 0.35)' }}>💡</div>
+              <div>
+                <div style={{ fontWeight: '700', fontSize: '19px', marginBottom: '8px', color: '#fff' }}>2026 Strategic Insight</div>
+                <div style={{ color: '#aaa', fontSize: '15px', lineHeight: '1.6' }}>
+                  The platform race is no longer framework vs framework. It is{' '}
+                  <span style={{ color: '#667EEA', fontWeight: '600' }}>compiler + runtime</span> vs{' '}
+                  <span style={{ color: '#F093FB', fontWeight: '600' }}>compiler + runtime</span>.{' '}
+                  Frameworks are the API; compilers are the platform.
+                </div>
+              </div>
+            </div>
+
+            {/* Main Grid */}
+            <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
+              {/* Stack Layers */}
+              <div style={{ flex: '1', minWidth: '600px' }}>
+                <div style={{ fontSize: '12px', color: '#667EEA', fontWeight: '700', letterSpacing: '1.5px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>📊</span> TRAINING STACK LAYERS
+                </div>
+
+                {layers.map((layer, index) => (
+                  <div key={layer.id} style={{ position: 'relative', marginBottom: index < layers.length - 1 ? '16px' : '0' }} className="animate-fade-in">
+                    {/* Connector */}
+                    {index < layers.length - 1 && (
+                      <div style={{ position: 'absolute', left: '50%', bottom: '-12px', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div className="flow-indicator" style={{ width: '3px', height: '20px', background: `linear-gradient(180deg, ${layer.color}90 0%, ${layers[index + 1].color}90 100%)`, borderRadius: '2px' }} />
+                        <div style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: `9px solid ${layers[index + 1].color}90` }} />
+                      </div>
+                    )}
+
+                    <div
+                      style={{ background: activeLayer === layer.id ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.025)', border: `1px solid ${activeLayer === layer.id ? layer.color + '50' : 'rgba(255,255,255,0.08)'}`, borderRadius: '18px', padding: '22px 26px', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', transform: activeLayer === layer.id ? 'scale(1.01)' : 'scale(1)', cursor: 'pointer', boxShadow: activeLayer === layer.id ? `0 12px 48px ${layer.color}25` : 'none' }}
+                      onMouseEnter={() => setActiveLayer(layer.id)}
+                      onMouseLeave={() => setActiveLayer(null)}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '18px' }}>
+                        <div 
+                          style={{ width: '56px', height: '56px', borderRadius: '16px', background: layer.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', flexShrink: 0, boxShadow: `0 6px 24px ${layer.color}45` }}
+                          onMouseEnter={(e) => showTooltip(e, layer.title, layer.detailedTooltip, layer.color)}
+                          onMouseLeave={hideTooltip}
+                        >
+                          {layer.icon}
+                        </div>
+
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                            <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#fff', margin: 0 }}>{layer.title}</h3>
+                            <span style={{ fontSize: '11px', color: layer.color, background: `${layer.color}18`, padding: '4px 12px', borderRadius: '8px', fontWeight: '600' }}>{layer.subtitle}</span>
+                          </div>
+
+                          {activeLayer === layer.id && (
+                            <p style={{ fontSize: '13px', color: '#888', margin: '0 0 14px 0', lineHeight: '1.5' }}>{layer.description}</p>
+                          )}
+
+                          {/* Items */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '12px' }}>
+                            {layer.items.map((item, i) => (
+                              <div
+                                key={i}
+                                style={{ background: hoveredItem === `${layer.id}-${i}` ? `${layer.color}20` : 'rgba(255,255,255,0.06)', border: `1px solid ${hoveredItem === `${layer.id}-${i}` ? `${layer.color}40` : 'rgba(255,255,255,0.12)'}`, borderRadius: '10px', padding: '10px 16px', fontSize: '13px', color: '#e0e0e0', transition: 'all 0.2s ease', cursor: 'pointer' }}
+                                onMouseEnter={(e) => { setHoveredItem(`${layer.id}-${i}`); showTooltip(e, item.name, item.tooltip, layer.color); }}
+                                onMouseLeave={() => { setHoveredItem(null); hideTooltip(); }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span style={{ fontWeight: '500' }}>{item.name}</span>
+                                  {item.badge && <span style={{ fontSize: '9px', background: layer.gradient, color: '#fff', padding: '3px 8px', borderRadius: '5px', fontWeight: '700', textTransform: 'uppercase' }}>{item.badge}</span>}
+                                </div>
+                                {(item.desc || item.vendor || item.models) && activeLayer === layer.id && (
+                                  <div style={{ fontSize: '11px', color: '#777', marginTop: '6px' }}>{item.desc || item.vendor || item.models}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Parallelism */}
+                          {layer.parallelism && (
+                            <div style={{ marginTop: '14px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                              {layer.parallelism.map((p, i) => (
+                                <span
+                                  key={i}
+                                  style={{ fontSize: '10px', color: layer.color, border: `1px solid ${layer.color}45`, borderRadius: '6px', padding: '5px 10px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                                  onMouseEnter={(e) => showTooltip(e, p.name, p.tooltip, layer.color)}
+                                  onMouseLeave={hideTooltip}
+                                >
+                                  {p.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Insight */}
+                          {layer.insight && activeLayer === layer.id && (
+                            <div style={{ marginTop: '14px', fontSize: '12px', color: layer.color, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '8px', background: `${layer.color}10`, padding: '10px 14px', borderRadius: '8px' }}>
+                              <span>💡</span> {layer.insight}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Sidebar */}
+              <div style={{ width: '380px', flexShrink: 0 }}>
+                {/* Training Loop */}
+                <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '18px', padding: '26px', marginBottom: '24px' }} className="animate-fade-in">
+                  <div style={{ fontSize: '12px', color: '#4ECDC4', fontWeight: '700', letterSpacing: '1.5px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span>🔄</span> TRAINING LOOP
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    {trainingLoop.map((step, i) => (
+                      <div
+                        key={i}
+                        style={{ display: 'flex', gap: '16px', marginBottom: i < trainingLoop.length - 1 ? '14px' : '0', padding: '14px', background: selectedPhase === i ? 'rgba(78, 205, 196, 0.12)' : 'transparent', borderRadius: '12px', transition: 'all 0.2s ease', cursor: 'pointer' }}
+                        onMouseEnter={(e) => { setSelectedPhase(i); showTooltip(e, `Step ${step.step}: ${step.name}`, step.tooltip, '#4ECDC4'); }}
+                        onMouseLeave={() => { setSelectedPhase(null); hideTooltip(); }}
+                      >
+                        <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: 'linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0, boxShadow: '0 6px 16px rgba(78, 205, 196, 0.35)' }}>{step.icon}</div>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>{step.step}. {step.name}</div>
+                          <div style={{ fontSize: '12px', color: '#777', marginTop: '4px' }}>{step.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ position: 'absolute', right: '-6px', top: '50%', transform: 'translateY(-50%)', width: '44px', height: '75%', border: '2px solid rgba(78, 205, 196, 0.35)', borderLeft: 'none', borderRadius: '0 24px 24px 0' }}>
+                      <div style={{ position: 'absolute', top: '-10px', left: '-8px', fontSize: '14px', color: 'rgba(78, 205, 196, 0.8)' }}>↑</div>
+                      <div style={{ position: 'absolute', bottom: '-10px', left: '-8px', fontSize: '14px', color: 'rgba(78, 205, 196, 0.8)' }}>↓</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hardware Mapping */}
+                <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '18px', padding: '26px', marginBottom: '24px' }} className="animate-fade-in">
+                  <div style={{ fontSize: '12px', color: '#F2994A', fontWeight: '700', letterSpacing: '1.5px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span>🎯</span> FRAMEWORK → HARDWARE
+                  </div>
+                  {hardwareMapping.map((mapping, i) => (
+                    <div 
+                      key={i} 
+                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px', background: mapping.primary ? 'rgba(242, 153, 74, 0.12)' : 'rgba(255,255,255,0.03)', border: `1px solid ${mapping.primary ? 'rgba(242, 153, 74, 0.3)' : 'rgba(255,255,255,0.06)'}`, borderRadius: '12px', marginBottom: i < hardwareMapping.length - 1 ? '12px' : '0', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                      onMouseEnter={(e) => showTooltip(e, mapping.hw, mapping.tooltip, '#F2994A')}
+                      onMouseLeave={hideTooltip}
+                    >
+                      <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: mapping.primary ? 'linear-gradient(135deg, #F2994A 0%, #F2C94C 100%)' : '#555', boxShadow: mapping.primary ? '0 0 16px rgba(242, 153, 74, 0.6)' : 'none' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>{mapping.hw}</div>
+                        <div style={{ fontSize: '11px', color: '#777', marginTop: '2px' }}>{mapping.framework}</div>
+                      </div>
+                      {mapping.primary && <span style={{ fontSize: '9px', color: '#F2994A', background: 'rgba(242, 153, 74, 0.15)', padding: '3px 8px', borderRadius: '4px', fontWeight: '600' }}>PRIMARY</span>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Scale */}
+                <div style={{ background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(240, 147, 251, 0.12) 100%)', border: '1px solid rgba(102, 126, 234, 0.3)', borderRadius: '18px', padding: '26px', textAlign: 'center' }} className="animate-fade-in">
+                  <div
+                    style={{ fontSize: '52px', fontWeight: '800', background: 'linear-gradient(135deg, #667EEA 0%, #F093FB 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-2px', cursor: 'pointer' }}
+                    onMouseEnter={(e) => showTooltip(e, 'Frontier Scale', 'Training models at 340B+ parameters requires: distributed systems (FSDP/DeepSpeed/Megatron), advanced compilers (XLA/Inductor), thousands of GPUs (H100/TPU), months of training time, and $10M+ compute budgets. Only a handful of organizations operate at this scale.', '#667EEA')}
+                    onMouseLeave={hideTooltip}
+                  >340B+</div>
+                  <div style={{ fontSize: '14px', color: '#888', marginTop: '6px' }}>Parameters at frontier scale</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
+                    {scaleBadges.map((badge, i) => (
+                      <span
+                        key={i}
+                        style={{ fontSize: '11px', color: '#667EEA', background: 'rgba(102, 126, 234, 0.18)', padding: '6px 14px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                        onMouseEnter={(e) => showTooltip(e, badge.name, badge.tooltip, '#667EEA')}
+                        onMouseLeave={hideTooltip}
+                      >{badge.name}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ marginTop: '60px', padding: '36px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '18px', textAlign: 'center' }} className="animate-fade-in">
+              <div style={{ fontSize: '15px', color: '#999', lineHeight: '1.9', maxWidth: '1000px', margin: '0 auto' }}>
+                Modern AI training is built on three foundational frameworks—
+                <span style={{ color: '#4ECDC4', fontWeight: '600', cursor: 'pointer' }} onMouseEnter={(e) => showTooltip(e, 'PyTorch', 'Meta\'s deep learning framework. Dominant for research and production. Dynamic computation graphs, excellent debugging, massive ecosystem.', '#4ECDC4')} onMouseLeave={hideTooltip}>PyTorch</span>,{' '}
+                <span style={{ color: '#4ECDC4', fontWeight: '600', cursor: 'pointer' }} onMouseEnter={(e) => showTooltip(e, 'TensorFlow', 'Google\'s ML framework with native TPU support. Strong for production deployment. XLA compilation for optimization.', '#4ECDC4')} onMouseLeave={hideTooltip}>TensorFlow</span>, and{' '}
+                <span style={{ color: '#4ECDC4', fontWeight: '600', cursor: 'pointer' }} onMouseEnter={(e) => showTooltip(e, 'JAX', 'Google DeepMind\'s functional ML framework. XLA-first design, excellent for TPU training and research. Used for Gemini.', '#4ECDC4')} onMouseLeave={hideTooltip}>JAX</span>—but performance, 
+                scalability, and hardware portability are increasingly determined by compiler-backed 
+                execution layers such as{' '}
+                <span style={{ color: '#F093FB', fontWeight: '600', cursor: 'pointer' }} onMouseEnter={(e) => showTooltip(e, 'XLA', 'Accelerated Linear Algebra compiler. JIT compiles computation graphs for TPUs/GPUs. Enables whole-program optimization.', '#F093FB')} onMouseLeave={hideTooltip}>XLA</span>,{' '}
+                <span style={{ color: '#F093FB', fontWeight: '600', cursor: 'pointer' }} onMouseEnter={(e) => showTooltip(e, 'TorchInductor', 'PyTorch 2.0\'s compiler backend. Generates optimized Triton/C++ kernels. Achieves 1.5-3x speedups via torch.compile().', '#F093FB')} onMouseLeave={hideTooltip}>TorchInductor</span>, and{' '}
+                <span style={{ color: '#F093FB', fontWeight: '600', cursor: 'pointer' }} onMouseEnter={(e) => showTooltip(e, 'MLIR', 'Multi-Level IR from LLVM. Emerging standard for ML compiler infrastructure. Enables hardware portability across accelerators.', '#F093FB')} onMouseLeave={hideTooltip}>MLIR</span>. 
+                Distributed training systems now function as mandatory infrastructure components 
+                rather than optional optimizations.
+              </div>
+              <div style={{ marginTop: '28px', fontSize: '12px', color: '#555', letterSpacing: '2px', fontWeight: '600' }}>
+                CS²B TECHNOLOGIES • AI INFRASTRUCTURE STACK 2026
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<TrainingPipelineDiagram />, document.getElementById('root'));
+  </script>
+</body>
+</html>

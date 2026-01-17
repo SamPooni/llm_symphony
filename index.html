@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The LLM Symphony — Complete Training & Inference Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.8; }
+    }
+    
+    @keyframes flow-right {
+      0% { transform: translateX(-10px); opacity: 0; }
+      50% { opacity: 1; }
+      100% { transform: translateX(10px); opacity: 0; }
+    }
+    
+    .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+    .animate-flow { animation: flow-right 2s ease-in-out infinite; }
+    
+    .card-hover {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card-hover:hover {
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function LLMSymphony() {
+      const [hoveredCard, setHoveredCard] = useState(null);
+
+      // ============== MOVEMENT I: FOUNDATION (5 files) ==============
+      const foundationDiagrams = [
+        {
+          id: 'scaling',
+          title: 'Scaling Laws',
+          subtitle: 'C = 6ND, Chinchilla',
+          file: 'movement1_foundation/SCALING_LAWS_compute_optimal.html',
+          color: 'amber',
+          icon: '📈',
+          topics: ['Power laws', 'Compute-optimal', 'Token ratios', 'Loss prediction']
+        },
+        {
+          id: 'hardware',
+          title: 'Hardware Architecture',
+          subtitle: 'GPUs, Memory, Interconnects',
+          file: 'movement1_foundation/HARDWARE_architecture_gpus_memory.html',
+          color: 'green',
+          icon: '🖥️',
+          topics: ['H100/A100', 'HBM', 'NVLink', 'InfiniBand']
+        },
+        {
+          id: 'attention',
+          title: 'Attention Mechanisms',
+          subtitle: 'MHA, GQA, FlashAttention',
+          file: 'movement1_foundation/ATTENTION_variants_mha_gqa_flash.html',
+          color: 'violet',
+          icon: '👁️',
+          topics: ['Q,K,V', 'Multi-head', 'KV cache', 'Flash tiling']
+        },
+        {
+          id: 'moe',
+          title: 'Mixture of Experts',
+          subtitle: 'Sparse routing, load balancing',
+          file: 'movement1_foundation/MOE_mixture_of_experts.html',
+          color: 'orange',
+          icon: '🔀',
+          topics: ['Router', 'Top-k', 'Expert parallel', 'Mixtral']
+        },
+        {
+          id: 'context',
+          title: 'Context Extension',
+          subtitle: 'RoPE scaling, YaRN',
+          file: 'movement1_foundation/CONTEXT_EXTENSION_rope_yarn.html',
+          color: 'indigo',
+          icon: '📏',
+          topics: ['Position interpolation', 'NTK-aware', 'Sliding window']
+        },
+      ];
+
+      // ============== MOVEMENT II: TRAINING (10 files) ==============
+      const trainingStages = [
+        { id: '0', title: 'Data Pipeline', subtitle: 'Cluster, cleaning, tokenization', file: 'movement2_pre_training/STAGE_0_training_data_pipeline.html', color: 'cyan', icon: '📊' },
+        { id: '1', title: 'Model Init', subtitle: 'Architecture, DP/TP/PP', file: 'movement2_pre_training/STAGE_1_training_model_init.html', color: 'pink', icon: '🏗️' },
+        { id: '2', title: 'Forward Pass', subtitle: 'Embed → Attention → MLP', file: 'movement2_pre_training/STAGE_2_training_forward_pass.html', color: 'green', icon: '➡️' },
+        { id: '3', title: 'Loss Computation', subtitle: 'Cross-entropy, scaling', file: 'movement2_pre_training/STAGE_3_training_loss_computation.html', color: 'red', icon: '📉' },
+        { id: '4', title: 'Backward Pass', subtitle: 'Autograd, checkpointing', file: 'movement2_pre_training/STAGE_4_training_backward_pass.html', color: 'orange', icon: '⬅️' },
+        { id: '5', title: 'Gradient Sync', subtitle: 'AllReduce, FSDP', file: 'movement2_pre_training/STAGE_5_training_gradient_sync.html', color: 'purple', icon: '🔄' },
+        { id: '6', title: 'Optimizer Step', subtitle: 'AdamW, LR schedule', file: 'movement2_pre_training/STAGE_6_training_optimizer_step.html', color: 'emerald', icon: '📈' },
+        { id: '7', title: 'Checkpointing', subtitle: 'Save, monitor, eval', file: 'movement2_pre_training/STAGE_7_training_checkpointing_monitoring.html', color: 'sky', icon: '💾' },
+      ];
+
+      const trainingOverviews = [
+        { title: 'AI Training Pipeline', subtitle: 'Complete overview', file: 'movement2_pre_training/AI-Training-Pipeline.html', icon: '🏭' },
+        { title: 'Training Pipeline Flow', subtitle: 'Visual flow diagram', file: 'movement2_pre_training/training-pipeline-flow.html', icon: '🌊' },
+      ];
+
+      // ============== MOVEMENT III: ALIGNMENT (1 file) ==============
+      const alignmentDiagrams = [
+        {
+          id: 'post-training',
+          title: 'Post-Training Pipeline',
+          subtitle: 'SFT → RLHF/DPO → Safety',
+          file: 'movement3_alignment/POST_TRAINING_sft_rlhf_dpo.html',
+          color: 'pink',
+          icon: '🎯',
+          topics: ['SFT loss', 'Reward model', 'PPO', 'DPO', 'LoRA', 'Red teaming'],
+        },
+      ];
+
+      // ============== MOVEMENT IV: INFERENCE (9 files) ==============
+      const inferenceStages = [
+        { id: '0', title: 'Pre-Model Setup', subtitle: 'Config, loading, warmup', file: 'movement4_inference/STAGE 0 - pre-model-diagram.html', color: 'slate', icon: '⚙️' },
+        { id: '1-2', title: 'Input & Tokenization', subtitle: 'Normalize, encode, template', file: 'movement4_inference/STAGES 1-2 - input-normalization-tokenization.html', color: 'blue', icon: '📝' },
+        { id: '3-4', title: 'Prompt & Prefill', subtitle: 'Assembly, KV cache build', file: 'movement4_inference/STAGES 3-4-prompt-assembly-prefill.html', color: 'indigo', icon: '📥' },
+        { id: '5-6', title: 'KV Cache & Decode', subtitle: 'Autoregressive loop', file: 'movement4_inference/STAGES 5-6-kv-cache-decode-loop.html', color: 'purple', icon: '🔄' },
+        { id: '7-9', title: 'Sampling & Stopping', subtitle: 'Temp, top-k/p, EOS', file: 'movement4_inference/STAGES 7-9- sampling-stop-conditions.html', color: 'orange', icon: '🎲' },
+        { id: '10-13', title: 'Streaming & Output', subtitle: 'Detokenize, post-process', file: 'movement4_inference/STAGES 10-13-streaming-post-processing.html', color: 'green', icon: '📤' },
+      ];
+
+      const inferenceOverviews = [
+        { title: 'Tokenization & Input', subtitle: 'Deep dive into Stage 1', file: 'movement4_inference/INFERENCE_1_tokenization_input.html', icon: '🔤' },
+        { title: 'Inference Lifecycle', subtitle: 'Complete lifecycle diagram', file: 'movement4_inference/inference-lifecycle-diagram.html', icon: '♻️' },
+        { title: 'Inference Pipeline Flow', subtitle: 'Visual flow diagram', file: 'movement4_inference/inference-pipeline-flow.html', icon: '🌊' },
+      ];
+
+      // ============== MOVEMENT V: SERVING (2 files) ==============
+      const servingDiagrams = [
+        {
+          id: 'serving-engines',
+          title: 'vLLM & TensorRT-LLM',
+          subtitle: 'How serving engines work',
+          file: 'movement5_serving/how-vllm-tensorrt-work.html',
+          color: 'emerald',
+          icon: '🚀',
+          topics: ['PagedAttention', 'Continuous batching', 'Tensor parallel', 'Optimization']
+        },
+        {
+          id: 'inf-overview',
+          title: 'Inference Pipeline Overview',
+          subtitle: 'TTFT, TPOT, throughput',
+          file: 'movement5_serving/INFERENCE_pipeline_detailed.html',
+          color: 'teal',
+          icon: '⚡',
+          topics: ['Prefill', 'Decode', 'KV cache', 'Speculative', 'Quantization']
+        },
+      ];
+
+      // ============== MOVEMENT VI: AGENTS (3 files) ==============
+      const agentDiagrams = [
+        {
+          id: 'agent-arch',
+          title: 'Agent Architecture',
+          subtitle: 'Tool calling, protocols',
+          file: 'movement6_agents/agent-architecture-tool-calling.html',
+          color: 'cyan',
+          icon: '🤖',
+          topics: ['ReAct', 'MCP', 'AG-UI', 'Tool execution', 'Safety']
+        },
+        {
+          id: 'agent-pipeline',
+          title: 'Agent Pipeline',
+          subtitle: 'Full agent flow',
+          file: 'movement6_agents/agent-pipeline-full.html',
+          color: 'blue',
+          icon: '🔗',
+          topics: ['Planning', 'Memory', 'Multi-agent', 'Handoffs']
+        },
+        {
+          id: 'router',
+          title: 'LLM Router & Selection',
+          subtitle: 'Model routing strategies',
+          file: 'movement6_agents/llm-router-agent-pipeline.html',
+          color: 'violet',
+          icon: '🔀',
+          topics: ['Routing logic', 'Cost optimization', 'Fallbacks']
+        },
+      ];
+
+      // ============== EXTRAS (1 file) ==============
+      const extrasDiagrams = [
+        {
+          id: 'nemotron',
+          title: 'Nemotron 253B Tutorial',
+          subtitle: 'NVIDIA model deep dive',
+          file: 'extras/nemotron-253b-tutorial.html',
+          color: 'lime',
+          icon: '🟢',
+          topics: ['NVIDIA', 'Large models', 'Tutorial']
+        },
+      ];
+
+      const colorClasses = {
+        cyan: { bg: 'bg-cyan-900/40', border: 'border-cyan-500', text: 'text-cyan-300', glow: 'shadow-cyan-500/20' },
+        pink: { bg: 'bg-pink-900/40', border: 'border-pink-500', text: 'text-pink-300', glow: 'shadow-pink-500/20' },
+        green: { bg: 'bg-green-900/40', border: 'border-green-500', text: 'text-green-300', glow: 'shadow-green-500/20' },
+        red: { bg: 'bg-red-900/40', border: 'border-red-500', text: 'text-red-300', glow: 'shadow-red-500/20' },
+        orange: { bg: 'bg-orange-900/40', border: 'border-orange-500', text: 'text-orange-300', glow: 'shadow-orange-500/20' },
+        purple: { bg: 'bg-purple-900/40', border: 'border-purple-500', text: 'text-purple-300', glow: 'shadow-purple-500/20' },
+        emerald: { bg: 'bg-emerald-900/40', border: 'border-emerald-500', text: 'text-emerald-300', glow: 'shadow-emerald-500/20' },
+        sky: { bg: 'bg-sky-900/40', border: 'border-sky-500', text: 'text-sky-300', glow: 'shadow-sky-500/20' },
+        blue: { bg: 'bg-blue-900/40', border: 'border-blue-500', text: 'text-blue-300', glow: 'shadow-blue-500/20' },
+        indigo: { bg: 'bg-indigo-900/40', border: 'border-indigo-500', text: 'text-indigo-300', glow: 'shadow-indigo-500/20' },
+        violet: { bg: 'bg-violet-900/40', border: 'border-violet-500', text: 'text-violet-300', glow: 'shadow-violet-500/20' },
+        amber: { bg: 'bg-amber-900/40', border: 'border-amber-500', text: 'text-amber-300', glow: 'shadow-amber-500/20' },
+        teal: { bg: 'bg-teal-900/40', border: 'border-teal-500', text: 'text-teal-300', glow: 'shadow-teal-500/20' },
+        slate: { bg: 'bg-slate-800/60', border: 'border-slate-500', text: 'text-slate-300', glow: 'shadow-slate-500/20' },
+        lime: { bg: 'bg-lime-900/40', border: 'border-lime-500', text: 'text-lime-300', glow: 'shadow-lime-500/20' },
+      };
+
+      const DiagramCard = ({ item, size = 'normal' }) => {
+        const c = colorClasses[item.color] || colorClasses.slate;
+        const isHovered = hoveredCard === item.id;
+        
+        return (
+          <a
+            href={item.file}
+            className={`block card-hover rounded-xl ${c.bg} border ${c.border} ${c.glow} shadow-lg overflow-hidden
+                       ${size === 'large' ? 'p-6' : 'p-4'}`}
+            onMouseEnter={() => setHoveredCard(item.id)}
+            onMouseLeave={() => setHoveredCard(null)}
+          >
+            <div className="flex items-start gap-3">
+              <span className={`${size === 'large' ? 'text-4xl' : 'text-2xl'}`}>{item.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className={`${c.text} font-black ${size === 'large' ? 'text-xl' : 'text-base'} leading-tight`}>
+                  {item.title}
+                </div>
+                <div className="text-white/60 text-sm mt-1">{item.subtitle}</div>
+                
+                {isHovered && item.topics && (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {item.topics.map((topic, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-black/40 rounded text-xs text-white/70">
+                        {topic}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </a>
+        );
+      };
+
+      const StageCard = ({ stage }) => {
+        const c = colorClasses[stage.color];
+        return (
+          <a
+            href={stage.file}
+            className={`block card-hover rounded-lg ${c.bg} border ${c.border} p-3 text-center min-w-[100px]`}
+          >
+            <div className="text-2xl mb-1">{stage.icon}</div>
+            <div className={`${c.text} font-bold text-sm`}>{stage.id}</div>
+            <div className="text-white/50 text-xs truncate">{stage.title}</div>
+          </a>
+        );
+      };
+
+      const OverviewCard = ({ item }) => (
+        <a
+          href={item.file}
+          className="block card-hover rounded-lg bg-slate-800/50 border border-slate-600 p-3"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xl">{item.icon}</span>
+            <div>
+              <div className="text-white/80 font-bold text-sm">{item.title}</div>
+              <div className="text-white/50 text-xs">{item.subtitle}</div>
+            </div>
+          </div>
+        </a>
+      );
+
+      const MovementHeader = ({ number, title, subtitle, color, icon, count }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shadow-lg`}>
+            <span className="text-3xl">{icon}</span>
+          </div>
+          <div className="flex-1">
+            <div className="text-white/40 text-sm font-bold tracking-widest">MOVEMENT {number}</div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+          <div className="text-white/30 text-sm">{count} files</div>
+        </div>
+      );
+
+      const FlowArrow = () => (
+        <div className="flex flex-col py-4 items-center justify-center">
+          <div className="h-8 w-1 bg-gradient-to-b from-white/20 via-white/40 to-white/20 rounded-full" />
+          <div className="text-white/40 mt-1 animate-flow">▼</div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white">
+          {/* Cosmic Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[1200px] h-[1200px] -top-96 -left-48 bg-purple-500/5 rounded-full blur-3xl animate-pulse-glow" />
+            <div className="absolute w-[1000px] h-[1000px] top-1/4 right-0 bg-cyan-500/5 rounded-full blur-3xl animate-pulse-glow" style={{animationDelay: '1s'}} />
+            <div className="absolute w-[800px] h-[800px] top-1/2 left-1/4 bg-pink-500/5 rounded-full blur-3xl animate-pulse-glow" style={{animationDelay: '2s'}} />
+            <div className="absolute w-[1000px] h-[1000px] bottom-0 right-1/4 bg-emerald-500/5 rounded-full blur-3xl animate-pulse-glow" style={{animationDelay: '1.5s'}} />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto px-6 py-12">
+            {/* ============== HERO HEADER ============== */}
+            <header className="text-center mb-16">
+              <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-600/20 via-pink-600/20 to-cyan-600/20 border border-white/10 rounded-full mb-8">
+                <span className="text-2xl">🎼</span>
+                <span className="text-white/80 font-medium">The Complete Visual Guide</span>
+                <span className="text-2xl">🎼</span>
+              </div>
+              
+              <h1 className="text-7xl font-black mb-6">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400">
+                  The LLM Symphony
+                </span>
+              </h1>
+              
+              <p className="text-2xl text-white/60 max-w-3xl mx-auto leading-relaxed mb-8">
+                From <span className="text-purple-300">raw data</span> to <span className="text-pink-300">trained model</span> to <span className="text-cyan-300">deployed agent</span>
+                <br/>
+                <span className="text-white/40">— One continuous flow, six movements, infinite understanding</span>
+              </p>
+
+              {/* Grand Flow */}
+              <div className="flex items-center justify-center gap-2 flex-wrap mt-8 mb-4">
+                {[
+                  { label: 'Foundation', color: 'from-amber-500 to-amber-600', icon: '🏛️' },
+                  { label: 'Training', color: 'from-purple-500 to-purple-600', icon: '🎓' },
+                  { label: 'Alignment', color: 'from-pink-500 to-pink-600', icon: '🎯' },
+                  { label: 'Inference', color: 'from-blue-500 to-blue-600', icon: '⚡' },
+                  { label: 'Serving', color: 'from-emerald-500 to-emerald-600', icon: '🚀' },
+                  { label: 'Agents', color: 'from-cyan-500 to-cyan-600', icon: '🤖' },
+                ].map((item, i, arr) => (
+                  <div key={i} className="flex items-center">
+                    <div className={`px-4 py-2 rounded-lg bg-gradient-to-r ${item.color} flex items-center gap-2`}>
+                      <span>{item.icon}</span>
+                      <span className="font-bold text-white">{item.label}</span>
+                    </div>
+                    {i < arr.length - 1 && <span className="text-white/30 mx-2 text-xl">→</span>}
+                  </div>
+                ))}
+              </div>
+            </header>
+
+            {/* ============== MOVEMENT I: FOUNDATION ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="I" 
+                title="Foundation" 
+                subtitle="The theoretical bedrock — scaling, hardware, attention, MoE, context"
+                color="from-amber-500 to-orange-600"
+                icon="🏛️"
+                count="5"
+              />
+              
+              <div className="grid grid-cols-5 gap-3">
+                {foundationDiagrams.map(d => (
+                  <DiagramCard key={d.id} item={d} />
+                ))}
+              </div>
+            </section>
+
+            <FlowArrow />
+
+            {/* ============== MOVEMENT II: TRAINING ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="II" 
+                title="Pre-Training" 
+                subtitle="The training loop — 8 stages repeated millions of times"
+                color="from-purple-500 to-violet-600"
+                icon="🎓"
+                count="10"
+              />
+              
+              {/* Training Loop */}
+              <div className="bg-slate-900/50 border border-purple-500/30 rounded-2xl p-6 mb-4">
+                <div className="text-center text-white/50 text-sm mb-4">
+                  <span className="text-purple-300">Stage 0-1:</span> Setup → 
+                  <span className="text-pink-300 ml-2">Stages 2-7:</span> Repeat ↻
+                </div>
+                
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  {trainingStages.map((stage, i) => (
+                    <div key={stage.id} className="flex items-center">
+                      <StageCard stage={stage} />
+                      {i < trainingStages.length - 1 && (
+                        <span className="text-white/20 mx-1">→</span>
+                      )}
+                    </div>
+                  ))}
+                  <span className="text-purple-400 ml-2">↻</span>
+                </div>
+              </div>
+
+              {/* Training Overviews */}
+              <div className="grid grid-cols-2 gap-3">
+                {trainingOverviews.map((item, i) => (
+                  <OverviewCard key={i} item={item} />
+                ))}
+              </div>
+            </section>
+
+            <FlowArrow />
+
+            {/* ============== MOVEMENT III: ALIGNMENT ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="III" 
+                title="Post-Training & Alignment" 
+                subtitle="From base model to helpful assistant"
+                color="from-pink-500 to-rose-600"
+                icon="🎯"
+                count="1"
+              />
+              
+              <div className="max-w-2xl mx-auto">
+                {alignmentDiagrams.map(d => (
+                  <DiagramCard key={d.id} item={d} size="large" />
+                ))}
+              </div>
+
+              {/* Alignment Flow */}
+              <div className="flex items-center justify-center gap-4 mt-6">
+                {['🧠 Base', '📚 SFT', '👥 RLHF/DPO', '🛡️ Safety', '🤖 Assistant'].map((step, i, arr) => (
+                  <div key={i} className="flex items-center">
+                    <div className="text-white/60 text-sm">{step}</div>
+                    {i < arr.length - 1 && <span className="text-pink-400/50 mx-2">→</span>}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <FlowArrow />
+
+            {/* ============== MOVEMENT IV: INFERENCE ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="IV" 
+                title="Inference Pipeline" 
+                subtitle="Request to response — tokenize, prefill, decode, output"
+                color="from-blue-500 to-indigo-600"
+                icon="⚡"
+                count="9"
+              />
+              
+              {/* Inference Stages */}
+              <div className="bg-slate-900/50 border border-blue-500/30 rounded-2xl p-6 mb-4">
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  {inferenceStages.map((stage, i) => (
+                    <div key={stage.id} className="flex items-center">
+                      <StageCard stage={stage} />
+                      {i < inferenceStages.length - 1 && (
+                        <span className="text-blue-400/50 mx-1">→</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Inference Overviews */}
+              <div className="grid grid-cols-3 gap-3">
+                {inferenceOverviews.map((item, i) => (
+                  <OverviewCard key={i} item={item} />
+                ))}
+              </div>
+            </section>
+
+            <FlowArrow />
+
+            {/* ============== MOVEMENT V: SERVING ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="V" 
+                title="Production Serving" 
+                subtitle="vLLM, TensorRT-LLM — serving at scale"
+                color="from-emerald-500 to-teal-600"
+                icon="🚀"
+                count="2"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                {servingDiagrams.map(d => (
+                  <DiagramCard key={d.id} item={d} size="large" />
+                ))}
+              </div>
+            </section>
+
+            <FlowArrow />
+
+            {/* ============== MOVEMENT VI: AGENTS ============== */}
+            <section className="mb-12">
+              <MovementHeader 
+                number="VI" 
+                title="Agents & Tools" 
+                subtitle="LLMs that act — tool calling, planning, multi-agent"
+                color="from-cyan-500 to-blue-600"
+                icon="🤖"
+                count="3"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                {agentDiagrams.map(d => (
+                  <DiagramCard key={d.id} item={d} size="large" />
+                ))}
+              </div>
+            </section>
+
+            {/* ============== EXTRAS ============== */}
+            <section className="mb-12">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-lime-500 to-green-600 flex items-center justify-center shadow-lg">
+                  <span className="text-2xl">📦</span>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white">Extras</h2>
+                  <p className="text-white/60">Additional tutorials and resources</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-3">
+                {extrasDiagrams.map(d => (
+                  <DiagramCard key={d.id} item={d} />
+                ))}
+              </div>
+            </section>
+
+            {/* ============== QUICK REFERENCE ============== */}
+            <section className="mb-12">
+              <div className="bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-8">
+                <div className="text-center mb-6">
+                  <div className="text-2xl font-black text-white mb-2">🔑 Quick Reference</div>
+                </div>
+                
+                <div className="grid grid-cols-4 gap-6 text-sm">
+                  <div>
+                    <div className="text-purple-300 font-bold mb-2">Training</div>
+                    <ul className="text-white/60 space-y-1">
+                      <li>• C = 6ND</li>
+                      <li>• D ≈ 20N</li>
+                      <li>• AdamW β₁=0.9</li>
+                      <li>• Cosine decay</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-pink-300 font-bold mb-2">Alignment</div>
+                    <ul className="text-white/60 space-y-1">
+                      <li>• SFT: 1-3 epochs</li>
+                      <li>• DPO β: 0.1-0.5</li>
+                      <li>• LoRA: rank 8-64</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-blue-300 font-bold mb-2">Inference</div>
+                    <ul className="text-white/60 space-y-1">
+                      <li>• Prefill: Compute</li>
+                      <li>• Decode: Memory</li>
+                      <li>• KV: ~1MB/tok</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-emerald-300 font-bold mb-2">Hardware</div>
+                    <ul className="text-white/60 space-y-1">
+                      <li>• H100: 80GB</li>
+                      <li>• NVLink: 900 GB/s</li>
+                      <li>• IB: 400 Gbps</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* ============== STATS ============== */}
+            <section className="mb-12">
+              <div className="grid grid-cols-4 gap-4 text-center">
+                <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-4">
+                  <div className="text-4xl font-black text-purple-400">31</div>
+                  <div className="text-white/50 text-sm">Diagrams</div>
+                </div>
+                <div className="bg-pink-900/20 border border-pink-500/30 rounded-xl p-4">
+                  <div className="text-4xl font-black text-pink-400">1000+</div>
+                  <div className="text-white/50 text-sm">Tooltips</div>
+                </div>
+                <div className="bg-cyan-900/20 border border-cyan-500/30 rounded-xl p-4">
+                  <div className="text-4xl font-black text-cyan-400">6</div>
+                  <div className="text-white/50 text-sm">Movements</div>
+                </div>
+                <div className="bg-emerald-900/20 border border-emerald-500/30 rounded-xl p-4">
+                  <div className="text-4xl font-black text-emerald-400">∞</div>
+                  <div className="text-white/50 text-sm">Learning</div>
+                </div>
+              </div>
+            </section>
+
+            {/* ============== FOOTER ============== */}
+            <footer className="text-center text-white/30 text-sm pt-8 border-t border-white/5">
+              <p className="text-lg mb-2">🎼 The LLM Symphony 🎼</p>
+              <p>Foundation → Training → Alignment → Inference → Serving → Agents</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<LLMSymphony />);
+  </script>
+</body>
+</html>

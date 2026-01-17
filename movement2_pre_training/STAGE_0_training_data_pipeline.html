@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 0: Data Pipeline & Infrastructure - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function DataPipelineStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      // Comprehensive tooltip content
+      const tooltips = {
+        // Key Metrics
+        'metric-cost': {
+          title: '💰 COST',
+          content: 'Training frontier models costs $10M-$100M+ in compute. A single wasted training run due to bad data or config can cost millions. Data quality issues discovered late are catastrophically expensive.',
+          example: 'LLaMA-70B: ~$2M compute\nGPT-4: ~$100M estimated\nBad data causing restart at 50%: 50% cost wasted'
+        },
+        'metric-quality': {
+          title: '📊 DATA QUALITY',
+          content: 'Data quality dominates model quality. No amount of compute can fix garbage data. Deduplication, filtering, and balancing determine final model capabilities.',
+          example: '80%+ of raw web data is filtered out\nDuplicate data causes memorization\nToxic data leaks into model behavior'
+        },
+        'metric-reproducibility': {
+          title: '🔄 REPRODUCIBILITY',
+          content: 'Can you restart training from any checkpoint and get identical results? Requires: pinned versions, deterministic shuffling, saved RNG states, immutable configs.',
+          example: 'Same seed + same data + same config = same model\nWithout this: debugging is impossible\nRegulatory compliance may require this'
+        },
+        'metric-throughput': {
+          title: '⚡ THROUGHPUT',
+          content: 'Data must flow fast enough to saturate GPUs. A $2/hr H100 sitting idle waiting for data is pure waste. Target: >90% GPU utilization.',
+          example: 'H100 can process ~500K tokens/sec\nData pipeline must deliver this rate\nCPU preprocessing often the bottleneck'
+        },
+
+        // Cluster Provisioning
+        'cluster-gpu': {
+          title: '🖥️ GPU Allocation',
+          content: 'Reserve GPU capacity before training starts. Frontier training requires 1000s of GPUs for months. Availability is often the bottleneck, not money.',
+          specs: 'H100 80GB: 3.35 TB/s HBM, 1979 TFLOPS FP8\nB200 192GB: 8 TB/s HBM3e\nTPU v5p: 459 TFLOPS BF16',
+          example: 'LLaMA-70B: 2048 A100s for 21 days\nGPT-4: 10,000+ GPUs estimated\nReservation lead time: weeks to months'
+        },
+        'cluster-network': {
+          title: '🌐 Network Fabric',
+          content: 'Inter-GPU communication determines scaling efficiency. NVLink for intra-node, InfiniBand for inter-node. Network is often THE bottleneck at scale.',
+          specs: 'NVLink 4.0: 900 GB/s bidirectional\nInfiniBand NDR: 400 Gbps per port\nRoCE v2: Cheaper but higher latency',
+          example: 'AllReduce on 1024 GPUs: network-bound\nTensor Parallel: requires NVLink (too much traffic for IB)\nBad network = poor scaling efficiency'
+        },
+        'cluster-storage': {
+          title: '💾 Storage System',
+          content: 'High-throughput parallel filesystem for data and checkpoints. Training reads TB of data continuously. Checkpoint saves can be 100s of GB.',
+          specs: 'Lustre: 100s GB/s aggregate\nGPFS: Enterprise parallel FS\nFSx for Lustre: AWS managed',
+          example: 'LLaMA training data: ~5TB tokenized\nCheckpoint size (70B): ~140GB per save\nCheckpoint every hour: 3+ TB/day writes'
+        },
+        'cluster-orchestration': {
+          title: '🎛️ Orchestration',
+          content: 'Job scheduling, resource allocation, failure recovery. Kubernetes for cloud, Slurm for HPC. Must handle node failures gracefully.',
+          options: 'Slurm: HPC standard, bare metal\nKubernetes: Cloud native, flexible\nRay: ML-focused, easy distributed',
+          example: 'Node failure at 3am: auto-restart from checkpoint\nPreemption handling: save and resume\nMulti-job scheduling: fair share queues'
+        },
+
+        // GPU Types
+        'gpu-h100': {
+          title: 'NVIDIA H100 80GB',
+          content: 'The workhorse of frontier AI training. Hopper architecture with 4th-gen Tensor Cores. FP8 support for 2x throughput.',
+          specs: '80GB HBM3 @ 3.35 TB/s\n1979 TFLOPS FP8 / 989 TFLOPS FP16\nNVLink 4.0: 900 GB/s\nTDP: 700W',
+          cost: '~$30K purchase, $2-4/hr cloud\n8x H100 node: ~$250K+',
+          usage: 'OpenAI, Anthropic, Meta, Google all use H100s'
+        },
+        'gpu-b200': {
+          title: 'NVIDIA B200 192GB',
+          content: 'Blackwell architecture. 2.5x H100 performance. 192GB HBM3e enables larger batch sizes and longer contexts.',
+          specs: '192GB HBM3e @ 8 TB/s\n~4500 TFLOPS FP8\nNVLink 5.0: 1.8 TB/s\nTDP: 1000W',
+          availability: 'Ramping 2024-2025\nLimited availability initially',
+          usage: 'Next-gen frontier model training'
+        },
+        'gpu-tpu': {
+          title: 'Google TPU v5p',
+          content: 'Google\'s custom AI accelerator. Optimized for large-batch transformer training. Only available on Google Cloud.',
+          specs: '95GB HBM per chip\n459 TFLOPS BF16\nICI: 4800 Gbps per chip\nPod: 8960 chips',
+          cost: 'Only via GCP, competitive pricing\nPod-scale pricing available',
+          usage: 'PaLM, Gemini trained on TPUs'
+        },
+        'gpu-mi300': {
+          title: 'AMD MI300X 192GB',
+          content: 'AMD\'s H100 competitor. Massive 192GB HBM3 memory. Growing software ecosystem via ROCm.',
+          specs: '192GB HBM3 @ 5.3 TB/s\n1307 TFLOPS FP16\n896GB/s Infinity Fabric',
+          cost: 'Competitive with H100\nAvailable on major clouds',
+          usage: 'Microsoft, Oracle deployments'
+        },
+
+        // Network Types
+        'net-nvlink': {
+          title: 'NVLink 4.0',
+          content: 'Direct GPU-to-GPU interconnect within a node. Required for Tensor Parallelism which splits individual layers across GPUs.',
+          specs: '900 GB/s bidirectional\n18 links per GPU\nNVSwitch for all-to-all',
+          usage: 'Tensor Parallel (TP) communication\nIntra-node gradient sync\nKV cache sharing',
+          limitation: 'Only within single node (8 GPUs typical)'
+        },
+        'net-infiniband': {
+          title: 'InfiniBand NDR',
+          content: 'High-bandwidth, low-latency network for inter-node communication. The standard for HPC and AI clusters.',
+          specs: '400 Gbps per port (NDR)\n~1μs latency\nRDMA for zero-copy',
+          usage: 'Data Parallel gradient AllReduce\nPipeline Parallel communication\nCheckpoint writes to storage',
+          topology: 'Fat-tree or rail-optimized'
+        },
+        'net-roce': {
+          title: 'RoCE v2',
+          content: 'RDMA over Converged Ethernet. Cheaper than InfiniBand but higher latency. Acceptable for smaller scale.',
+          specs: '100-400 Gbps\n~5-10μs latency\nStandard Ethernet switches',
+          tradeoff: 'Lower cost, higher latency\nCongestion more problematic',
+          usage: 'Cloud environments, smaller clusters'
+        },
+        'net-ethernet': {
+          title: 'Standard Ethernet',
+          content: 'Commodity networking. Fine for data loading but too slow for gradient sync at scale.',
+          specs: '100 Gbps typical\n~50μs+ latency\nTCP/IP overhead',
+          usage: 'Data loading from storage\nCheckpoint writes\nNOT for gradient sync at scale',
+          limitation: 'Gradient sync becomes bottleneck'
+        },
+
+        // Environment Setup
+        'env-framework': {
+          title: '📦 Framework Versions',
+          content: 'Pin exact versions of PyTorch, JAX, or TensorFlow. Minor version changes can affect training dynamics and reproducibility.',
+          example: 'torch==2.2.1+cu121\njax==0.4.25\ntransformers==4.38.2',
+          warning: 'Never use "latest" in production\nTest upgrades on small runs first'
+        },
+        'env-cuda': {
+          title: '🔧 CUDA / ROCm',
+          content: 'GPU driver and runtime versions. Must match framework requirements. Mismatches cause silent numerical errors.',
+          example: 'CUDA 12.1 + cuDNN 8.9.7\nDriver: 535.104.12\nNCCL: 2.19.3',
+          warning: 'Driver/CUDA mismatch = crashes\ncuDNN version affects performance'
+        },
+        'env-container': {
+          title: '🐳 Containers',
+          content: 'Docker/Singularity images with entire environment. Ensures identical setup across all nodes. NVIDIA NGC has optimized images.',
+          example: 'nvcr.io/nvidia/pytorch:24.02-py3\nCustom image with your code\nMulti-stage builds for size',
+          best_practice: 'Immutable images, version tagged\nTest locally before cluster'
+        },
+        'env-seeds': {
+          title: '🎲 Random Seeds',
+          content: 'Seeds for reproducibility: data shuffling, weight init, dropout. Must be set BEFORE any random operations.',
+          example: 'torch.manual_seed(42)\nnp.random.seed(42)\nrandom.seed(42)',
+          coverage: 'Python random, NumPy, PyTorch\nCUDA deterministic ops (slower)\nData loader worker seeds'
+        },
+
+        // Configuration
+        'config-model': {
+          title: '🏗️ Model Architecture',
+          content: 'All architectural hyperparameters. Determines parameter count, compute requirements, and capabilities.',
+          params: 'num_layers: 80\nhidden_size: 8192\nnum_heads: 64\nhead_dim: 128\nvocab_size: 128000',
+          derived: '70B params = ~140GB in FP16\nFLOPs per token ≈ 2 × params'
+        },
+        'config-training': {
+          title: '📈 Training Params',
+          content: 'Learning rate, batch size, and training duration. These determine convergence speed and final quality.',
+          params: 'learning_rate: 3e-4\nbatch_size: 4M tokens\nmax_steps: 500000\nwarmup_steps: 2000',
+          scaling: 'LR scales with √batch_size\nBatch size limited by memory\nSteps = tokens / batch_size'
+        },
+        'config-distributed': {
+          title: '🔀 Distributed Config',
+          content: '3D parallelism configuration. How to split model and data across GPUs. Critical for memory and efficiency.',
+          params: 'dp_degree: 64 (data parallel)\ntp_degree: 8 (tensor parallel)\npp_degree: 4 (pipeline parallel)\ntotal: 64×8×4 = 2048 GPUs',
+          rules: 'TP within node (NVLink)\nPP across nodes OK\nDP scales with cluster size'
+        },
+        'config-checkpoint': {
+          title: '💾 Checkpoint Policy',
+          content: 'When and how to save model state. Critical for failure recovery. Async saves avoid blocking training.',
+          params: 'save_interval: 1000 steps\nkeep_last: 5\nasync_save: true\nsharded: true',
+          cost: '70B checkpoint: ~140GB\n5 checkpoints: 700GB storage\nSave time: 1-5 min (async)'
+        },
+
+        // Data Acquisition
+        'data-web': {
+          title: '🌐 Web Crawls',
+          content: 'The foundation of LLM pretraining data. Common Crawl, FineWeb, and custom crawls. Requires massive filtering.',
+          sources: 'Common Crawl: 250B+ pages\nFineWeb: 15T tokens (filtered)\nC4: Colossal Clean Crawl',
+          quality: 'Raw web: 80%+ is garbage\nFiltering is the real work\nDeduplication critical'
+        },
+        'data-books': {
+          title: '📚 Books & Papers',
+          content: 'High-quality long-form text. Books3, arXiv, PubMed. Better quality than web but smaller scale.',
+          sources: 'Books3: 196K books\narXiv: 2M+ papers\nPubMed: 35M abstracts\nWikipedia: 6M articles',
+          licensing: 'Copyright considerations\nSome datasets controversial\nLicensed data preferred'
+        },
+        'data-code': {
+          title: '💻 Code Repositories',
+          content: 'GitHub, GitLab, Stack Overflow. Enables code generation capabilities. License filtering important.',
+          sources: 'The Stack: 6TB of code\nGitHub public repos\nStack Overflow dumps',
+          filtering: 'License filtering (permissive only)\nDedup by file hash\nRemove auto-generated code'
+        },
+        'data-synthetic': {
+          title: '🤖 Synthetic Data',
+          content: 'Model-generated training data. Used for reasoning, math, code. Quality depends on generator model.',
+          types: 'Instruction following (Alpaca-style)\nMath solutions (step by step)\nCode with tests\nReasoning chains',
+          warning: 'Model collapse risk if overused\nNeed diverse generators\nHuman verification helps'
+        },
+        'data-licensed': {
+          title: '📜 Licensed Data',
+          content: 'Proprietary datasets with clear licensing. News archives, academic publishers, enterprise data.',
+          sources: 'News: Reuters, AP, major papers\nAcademic: Elsevier, Springer\nEnterprise: Internal docs',
+          cost: 'Can be very expensive\nClear legal standing\nHigher quality typically'
+        },
+
+        // Data Cleaning
+        'clean-dedup': {
+          title: '🔄 Deduplication',
+          content: 'Remove duplicate and near-duplicate content. Critical for preventing memorization and wasted compute.',
+          methods: 'Exact: Hash matching (fast)\nFuzzy: MinHash + LSH\nSemantic: Embedding similarity',
+          scale: 'Common Crawl: 60%+ duplicates\nDedup is compute-intensive\nWorth the investment',
+          example: 'MinHash with 128 permutations\nJaccard threshold: 0.8\nRemoves 30-60% of data'
+        },
+        'clean-langid': {
+          title: '🌍 Language Filtering',
+          content: 'Identify and filter by language. Most models are English-primary. Multilingual needs balanced mix.',
+          tools: 'fastText langid (fast, accurate)\nCLD3 (Google)\nCustom classifiers',
+          example: 'Keep: en score > 0.95\nEnglish: 60% of mix\nCode: language-agnostic'
+        },
+        'clean-quality': {
+          title: '⭐ Quality Scoring',
+          content: 'Score documents by quality. Remove low-quality content. Perplexity, classifiers, heuristics.',
+          methods: 'Perplexity filtering (KenLM)\nClassifier trained on Wikipedia\nHeuristics: length, formatting',
+          thresholds: 'Perplexity < 1000 (typical)\nClassifier score > 0.5\nMin length: 100 chars'
+        },
+        'clean-pii': {
+          title: '🔒 PII Removal',
+          content: 'Remove personally identifiable information. Emails, phone numbers, addresses, names in certain contexts.',
+          targets: 'Email addresses\nPhone numbers\nSSN/ID numbers\nIP addresses',
+          methods: 'Regex patterns\nNER models\nReplacement with tokens',
+          compliance: 'GDPR, CCPA requirements\nErr on side of removal'
+        },
+        'clean-toxic': {
+          title: '⚠️ Toxicity Filtering',
+          content: 'Remove harmful, toxic, or NSFW content. Classifiers trained on labeled data. Balance safety vs capability.',
+          classifiers: 'Perspective API\nOpenAI moderation\nCustom toxic classifier',
+          tradeoff: 'Too aggressive: capability loss\nToo permissive: harmful outputs\nNuanced threshold tuning'
+        },
+        'clean-balance': {
+          title: '⚖️ Domain Balancing',
+          content: 'Control mix of data domains. Too much of one domain biases model. Upweight high-quality sources.',
+          domains: 'Web: 60%\nBooks: 15%\nCode: 15%\nScientific: 10%',
+          technique: 'Importance sampling\nDomain classifiers\nManual curation for key domains'
+        },
+
+        // Tokenization
+        'token-algo': {
+          title: '🔤 Tokenizer Algorithm',
+          content: 'Convert text to token IDs. BPE (GPT), SentencePiece (Google), or Unigram. Trained on representative corpus.',
+          algorithms: 'BPE: Byte-Pair Encoding (GPT)\nUnigram: Probabilistic (T5)\nWordPiece: BERT-style',
+          training: 'Train on 1-10B chars\nVocab size: 32K-256K\nSpecial tokens: BOS, EOS, PAD'
+        },
+        'token-vocab': {
+          title: '📖 Vocabulary Size',
+          content: 'Number of unique tokens. Larger vocab = less tokens per text but bigger embedding table.',
+          sizes: 'GPT-2: 50257\nLLaMA: 32000\nGPT-4: ~100K\nGemini: 256K',
+          tradeoff: 'Larger: better compression, bigger embeddings\nSmaller: more tokens, smaller model'
+        },
+        'token-special': {
+          title: '✨ Special Tokens',
+          content: 'Control tokens for model behavior. Beginning/end of sequence, padding, tool markers, etc.',
+          common: '<|bos|>: Beginning of sequence\n<|eos|>: End of sequence\n<|pad|>: Padding\n<|tool_call|>: Tool use',
+          custom: 'Chat roles: <|user|>, <|assistant|>\nCode: <|code|>, <|/code|>\nThinking: <think>, </think>'
+        },
+        'token-serialize': {
+          title: '💾 Serialization',
+          content: 'Pre-tokenize entire dataset to binary format. Memory-mapped files for fast random access.',
+          formats: '.bin + .idx (Megatron)\nWebDataset (sharded tars)\nMosaicML StreamingDataset',
+          benefits: 'No tokenization at train time\nFast random access\nDistributed-friendly'
+        },
+
+        // DataLoader
+        'loader-workers': {
+          title: '👷 DataLoader Workers',
+          content: 'Multiple CPU processes preparing batches in parallel. Must saturate GPU consumption rate.',
+          config: 'num_workers: 4-16 per GPU\nprefetch_factor: 2-4\npersistent_workers: True',
+          bottleneck: 'Too few: GPU starvation\nToo many: CPU contention\nProfile to find sweet spot'
+        },
+        'loader-prefetch': {
+          title: '📥 Prefetching',
+          content: 'Load next batches while GPU processes current. Hides I/O latency. Essential for throughput.',
+          levels: 'CPU prefetch: DataLoader\nGPU prefetch: pin_memory + non_blocking\nStorage prefetch: OS cache',
+          config: 'pin_memory=True\nnon_blocking=True\nPrefetch 2-4 batches ahead'
+        },
+        'loader-shuffle': {
+          title: '🔀 Deterministic Shuffle',
+          content: 'Randomize data order but reproducibly. Same seed = same order. Required for checkpoint resume.',
+          method: 'Seeded shuffle of indices\nShard indices for distributed\nBuffer shuffle for streaming',
+          example: 'Epoch 1, seed 42 → order A\nResume epoch 1, seed 42 → same order A'
+        },
+        'loader-distributed': {
+          title: '🌐 Distributed Sampling',
+          content: 'Each GPU rank sees unique data. No overlap between workers. Coordinated across all nodes.',
+          mechanism: 'DistributedSampler\nShard by rank\nDrop last incomplete batch',
+          example: '8 GPUs, 1000 samples\nEach GPU: 125 unique samples\nNo sample seen twice per epoch'
+        },
+
+        // Tools
+        'tool-spark': {
+          title: 'Apache Spark',
+          content: 'Distributed data processing at massive scale. Used for initial data cleaning and transformation.',
+          usage: 'Deduplication at PB scale\nLanguage filtering\nQuality scoring',
+          scale: 'Handles petabytes\n1000s of nodes\nFault tolerant'
+        },
+        'tool-dask': {
+          title: 'Dask',
+          content: 'Python-native parallel computing. Easier than Spark for Python workflows. Good for medium scale.',
+          usage: 'Data exploration\nMedium-scale processing\nIntegrates with pandas',
+          scale: 'Up to 100s of nodes\nEasier debugging\nPythonic API'
+        },
+        'tool-ray': {
+          title: 'Ray Data',
+          content: 'ML-focused distributed data. Part of Ray ecosystem. Good for ML-specific pipelines.',
+          usage: 'Streaming data loading\nML preprocessing\nGPU data transforms',
+          integration: 'Works with Ray Train\nNative PyTorch support\nActor-based parallelism'
+        },
+        'tool-wandb': {
+          title: 'Weights & Biases',
+          content: 'Experiment tracking and visualization. Log metrics, configs, artifacts. Essential for debugging.',
+          features: 'Loss curves\nConfig tracking\nArtifact versioning\nTeam collaboration',
+          usage: 'Log every run\nCompare experiments\nTrack data lineage'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.specs && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SPECS</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.specs}</pre>
+              </div>
+            )}
+            {t.params && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PARAMETERS</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.params}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.sources && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SOURCES</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.sources}</pre>
+              </div>
+            )}
+            {t.methods && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">METHODS</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.methods}</pre>
+              </div>
+            )}
+            {(t.warning || t.tradeoff || t.limitation) && (
+              <div className="text-xs text-amber-400">
+                <span className="font-bold">⚠️ </span>{t.warning || t.tradeoff || t.limitation}
+              </div>
+            )}
+            {t.cost && (
+              <div className="text-xs text-red-400 mt-2">
+                <span className="font-bold">💰 </span>{t.cost}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-purple-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-orange-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-cyan-600/30 border border-cyan-400 rounded-full mb-6">
+                <span className="text-cyan-300 font-bold">STAGE 0</span>
+                <span className="text-white">•</span>
+                <span className="text-cyan-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-orange-400">
+                Data Pipeline & Infrastructure
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                Everything here happens <span className="text-cyan-300 font-bold">BEFORE training starts</span>. 
+                <span className="text-purple-300 ml-2">🖱️ Hover over any element for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-cost">
+                <div className="p-5 rounded-xl bg-red-600/90 border-2 border-red-400 shadow-lg shadow-red-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💰</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">COST</span>
+                  </div>
+                  <div className="text-3xl font-black text-red-100">$10M+</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Frontier training budget</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-quality">
+                <div className="p-5 rounded-xl bg-purple-600/90 border-2 border-purple-400 shadow-lg shadow-purple-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">DATA QUALITY</span>
+                  </div>
+                  <div className="text-3xl font-black text-purple-100">80%+</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Raw data filtered out</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-reproducibility">
+                <div className="p-5 rounded-xl bg-cyan-600/90 border-2 border-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔄</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">REPRODUCIBILITY</span>
+                  </div>
+                  <div className="text-3xl font-black text-cyan-100">100%</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Deterministic restarts</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-throughput">
+                <div className="p-5 rounded-xl bg-orange-600/90 border-2 border-orange-400 shadow-lg shadow-orange-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⚡</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">THROUGHPUT</span>
+                  </div>
+                  <div className="text-3xl font-black text-orange-100">&gt;90%</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">GPU utilization target</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: CLUSTER PROVISIONING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">0.1 CLUSTER PROVISIONING</h2>
+                  <p className="text-cyan-200/80">GPU allocation, networking, storage — the physical foundation</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <Hoverable id="cluster-gpu">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-green-600 to-emerald-700 border-2 border-green-400 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-2">🖥️ GPU Allocation</div>
+                    <div className="space-y-2">
+                      {["H100 / B200 / TPU v5p", "1000s of GPUs at scale", "Months of reservation"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-green-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="cluster-network">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 border-2 border-blue-400 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-2">🌐 Network Fabric</div>
+                    <div className="space-y-2">
+                      {["NVLink 900 GB/s intra-node", "InfiniBand 400Gbps inter-node", "Often THE bottleneck"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-blue-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="cluster-storage">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-purple-600 to-violet-700 border-2 border-purple-400 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-2">💾 Storage System</div>
+                    <div className="space-y-2">
+                      {["Lustre / GPFS parallel FS", "100s GB/s throughput", "TB+ checkpoint storage"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-purple-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="cluster-orchestration">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-orange-600 to-red-700 border-2 border-orange-400 shadow-lg h-full">
+                    <div className="text-xl font-black text-white mb-2">🎛️ Orchestration</div>
+                    <div className="space-y-2">
+                      {["Slurm / Kubernetes / Ray", "Job scheduling & recovery", "Preemption handling"].map((d, j) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-orange-300" />
+                          <span className="text-white/90 text-sm">{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* GPU Types Detail */}
+              <div className="bg-slate-900/80 border-2 border-cyan-500/50 rounded-xl p-6">
+                <div className="text-lg font-black text-cyan-300 mb-4">🖥️ GPU OPTIONS</div>
+                <div className="grid grid-cols-4 gap-4">
+                  <Hoverable id="gpu-h100">
+                    <div className="bg-green-900/50 border border-green-500 rounded-lg p-4">
+                      <div className="text-green-300 font-bold">NVIDIA H100</div>
+                      <div className="text-green-200/70 text-sm">80GB HBM3</div>
+                      <div className="text-green-100 text-xs mt-2">3.35 TB/s • 1979 TFLOPS</div>
+                      <div className="text-yellow-300 text-xs mt-1">$2-4/hr cloud</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="gpu-b200">
+                    <div className="bg-purple-900/50 border border-purple-500 rounded-lg p-4">
+                      <div className="text-purple-300 font-bold">NVIDIA B200</div>
+                      <div className="text-purple-200/70 text-sm">192GB HBM3e</div>
+                      <div className="text-purple-100 text-xs mt-2">8 TB/s • ~4500 TFLOPS</div>
+                      <div className="text-yellow-300 text-xs mt-1">Ramping 2024-25</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="gpu-tpu">
+                    <div className="bg-blue-900/50 border border-blue-500 rounded-lg p-4">
+                      <div className="text-blue-300 font-bold">Google TPU v5p</div>
+                      <div className="text-blue-200/70 text-sm">95GB HBM</div>
+                      <div className="text-blue-100 text-xs mt-2">459 TFLOPS • ICI 4800Gbps</div>
+                      <div className="text-yellow-300 text-xs mt-1">GCP only</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="gpu-mi300">
+                    <div className="bg-red-900/50 border border-red-500 rounded-lg p-4">
+                      <div className="text-red-300 font-bold">AMD MI300X</div>
+                      <div className="text-red-200/70 text-sm">192GB HBM3</div>
+                      <div className="text-red-100 text-xs mt-2">5.3 TB/s • 1307 TFLOPS</div>
+                      <div className="text-yellow-300 text-xs mt-1">H100 competitor</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                <div className="text-lg font-black text-cyan-300 mb-4 mt-6">🌐 NETWORK OPTIONS</div>
+                <div className="grid grid-cols-4 gap-4">
+                  <Hoverable id="net-nvlink">
+                    <div className="bg-emerald-900/50 border border-emerald-500 rounded-lg p-3">
+                      <div className="text-emerald-300 font-bold text-sm">NVLink 4.0</div>
+                      <div className="text-emerald-100 text-xs">900 GB/s • Intra-node</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="net-infiniband">
+                    <div className="bg-sky-900/50 border border-sky-500 rounded-lg p-3">
+                      <div className="text-sky-300 font-bold text-sm">InfiniBand NDR</div>
+                      <div className="text-sky-100 text-xs">400 Gbps • ~1μs latency</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="net-roce">
+                    <div className="bg-amber-900/50 border border-amber-500 rounded-lg p-3">
+                      <div className="text-amber-300 font-bold text-sm">RoCE v2</div>
+                      <div className="text-amber-100 text-xs">100-400 Gbps • Cheaper</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="net-ethernet">
+                    <div className="bg-slate-700/50 border border-slate-500 rounded-lg p-3">
+                      <div className="text-slate-300 font-bold text-sm">Ethernet</div>
+                      <div className="text-slate-100 text-xs">100 Gbps • Data only</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-cyan-400 to-purple-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: ENVIRONMENT SETUP */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">0.2 ENVIRONMENT & CONFIG</h2>
+                  <p className="text-purple-200/80">Reproducibility starts here — pin EVERYTHING</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Environment */}
+                <div className="bg-slate-900/80 border-2 border-purple-500/50 rounded-xl p-6">
+                  <div className="text-lg font-black text-purple-300 mb-4">📦 ENVIRONMENT</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Hoverable id="env-framework">
+                      <div className="bg-purple-900/50 border border-purple-400 rounded-lg p-3">
+                        <div className="text-purple-200 font-bold text-sm">Framework Versions</div>
+                        <div className="text-purple-100/70 text-xs mt-1">torch==2.2.1+cu121</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="env-cuda">
+                      <div className="bg-green-900/50 border border-green-400 rounded-lg p-3">
+                        <div className="text-green-200 font-bold text-sm">CUDA / ROCm</div>
+                        <div className="text-green-100/70 text-xs mt-1">CUDA 12.1 + cuDNN 8.9</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="env-container">
+                      <div className="bg-blue-900/50 border border-blue-400 rounded-lg p-3">
+                        <div className="text-blue-200 font-bold text-sm">Docker / Singularity</div>
+                        <div className="text-blue-100/70 text-xs mt-1">Immutable images</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="env-seeds">
+                      <div className="bg-orange-900/50 border border-orange-400 rounded-lg p-3">
+                        <div className="text-orange-200 font-bold text-sm">Random Seeds</div>
+                        <div className="text-orange-100/70 text-xs mt-1">torch, np, random</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Configuration */}
+                <div className="bg-slate-900/80 border-2 border-pink-500/50 rounded-xl p-6">
+                  <div className="text-lg font-black text-pink-300 mb-4">⚙️ CONFIGURATION</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Hoverable id="config-model">
+                      <div className="bg-pink-900/50 border border-pink-400 rounded-lg p-3">
+                        <div className="text-pink-200 font-bold text-sm">Model Architecture</div>
+                        <div className="text-pink-100/70 text-xs mt-1">layers, heads, hidden_dim</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="config-training">
+                      <div className="bg-cyan-900/50 border border-cyan-400 rounded-lg p-3">
+                        <div className="text-cyan-200 font-bold text-sm">Training Params</div>
+                        <div className="text-cyan-100/70 text-xs mt-1">LR, batch_size, steps</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="config-distributed">
+                      <div className="bg-yellow-900/50 border border-yellow-400 rounded-lg p-3">
+                        <div className="text-yellow-200 font-bold text-sm">Distributed Config</div>
+                        <div className="text-yellow-100/70 text-xs mt-1">DP, TP, PP degrees</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="config-checkpoint">
+                      <div className="bg-red-900/50 border border-red-400 rounded-lg p-3">
+                        <div className="text-red-200 font-bold text-sm">Checkpoint Policy</div>
+                        <div className="text-red-100/70 text-xs mt-1">interval, async, sharded</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-purple-400 to-orange-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: DATA ACQUISITION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">0.3 DATA ACQUISITION</h2>
+                  <p className="text-orange-200/80">Raw data sourcing — quality here dominates model quality</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-4">
+                <Hoverable id="data-web">
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-700 border-2 border-blue-400 shadow-lg">
+                    <div className="text-2xl mb-2">🌐</div>
+                    <div className="text-lg font-black text-white">Web Crawls</div>
+                    <div className="text-blue-200 text-sm mt-1">Common Crawl</div>
+                    <div className="text-blue-100/70 text-xs mt-2">250B+ pages</div>
+                    <div className="text-yellow-300 text-xs">60% of mix</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="data-books">
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-purple-600 to-violet-700 border-2 border-purple-400 shadow-lg">
+                    <div className="text-2xl mb-2">📚</div>
+                    <div className="text-lg font-black text-white">Books & Papers</div>
+                    <div className="text-purple-200 text-sm mt-1">arXiv, PubMed</div>
+                    <div className="text-purple-100/70 text-xs mt-2">High quality</div>
+                    <div className="text-yellow-300 text-xs">15% of mix</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="data-code">
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-green-600 to-emerald-700 border-2 border-green-400 shadow-lg">
+                    <div className="text-2xl mb-2">💻</div>
+                    <div className="text-lg font-black text-white">Code</div>
+                    <div className="text-green-200 text-sm mt-1">GitHub, Stack</div>
+                    <div className="text-green-100/70 text-xs mt-2">The Stack: 6TB</div>
+                    <div className="text-yellow-300 text-xs">15% of mix</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="data-synthetic">
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-pink-600 to-rose-700 border-2 border-pink-400 shadow-lg">
+                    <div className="text-2xl mb-2">🤖</div>
+                    <div className="text-lg font-black text-white">Synthetic</div>
+                    <div className="text-pink-200 text-sm mt-1">Model-generated</div>
+                    <div className="text-pink-100/70 text-xs mt-2">Math, reasoning</div>
+                    <div className="text-yellow-300 text-xs">Growing use</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="data-licensed">
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-amber-600 to-orange-700 border-2 border-amber-400 shadow-lg">
+                    <div className="text-2xl mb-2">📜</div>
+                    <div className="text-lg font-black text-white">Licensed</div>
+                    <div className="text-amber-200 text-sm mt-1">News, academic</div>
+                    <div className="text-amber-100/70 text-xs mt-2">Clear legal</div>
+                    <div className="text-yellow-300 text-xs">Premium $$$</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-orange-400 to-red-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: DATA CLEANING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-pink-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">0.4 DATA CLEANING</h2>
+                  <p className="text-red-200/80">Filter, deduplicate, and balance — 80%+ of raw data is discarded</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-6 gap-3">
+                <Hoverable id="clean-dedup">
+                  <div className="p-4 rounded-xl bg-red-900/60 border-2 border-red-400">
+                    <div className="text-xl mb-1">🔄</div>
+                    <div className="font-bold text-red-200">Deduplication</div>
+                    <div className="text-red-100/70 text-xs mt-1">MinHash + LSH</div>
+                    <div className="text-yellow-300 text-xs mt-1">-60% data</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clean-langid">
+                  <div className="p-4 rounded-xl bg-blue-900/60 border-2 border-blue-400">
+                    <div className="text-xl mb-1">🌍</div>
+                    <div className="font-bold text-blue-200">Language ID</div>
+                    <div className="text-blue-100/70 text-xs mt-1">fastText</div>
+                    <div className="text-yellow-300 text-xs mt-1">&gt;0.95 score</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clean-quality">
+                  <div className="p-4 rounded-xl bg-purple-900/60 border-2 border-purple-400">
+                    <div className="text-xl mb-1">⭐</div>
+                    <div className="font-bold text-purple-200">Quality Score</div>
+                    <div className="text-purple-100/70 text-xs mt-1">Perplexity filter</div>
+                    <div className="text-yellow-300 text-xs mt-1">&lt;1000 ppl</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clean-pii">
+                  <div className="p-4 rounded-xl bg-green-900/60 border-2 border-green-400">
+                    <div className="text-xl mb-1">🔒</div>
+                    <div className="font-bold text-green-200">PII Removal</div>
+                    <div className="text-green-100/70 text-xs mt-1">Regex + NER</div>
+                    <div className="text-yellow-300 text-xs mt-1">GDPR req</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clean-toxic">
+                  <div className="p-4 rounded-xl bg-orange-900/60 border-2 border-orange-400">
+                    <div className="text-xl mb-1">⚠️</div>
+                    <div className="font-bold text-orange-200">Toxicity Filter</div>
+                    <div className="text-orange-100/70 text-xs mt-1">Classifiers</div>
+                    <div className="text-yellow-300 text-xs mt-1">Balance!</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clean-balance">
+                  <div className="p-4 rounded-xl bg-cyan-900/60 border-2 border-cyan-400">
+                    <div className="text-xl mb-1">⚖️</div>
+                    <div className="font-bold text-cyan-200">Domain Balance</div>
+                    <div className="text-cyan-100/70 text-xs mt-1">Mix ratios</div>
+                    <div className="text-yellow-300 text-xs mt-1">Curated</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Processing Pipeline Visual */}
+              <div className="mt-6 bg-slate-900/80 border-2 border-red-500/30 rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                  <div className="text-center">
+                    <div className="text-4xl font-black text-red-400">100TB</div>
+                    <div className="text-red-200 text-sm">Raw Web Data</div>
+                  </div>
+                  <div className="flex-1 h-2 mx-4 bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 rounded-full" />
+                  <div className="text-center">
+                    <div className="text-4xl font-black text-green-400">15TB</div>
+                    <div className="text-green-200 text-sm">Clean Tokens</div>
+                  </div>
+                </div>
+                <div className="text-center mt-4 text-slate-400 text-sm">
+                  85% filtered out through deduplication, quality filtering, and content moderation
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-red-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 5: TOKENIZATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-teal-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">0.5 TOKENIZATION</h2>
+                  <p className="text-green-200/80">Text → tokens → binary files. Tokenize once, train forever.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="token-algo">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-green-600 to-emerald-700 border-2 border-green-400">
+                    <div className="text-xl font-black text-white mb-2">🔤 Algorithm</div>
+                    <div className="space-y-1">
+                      <div className="text-green-200 text-sm">• BPE (GPT-style)</div>
+                      <div className="text-green-200 text-sm">• SentencePiece</div>
+                      <div className="text-green-200 text-sm">• Unigram (T5)</div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="token-vocab">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-teal-600 to-cyan-700 border-2 border-teal-400">
+                    <div className="text-xl font-black text-white mb-2">📖 Vocab Size</div>
+                    <div className="space-y-1">
+                      <div className="text-teal-200 text-sm">• GPT-2: 50K</div>
+                      <div className="text-teal-200 text-sm">• LLaMA: 32K</div>
+                      <div className="text-teal-200 text-sm">• Gemini: 256K</div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="token-special">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 border-2 border-blue-400">
+                    <div className="text-xl font-black text-white mb-2">✨ Special Tokens</div>
+                    <div className="space-y-1">
+                      <div className="text-blue-200 text-sm">• &lt;bos&gt; &lt;eos&gt; &lt;pad&gt;</div>
+                      <div className="text-blue-200 text-sm">• &lt;user&gt; &lt;assistant&gt;</div>
+                      <div className="text-blue-200 text-sm">• &lt;tool_call&gt;</div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="token-serialize">
+                  <div className="p-5 rounded-xl bg-gradient-to-br from-purple-600 to-violet-700 border-2 border-purple-400">
+                    <div className="text-xl font-black text-white mb-2">💾 Serialization</div>
+                    <div className="space-y-1">
+                      <div className="text-purple-200 text-sm">• .bin + .idx format</div>
+                      <div className="text-purple-200 text-sm">• Memory-mapped</div>
+                      <div className="text-purple-200 text-sm">• WebDataset shards</div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-12 bg-gradient-to-b from-green-400 to-yellow-400 rounded-full" />
+            </div>
+
+            {/* SECTION 6: DATALOADER */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  6
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">0.6 DATALOADER</h2>
+                  <p className="text-yellow-200/80">Feed data fast enough to saturate GPUs — often the bottleneck</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="loader-workers">
+                  <div className="p-5 rounded-xl bg-yellow-900/60 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">👷 Workers</div>
+                    <div className="text-yellow-100/80 text-sm">4-16 per GPU</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">Parallel batch prep</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="loader-prefetch">
+                  <div className="p-5 rounded-xl bg-amber-900/60 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">📥 Prefetch</div>
+                    <div className="text-amber-100/80 text-sm">2-4 batches ahead</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Hide I/O latency</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="loader-shuffle">
+                  <div className="p-5 rounded-xl bg-orange-900/60 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">🔀 Shuffle</div>
+                    <div className="text-orange-100/80 text-sm">Deterministic</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Seeded for resume</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="loader-distributed">
+                  <div className="p-5 rounded-xl bg-red-900/60 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">🌐 Distributed</div>
+                    <div className="text-red-100/80 text-sm">Unique per rank</div>
+                    <div className="text-red-100/60 text-xs mt-2">No overlap</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Throughput Target */}
+              <div className="mt-6 bg-slate-900/80 border-2 border-yellow-500/30 rounded-xl p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-yellow-300 font-bold">Target Throughput</div>
+                    <div className="text-yellow-100/70 text-sm">Data pipeline must deliver tokens faster than GPU consumes</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-4xl font-black text-yellow-400">500K+</div>
+                    <div className="text-yellow-200 text-sm">tokens/sec per GPU</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Tools Section */}
+            <section className="mb-10">
+              <div className="text-xl font-black text-slate-300 mb-4">🛠️ COMMON TOOLS</div>
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="tool-spark">
+                  <div className="p-4 rounded-lg bg-orange-900/40 border border-orange-500">
+                    <div className="text-orange-300 font-bold">Apache Spark</div>
+                    <div className="text-orange-100/60 text-xs">PB-scale processing</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="tool-dask">
+                  <div className="p-4 rounded-lg bg-yellow-900/40 border border-yellow-500">
+                    <div className="text-yellow-300 font-bold">Dask</div>
+                    <div className="text-yellow-100/60 text-xs">Python-native parallel</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="tool-ray">
+                  <div className="p-4 rounded-lg bg-blue-900/40 border border-blue-500">
+                    <div className="text-blue-300 font-bold">Ray Data</div>
+                    <div className="text-blue-100/60 text-xs">ML-focused distributed</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="tool-wandb">
+                  <div className="p-4 rounded-lg bg-purple-900/40 border border-purple-500">
+                    <div className="text-purple-300 font-bold">Weights & Biases</div>
+                    <div className="text-purple-100/60 text-xs">Experiment tracking</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-cyan-900/50 to-purple-900/50 border-2 border-cyan-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                Stage 0 Complete → Ready for Training
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto">
+                With cluster provisioned, environment pinned, data cleaned and tokenized, and DataLoader configured,
+                the system is ready to begin the training loop. Next: <span className="text-cyan-300 font-bold">Model Initialization</span>.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 0: Data Pipeline & Infrastructure • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">Cluster → Environment → Data → Tokenize → DataLoader → Ready</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DataPipelineStage />);
+  </script>
+</body>
+</html>

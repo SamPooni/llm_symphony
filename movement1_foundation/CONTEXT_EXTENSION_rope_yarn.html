@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context Extension - RoPE Scaling, YaRN & Beyond</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function ContextExtension() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // The Problem
+        'problem-overview': {
+          title: '❓ THE CONTEXT LENGTH PROBLEM',
+          content: 'Models trained on 4K context struggle with longer sequences. Position encodings haven\'t seen higher positions.',
+          symptoms: 'Perplexity spikes at trained length\nRepetitive or incoherent output\nModel "forgets" early context',
+          why: 'Position encoding out-of-distribution\nAttention patterns break down\nNo training signal for long range'
+        },
+        'problem-ood': {
+          title: '📍 OUT-OF-DISTRIBUTION POSITIONS',
+          content: 'During training, model only sees positions 0 to L. At inference, position L+1 is completely new.',
+          example: 'Trained on 4K:\nSeen: positions 0-4095\nNew: positions 4096+ = OOD\nRotation angles never seen!',
+          impact: 'Attention scores become garbage\nOutput quality degrades rapidly\nNot just gradual decline'
+        },
+
+        // RoPE Basics
+        'rope-basics': {
+          title: '🔄 RoPE REFRESHER',
+          content: 'Rotary Position Embedding: encode position by rotating Q and K vectors.',
+          formula: 'RoPE(x, pos) = x × R(pos × θ)\nR = rotation matrix\nθ = frequency for each dim pair',
+          property: 'Relative position preserved:\nq·k depends on (pos_q - pos_k)\nNot absolute positions'
+        },
+        'rope-frequencies': {
+          title: '📊 RoPE FREQUENCIES',
+          content: 'Different dimensions rotate at different speeds (frequencies).',
+          formula: 'θ_i = base^(-2i/d)\nbase = 10000 (standard)\ni = dimension index (0 to d/2)',
+          intuition: 'Low dims: Fast rotation (high freq)\nHigh dims: Slow rotation (low freq)\nSpectrum of "clocks"'
+        },
+
+        // Position Interpolation
+        'pi-concept': {
+          title: '📏 POSITION INTERPOLATION (PI)',
+          content: 'Scale positions down to fit within trained range. Simple but effective.',
+          formula: 'pos_new = pos × (L_train / L_target)\nExample: 4K→8K means pos/2\nPosition 8000 → 4000',
+          tradeoff: 'Pro: Simple, no retraining\nCon: Loses fine-grained position info\nCon: Needs some fine-tuning'
+        },
+        'pi-finetune': {
+          title: '🔧 PI Fine-tuning',
+          content: 'Brief fine-tuning after interpolation improves quality significantly.',
+          recipe: '~1000 steps fine-tuning\nOn long context data\nLow learning rate',
+          result: 'Much better than raw interpolation\nStill cheaper than full training\nCode LLaMA used this'
+        },
+
+        // NTK-aware
+        'ntk-concept': {
+          title: '🧮 NTK-AWARE INTERPOLATION',
+          content: 'Scale the base frequency instead of positions. Better preserves high-frequency information.',
+          insight: 'High frequencies more important for local\nLow frequencies for global position\nNTK: Scale base, not positions',
+          formula: 'base_new = base × scale^(d/(d-2))\nscale = L_target / L_train\nAffects θ_i differently per dim'
+        },
+        'ntk-alpha': {
+          title: '📐 NTK Alpha Parameter',
+          content: 'Controls how aggressively to scale. Balance between interpolation and extrapolation.',
+          formula: 'Effective scale varies by dimension\nLow dims: Less scaling (preserve local)\nHigh dims: More scaling (extend global)',
+          typical: 'alpha = 1: Pure PI\nalpha = inf: Pure extrapolation\nalpha = 2-4: Good middle ground'
+        },
+
+        // YaRN
+        'yarn-concept': {
+          title: '🧶 YaRN (Yet another RoPE extensioN)',
+          content: 'Combines NTK-aware scaling with attention scaling. State-of-the-art for extension.',
+          components: '1. NTK-aware interpolation\n2. Attention temperature scaling\n3. Per-dimension interpolation',
+          benefit: 'Best quality at long contexts\nWorks with minimal fine-tuning\nUsed by many open models'
+        },
+        'yarn-attention': {
+          title: '🌡️ YaRN Attention Scaling',
+          content: 'Scale attention logits to compensate for position scaling effects.',
+          formula: 'attn = softmax(QK^T / (√d × t))\nt = temperature factor\nCompensates for interpolation',
+          why: 'Interpolation changes attention entropy\nScaling restores original distribution\nCritical for quality'
+        },
+        'yarn-ramp': {
+          title: '📈 YaRN Dimension Ramp',
+          content: 'Different dimensions get different interpolation factors. Smooth transition.',
+          mechanism: 'Low dims (high freq): No interpolation\nHigh dims (low freq): Full interpolation\nMiddle: Smooth ramp',
+          benefit: 'Preserves local position info\nExtends global position range\nBest of both worlds'
+        },
+
+        // Dynamic
+        'dynamic-concept': {
+          title: '🔄 DYNAMIC NTK',
+          content: 'Automatically adjust scaling based on current sequence length. No fixed extension factor.',
+          mechanism: 'At inference:\nIf seq_len > train_len:\n  scale = seq_len / train_len\n  Apply NTK scaling',
+          benefit: 'No predetermined max length\nGraceful degradation\nUsed in many implementations'
+        },
+        'dynamic-scaling': {
+          title: '📊 Dynamic Scaling Curve',
+          content: 'Scaling factor increases smoothly as sequence gets longer.',
+          behavior: '0-4K: No scaling (trained range)\n4K-8K: Gradual increase\n8K+: Continues scaling\nNo cliff!',
+          implementation: 'Mistral, LLaMA use variants\nFrequency scaling per position\nSmooth extrapolation'
+        },
+
+        // Comparison
+        'compare-methods': {
+          title: '📊 METHOD COMPARISON',
+          content: 'Different approaches have different quality/complexity tradeoffs.',
+          ranking: 'Quality (best to worst):\n1. YaRN (SOTA)\n2. NTK-aware\n3. Position Interpolation\n4. Raw extrapolation',
+          complexity: 'Complexity:\nRaw: None\nPI: Minimal\nNTK: Moderate\nYaRN: Most complex'
+        },
+        'compare-models': {
+          title: '🔷 MODEL IMPLEMENTATIONS',
+          content: 'How different models extend context.',
+          examples: 'LLaMA 2 Long: PI + fine-tune\nMistral: Sliding window + NTK\nYi-34B: YaRN variant\nClaude: Unknown (long native)'
+        },
+
+        // Sliding Window
+        'sliding-concept': {
+          title: '🪟 SLIDING WINDOW ATTENTION',
+          content: 'Alternative approach: Only attend to recent W tokens. Linear memory.',
+          mechanism: 'Each token attends to W previous\nW = 4096 in Mistral\nOlder context "falls off"',
+          tradeoff: 'Pro: Infinite length possible\nPro: Linear memory\nCon: No direct long-range attention'
+        },
+        'sliding-layered': {
+          title: '📚 Layered Attention',
+          content: 'Information propagates through layers, enabling indirect long-range connections.',
+          mechanism: 'Layer 1: Sees W tokens\nLayer 2: Sees 2W (via layer 1)\nLayer N: Sees N×W indirectly',
+          benefit: 'Long range via hops\nNot as good as direct attention\nBut much cheaper'
+        },
+
+        // Memory & Compute
+        'memory-kv': {
+          title: '💾 KV CACHE SCALING',
+          content: 'Longer context = proportionally more memory for KV cache.',
+          formula: 'KV memory ∝ seq_len × layers × heads × head_dim\n4K→128K = 32× more memory!',
+          solutions: 'KV cache quantization\nPaged attention\nOffloading\nCompression'
+        },
+        'memory-attention': {
+          title: '⚡ ATTENTION COMPLEXITY',
+          content: 'Standard attention is O(n²). Long context hits this hard.',
+          cost: '4K: 16M attention scores\n32K: 1B attention scores\n128K: 16B attention scores',
+          solutions: 'FlashAttention (memory)\nSparse attention (compute)\nSliding window (both)'
+        },
+
+        // Practical
+        'practical-finetune': {
+          title: '🔧 FINE-TUNING FOR LENGTH',
+          content: 'How to adapt a model for longer context.',
+          recipe: '1. Apply position scaling method\n2. Gather long-context data\n3. Fine-tune 1K-10K steps\n4. Low LR (1e-5 to 5e-5)',
+          data: 'Long documents\nMulti-turn conversations\nCode repositories\nBook chapters'
+        },
+        'practical-eval': {
+          title: '📊 EVALUATING LENGTH',
+          content: 'How to test if context extension works.',
+          benchmarks: 'Perplexity vs position\nNeedle-in-haystack\nLong document QA\nPasskey retrieval',
+          watch: 'Perplexity should stay flat\nRetrieval accuracy vs distance\nQuality on real tasks'
+        },
+
+        // Emerging
+        'emerging-native': {
+          title: '🌟 NATIVE LONG CONTEXT',
+          content: 'Train from scratch with long context. Expensive but best quality.',
+          examples: 'Claude: 200K native\nGPT-4 Turbo: 128K\nGemini: 1M+ context',
+          cost: 'Much more expensive to train\nRequires long-context data\nBest quality result'
+        },
+        'emerging-infinite': {
+          title: '♾️ INFINITE CONTEXT?',
+          content: 'Research into unbounded context via memory/retrieval.',
+          approaches: 'RAG: External retrieval\nMemory tokens: Compressive\nRecurrence: RNN-style\nInfini-attention: Google',
+          status: 'Active research area\nNo clear winner yet\nTrade quality vs length'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.components && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">COMPONENTS</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.components}</pre>
+              </div>
+            )}
+            {t.examples && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.examples}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.tradeoff && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⚖️ </span>{t.tradeoff}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-indigo-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-violet-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-purple-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-indigo-600/30 border border-indigo-400 rounded-full mb-6">
+                <span className="text-indigo-300 font-bold">CONTEXT EXTENSION</span>
+                <span className="text-white">•</span>
+                <span className="text-indigo-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400">
+                Extending Context Length
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-indigo-300 font-bold">4K → 128K+</span> — RoPE scaling, YaRN, and beyond.
+              </p>
+            </header>
+
+            {/* Context Length Visual */}
+            <div className="bg-slate-900/80 border border-indigo-500/30 rounded-xl p-6 mb-12">
+              <div className="text-center mb-4">
+                <div className="text-lg font-black text-indigo-300">📏 Context Length Evolution</div>
+              </div>
+              <div className="flex items-end justify-center gap-4 h-32">
+                {[
+                  { label: 'GPT-3', ctx: '2K', height: 10, color: 'slate' },
+                  { label: 'LLaMA', ctx: '4K', height: 20, color: 'slate' },
+                  { label: 'LLaMA 2', ctx: '4K', height: 20, color: 'blue' },
+                  { label: 'Mistral', ctx: '32K', height: 50, color: 'purple' },
+                  { label: 'GPT-4T', ctx: '128K', height: 80, color: 'green' },
+                  { label: 'Claude', ctx: '200K', height: 95, color: 'orange' },
+                  { label: 'Gemini', ctx: '1M+', height: 100, color: 'cyan' },
+                ].map((m, i) => (
+                  <div key={i} className="text-center">
+                    <div 
+                      className={`w-12 bg-${m.color}-500/60 border border-${m.color}-400 rounded-t-lg mx-auto mb-2`}
+                      style={{ height: `${m.height}%` }}
+                    />
+                    <div className="text-white/80 text-xs font-bold">{m.label}</div>
+                    <div className="text-white/50 text-xs">{m.ctx}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SECTION 1: THE PROBLEM */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">THE PROBLEM</h2>
+                  <p className="text-red-200/80">Why models fail beyond training length</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <Hoverable id="problem-overview">
+                  <div className="p-5 rounded-xl bg-red-900/40 border-2 border-red-500">
+                    <div className="text-xl font-black text-red-200 mb-3">❓ The Challenge</div>
+                    <div className="text-red-100/80 text-sm">Models trained on 4K context struggle beyond that length. Position encodings are out-of-distribution.</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="problem-ood">
+                  <div className="p-5 rounded-xl bg-rose-900/40 border-2 border-rose-500">
+                    <div className="text-xl font-black text-rose-200 mb-3">📍 OOD Positions</div>
+                    <div className="text-rose-100/80 text-sm">Position 4096+ was never seen during training. Rotation angles become garbage.</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 2: RoPE BASICS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">RoPE FOUNDATIONS</h2>
+                  <p className="text-blue-200/80">Understanding rotary position embeddings</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <Hoverable id="rope-basics">
+                  <div className="p-5 rounded-xl bg-blue-900/40 border-2 border-blue-500">
+                    <div className="text-xl font-black text-blue-200 mb-3">🔄 RoPE Concept</div>
+                    <div className="text-blue-100/80 text-sm mb-3">Encode position by rotating Q and K vectors. Relative position preserved in dot product.</div>
+                    <div className="bg-black/30 rounded-lg p-3 font-mono text-xs text-cyan-300">
+                      RoPE(x, pos) = x × R(pos × θ)
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="rope-frequencies">
+                  <div className="p-5 rounded-xl bg-cyan-900/40 border-2 border-cyan-500">
+                    <div className="text-xl font-black text-cyan-200 mb-3">📊 Frequencies</div>
+                    <div className="text-cyan-100/80 text-sm mb-3">Different dimensions rotate at different speeds. Low dims = high freq, high dims = low freq.</div>
+                    <div className="bg-black/30 rounded-lg p-3 font-mono text-xs text-cyan-300">
+                      θ_i = 10000^(-2i/d)
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 3: EXTENSION METHODS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">EXTENSION METHODS</h2>
+                  <p className="text-purple-200/80">Position Interpolation → NTK → YaRN</p>
+                </div>
+              </div>
+
+              {/* Methods Comparison */}
+              <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-6 mb-6">
+                <div className="flex items-center justify-between gap-4">
+                  <Hoverable id="pi-concept">
+                    <div className="bg-purple-900/50 border border-purple-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-purple-200 font-bold">📏 Position Interpolation</div>
+                      <div className="text-purple-100/60 text-xs mt-1">Scale positions down</div>
+                      <div className="text-purple-300 text-xs mt-2">pos = pos × (L_old/L_new)</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-purple-400 text-2xl">→</div>
+
+                  <Hoverable id="ntk-concept">
+                    <div className="bg-violet-900/50 border border-violet-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-violet-200 font-bold">🧮 NTK-aware</div>
+                      <div className="text-violet-100/60 text-xs mt-1">Scale base frequency</div>
+                      <div className="text-violet-300 text-xs mt-2">base = base × scale^α</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-purple-400 text-2xl">→</div>
+
+                  <Hoverable id="yarn-concept">
+                    <div className="bg-indigo-900/50 border-2 border-indigo-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-indigo-200 font-bold">🧶 YaRN ✓</div>
+                      <div className="text-indigo-100/60 text-xs mt-1">NTK + attention scaling</div>
+                      <div className="text-green-400 text-xs mt-2">State-of-the-art</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+
+              {/* Method Details */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-3">
+                  <div className="text-purple-300 font-bold text-center mb-2">Position Interpolation</div>
+                  <Hoverable id="pi-concept">
+                    <div className="bg-purple-900/30 border border-purple-500 rounded-lg p-3">
+                      <div className="text-purple-200 font-bold text-sm">📏 Concept</div>
+                      <div className="text-purple-100/60 text-xs">Compress to trained range</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="pi-finetune">
+                    <div className="bg-purple-900/30 border border-purple-500 rounded-lg p-3">
+                      <div className="text-purple-200 font-bold text-sm">🔧 Fine-tune</div>
+                      <div className="text-purple-100/60 text-xs">~1K steps improves quality</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-violet-300 font-bold text-center mb-2">NTK-aware</div>
+                  <Hoverable id="ntk-concept">
+                    <div className="bg-violet-900/30 border border-violet-500 rounded-lg p-3">
+                      <div className="text-violet-200 font-bold text-sm">🧮 Concept</div>
+                      <div className="text-violet-100/60 text-xs">Scale base, not positions</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="ntk-alpha">
+                    <div className="bg-violet-900/30 border border-violet-500 rounded-lg p-3">
+                      <div className="text-violet-200 font-bold text-sm">📐 Alpha</div>
+                      <div className="text-violet-100/60 text-xs">Control scaling strength</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-indigo-300 font-bold text-center mb-2">YaRN</div>
+                  <Hoverable id="yarn-attention">
+                    <div className="bg-indigo-900/30 border border-indigo-500 rounded-lg p-3">
+                      <div className="text-indigo-200 font-bold text-sm">🌡️ Attention Scaling</div>
+                      <div className="text-indigo-100/60 text-xs">Temperature compensation</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="yarn-ramp">
+                    <div className="bg-indigo-900/30 border border-indigo-500 rounded-lg p-3">
+                      <div className="text-indigo-200 font-bold text-sm">📈 Dimension Ramp</div>
+                      <div className="text-indigo-100/60 text-xs">Per-dim interpolation</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 4: DYNAMIC SCALING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">DYNAMIC SCALING</h2>
+                  <p className="text-green-200/80">Automatic adjustment at inference</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="dynamic-concept">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-xl font-black text-green-200 mb-2">🔄 Dynamic NTK</div>
+                    <div className="text-green-100/80 text-sm">Automatically scale based on current sequence length</div>
+                    <div className="text-green-100/60 text-xs mt-2">No fixed max length</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="dynamic-scaling">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">📊 Smooth Scaling</div>
+                    <div className="text-emerald-100/80 text-sm">Gradual increase as sequence grows</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">No cliff at trained length</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 5: SLIDING WINDOW */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">SLIDING WINDOW</h2>
+                  <p className="text-orange-200/80">Alternative: Local attention only</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="sliding-concept">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">🪟 Concept</div>
+                    <div className="text-orange-100/80 text-sm">Only attend to last W tokens</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Mistral: W = 4096</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="sliding-layered">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">📚 Layer Propagation</div>
+                    <div className="text-amber-100/80 text-sm">Info spreads through layers</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Indirect long-range via hops</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 6: MEMORY & COMPUTE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  6
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">MEMORY & COMPUTE</h2>
+                  <p className="text-cyan-200/80">The cost of long context</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="memory-kv">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">💾 KV Cache</div>
+                    <div className="text-cyan-100/80 text-sm">Memory grows linearly with length</div>
+                    <div className="text-cyan-300 text-xs mt-2">4K→128K = 32× more memory</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="memory-attention">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">⚡ Attention O(n²)</div>
+                    <div className="text-blue-100/80 text-sm">Compute grows quadratically</div>
+                    <div className="text-blue-300 text-xs mt-2">4K→128K = 1024× more compute</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 7: COMPARISON */}
+            <section className="mb-10">
+              <Hoverable id="compare-methods">
+                <div className="bg-slate-900/60 border border-indigo-500/30 rounded-xl p-6">
+                  <div className="text-lg font-black text-indigo-300 mb-4 text-center">📊 METHOD COMPARISON</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-slate-400 border-b border-slate-700">
+                          <th className="text-left p-2">Method</th>
+                          <th className="text-center p-2">Quality</th>
+                          <th className="text-center p-2">Complexity</th>
+                          <th className="text-center p-2">Fine-tune</th>
+                          <th className="text-center p-2">Used By</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-slate-300">
+                        <tr className="border-b border-slate-800">
+                          <td className="p-2 font-bold text-purple-300">Position Interpolation</td>
+                          <td className="text-center p-2">⭐⭐⭐</td>
+                          <td className="text-center p-2">Low</td>
+                          <td className="text-center p-2">Recommended</td>
+                          <td className="text-center p-2">Code LLaMA</td>
+                        </tr>
+                        <tr className="border-b border-slate-800">
+                          <td className="p-2 font-bold text-violet-300">NTK-aware</td>
+                          <td className="text-center p-2">⭐⭐⭐⭐</td>
+                          <td className="text-center p-2">Medium</td>
+                          <td className="text-center p-2">Optional</td>
+                          <td className="text-center p-2">Many OSS</td>
+                        </tr>
+                        <tr className="border-b border-slate-800">
+                          <td className="p-2 font-bold text-indigo-300">YaRN</td>
+                          <td className="text-center p-2">⭐⭐⭐⭐⭐</td>
+                          <td className="text-center p-2">High</td>
+                          <td className="text-center p-2">Minimal</td>
+                          <td className="text-center p-2">Yi, Qwen</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2 font-bold text-orange-300">Sliding Window</td>
+                          <td className="text-center p-2">⭐⭐⭐</td>
+                          <td className="text-center p-2">Low</td>
+                          <td className="text-center p-2">Native</td>
+                          <td className="text-center p-2">Mistral</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </Hoverable>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-indigo-900/50 to-violet-900/50 border-2 border-indigo-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                📏 CONTEXT EXTENSION SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Extending context requires handling out-of-distribution positions.
+                YaRN provides best quality, sliding window enables infinite length, dynamic scaling offers flexibility.
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">PI</div>
+                  <div className="text-slate-400">Simple scaling</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-violet-300 font-bold">NTK</div>
+                  <div className="text-slate-400">Frequency scaling</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-indigo-300 font-bold">YaRN</div>
+                  <div className="text-slate-400">SOTA quality</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">Sliding</div>
+                  <div className="text-slate-400">Infinite length</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Context Extension • RoPE Scaling • YaRN • Sliding Window</p>
+              <p className="text-xs mt-1 text-slate-600">4K → 128K → 1M+ context lengths</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ContextExtension />);
+  </script>
+</body>
+</html>

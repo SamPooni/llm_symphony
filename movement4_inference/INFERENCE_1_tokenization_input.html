@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inference Stage 1: Tokenization & Input - Inference Pipeline</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function TokenizationStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-vocab': {
+          title: '📚 VOCABULARY SIZE',
+          content: 'Number of unique tokens the model knows. Larger vocab = better compression but more memory.',
+          sizes: 'GPT-2: 50,257\nLLaMA: 32,000\nGPT-4: ~100,000\nClaude: ~100,000+',
+          tradeoff: 'Larger vocab:\n+ Better compression\n+ Fewer tokens per text\n- Larger embedding table\n- More compute in LM head'
+        },
+        'metric-compression': {
+          title: '📊 COMPRESSION RATIO',
+          content: 'Characters per token. Higher = more efficient. Varies by language and content type.',
+          typical: 'English: ~4 chars/token\nCode: ~3 chars/token\nChinese: ~1.5 chars/token\nRare languages: ~2 chars/token',
+          impact: 'Better compression:\n→ Longer effective context\n→ Lower cost per character\n→ Faster inference'
+        },
+        'metric-latency': {
+          title: '⏱️ TOKENIZATION LATENCY',
+          content: 'Time to convert text to tokens. Usually negligible compared to model inference.',
+          typical: '< 1ms for short prompts\n~10ms for 10K chars\nCPU-bound operation',
+          optimization: 'Rust tokenizers (HuggingFace)\nBatch tokenization\nCaching for repeated prefixes'
+        },
+        'metric-special': {
+          title: '🔖 SPECIAL TOKENS',
+          content: 'Reserved tokens for structure, control, and formatting.',
+          examples: '<|bos|>: Beginning of sequence\n<|eos|>: End of sequence\n<|pad|>: Padding\n<|user|>, <|assistant|>: Chat roles\n<|tool_call|>: Function calling',
+          usage: 'Control generation behavior\nMark conversation structure\nSignal special modes'
+        },
+
+        // Input Processing
+        'input-text': {
+          title: '📝 Raw Text Input',
+          content: 'The original user prompt as a string. May include system prompt, conversation history, etc.',
+          components: 'System prompt: Instructions/persona\nConversation history: Prior turns\nUser message: Current query\nContext: Retrieved documents (RAG)',
+          format: 'Plain text or structured (JSON, XML)\nChat templates vary by model'
+        },
+        'input-template': {
+          title: '💬 Chat Template',
+          content: 'Format conversation into model-specific structure. Different models expect different formats.',
+          examples: 'LLaMA 2:\n[INST] <<SYS>>\\n{system}\\n<</SYS>>\\n{user} [/INST]\n\nChatML:\n<|im_start|>system\\n{system}<|im_end|>\n<|im_start|>user\\n{user}<|im_end|>',
+          importance: 'Wrong template → Bad outputs\nMust match training format\nHuggingFace: tokenizer.apply_chat_template()'
+        },
+        'input-truncation': {
+          title: '✂️ Truncation',
+          content: 'Handle inputs longer than context window. Strategies vary by use case.',
+          strategies: 'Left truncation: Keep recent (chat)\nRight truncation: Keep beginning (docs)\nMiddle truncation: Keep start+end\nSmart: Summarize middle',
+          warning: 'Silent truncation → Lost context\nAlways check token count\nWarn user if truncating'
+        },
+
+        // Tokenization Algorithms
+        'algo-bpe': {
+          title: '🔤 BPE (Byte-Pair Encoding)',
+          content: 'Most common algorithm. Iteratively merge frequent character pairs.',
+          process: '1. Start with character vocab\n2. Count pair frequencies\n3. Merge most frequent pair\n4. Repeat until vocab size reached',
+          example: '"lower" → ["l", "o", "w", "e", "r"]\nMerge "e"+"r" → ["l", "o", "w", "er"]\nMerge "l"+"o" → ["lo", "w", "er"]',
+          used_by: 'GPT-2, GPT-3, GPT-4\nLLaMA, Mistral\nMost modern LLMs'
+        },
+        'algo-sentencepiece': {
+          title: '📦 SentencePiece',
+          content: 'Language-agnostic tokenizer. Treats text as raw bytes, no pre-tokenization.',
+          features: 'Works on any language\nNo whitespace assumptions\nUnigram or BPE mode\nBuilt-in normalization',
+          used_by: 'T5, mT5\nLLaMA (with BPE)\nMultilingual models'
+        },
+        'algo-tiktoken': {
+          title: '⚡ Tiktoken',
+          content: 'OpenAI\'s fast BPE implementation in Rust. Production-optimized.',
+          features: 'Very fast (Rust)\nExact GPT tokenization\nPython bindings\nSpecial token handling',
+          usage: 'tiktoken.encoding_for_model("gpt-4")\nencoding.encode("Hello world")\n→ [9906, 1917]'
+        },
+        'algo-wordpiece': {
+          title: '🧩 WordPiece',
+          content: 'BERT-style tokenization. Similar to BPE but different merge criterion.',
+          difference: 'BPE: Merge most frequent\nWordPiece: Merge by likelihood gain\nUses ## prefix for subwords',
+          example: '"playing" → ["play", "##ing"]\n"unhappiness" → ["un", "##happy", "##ness"]',
+          used_by: 'BERT, DistilBERT\nSome older models\nLess common for LLMs'
+        },
+
+        // Token Types
+        'token-regular': {
+          title: '📝 Regular Tokens',
+          content: 'Normal text tokens representing words, subwords, or characters.',
+          examples: '"Hello" → [15496]\n"world" → [1917]\n"ing" → [278] (subword)',
+          properties: 'Most of vocabulary\nLearned during tokenizer training\nMap to embedding vectors'
+        },
+        'token-special': {
+          title: '🔖 Special Tokens',
+          content: 'Reserved tokens with special meaning. Control model behavior.',
+          types: 'BOS/EOS: Sequence boundaries\nPAD: Batch padding\nUNK: Unknown (rare)\nSEP: Segment separator\nMASK: For masked LM',
+          handling: 'Added by tokenizer automatically\nNot in raw text\nCritical for correct behavior'
+        },
+        'token-byte': {
+          title: '🔢 Byte Fallback',
+          content: 'Handle unknown characters by encoding as raw bytes. Ensures all text is tokenizable.',
+          mechanism: 'Unknown char → UTF-8 bytes → byte tokens\nExample: 你 → [0xe4, 0xbd, 0xa0] → [byte tokens]',
+          benefit: 'No UNK tokens needed\nHandles any Unicode\nGraceful degradation'
+        },
+
+        // Encoding Process
+        'encode-normalize': {
+          title: '🔧 Normalization',
+          content: 'Standardize text before tokenization. Handle Unicode variations.',
+          operations: 'NFKC normalization\nLowercase (optional)\nWhitespace normalization\nAccent handling',
+          example: '"café" → "cafe" (if removing accents)\n"ﬁ" → "fi" (ligature expansion)'
+        },
+        'encode-pretok': {
+          title: '✂️ Pre-tokenization',
+          content: 'Split text into chunks before BPE. Usually on whitespace and punctuation.',
+          rules: 'Split on whitespace\nKeep punctuation separate\nHandle contractions\nLanguage-specific rules',
+          example: '"Hello, world!" → ["Hello", ",", " world", "!"]'
+        },
+        'encode-bpe': {
+          title: '🔄 BPE Encoding',
+          content: 'Apply learned merges to convert pre-tokens to final tokens.',
+          process: 'For each pre-token:\n1. Split to characters\n2. Apply merges in order\n3. Stop when no more merges\n4. Look up token IDs',
+          result: 'List of integer token IDs\nReady for embedding lookup'
+        },
+        'encode-ids': {
+          title: '🔢 Token IDs',
+          content: 'Final integer representation. Index into embedding table.',
+          format: 'List of integers\nRange: [0, vocab_size)\nPadded to sequence length',
+          example: '"Hello world" → [15496, 1917]\nWith BOS: [1, 15496, 1917]'
+        },
+
+        // Attention Mask
+        'mask-concept': {
+          title: '🎭 Attention Mask',
+          content: 'Binary mask indicating which tokens to attend to. Handles padding and causal masking.',
+          values: '1: Attend to this token\n0: Ignore this token (padding)\nUsed in attention computation',
+          shapes: 'Simple: [batch, seq_len]\nCausal: [batch, 1, seq_len, seq_len]\nPer-layer variations possible'
+        },
+        'mask-padding': {
+          title: '📦 Padding Mask',
+          content: 'Mask out padding tokens in batched inference. Different sequences may have different lengths.',
+          mechanism: 'Pad shorter sequences to max length\nMask = 0 for padding positions\nAttention ignores padding',
+          example: 'Seq 1: [1, 2, 3, 0, 0] mask: [1, 1, 1, 0, 0]\nSeq 2: [4, 5, 6, 7, 8] mask: [1, 1, 1, 1, 1]'
+        },
+        'mask-causal': {
+          title: '⬇️ Causal Mask',
+          content: 'Prevent attending to future tokens. Essential for autoregressive generation.',
+          shape: 'Lower triangular matrix\nmask[i,j] = 1 if j ≤ i\nmask[i,j] = 0 if j > i',
+          visualization: '[[1, 0, 0],\n [1, 1, 0],\n [1, 1, 1]]'
+        },
+
+        // Position Information
+        'pos-ids': {
+          title: '📍 Position IDs',
+          content: 'Integer positions for each token. Used by position encoding methods.',
+          format: '[0, 1, 2, 3, ..., seq_len-1]\nOr custom for special cases',
+          usage: 'Input to position embedding\nOr used to compute RoPE\nContinued in generation'
+        },
+        'pos-rope': {
+          title: '🔄 RoPE Preparation',
+          content: 'For RoPE models: precompute rotation frequencies.',
+          precompute: 'freqs = 1 / (base^(2i/d))\ncos_cache, sin_cache for positions\nApplied in attention layers',
+          extension: 'YaRN, NTK for longer contexts\nModify base frequency\nDynamic scaling'
+        },
+
+        // Batching
+        'batch-dynamic': {
+          title: '📦 Dynamic Batching',
+          content: 'Group requests of similar length. Maximizes GPU utilization.',
+          mechanism: 'Incoming requests queued\nGroup by similar length\nPad minimally within batch',
+          benefit: 'Higher throughput\nLower per-request latency\nBetter GPU utilization'
+        },
+        'batch-continuous': {
+          title: '🔄 Continuous Batching',
+          content: 'Add/remove requests from batch dynamically. Don\'t wait for all to finish.',
+          mechanism: 'Request finishes → slot freed\nNew request → fill slot\nNo waiting for slowest',
+          benefit: 'Much better latency\nHigher throughput\nvLLM, TGI use this'
+        },
+
+        // Output
+        'output-tensors': {
+          title: '📤 Output Tensors',
+          content: 'Final prepared inputs for model inference.',
+          contents: 'input_ids: [batch, seq_len] int64\nattention_mask: [batch, seq_len] int64\nposition_ids: [batch, seq_len] int64',
+          ready: 'Moved to GPU\nCorrect dtype\nReady for embedding layer'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.process && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PROCESS</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.process}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.examples && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.examples}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.sizes && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">VOCAB SIZES</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.sizes}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.used_by && (
+              <div className="text-xs text-blue-400 mt-2">
+                <span className="font-bold">📍 Used by: </span>{t.used_by}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-indigo-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-blue-600/30 border border-blue-400 rounded-full mb-6">
+                <span className="text-blue-300 font-bold">INFERENCE STAGE 1</span>
+                <span className="text-white">•</span>
+                <span className="text-blue-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-indigo-400">
+                Tokenization & Input Processing
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-blue-300 font-bold">Text → Token IDs</span> — the first step of inference.
+                <span className="text-cyan-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-vocab">
+                <div className="p-5 rounded-xl bg-blue-600/90 border-2 border-blue-400 shadow-lg shadow-blue-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📚</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">VOCAB SIZE</span>
+                  </div>
+                  <div className="text-3xl font-black text-blue-100">32K-100K</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Typical range</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-compression">
+                <div className="p-5 rounded-xl bg-cyan-600/90 border-2 border-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">COMPRESSION</span>
+                  </div>
+                  <div className="text-3xl font-black text-cyan-100">~4 c/t</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Chars per token (EN)</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-latency">
+                <div className="p-5 rounded-xl bg-indigo-600/90 border-2 border-indigo-400 shadow-lg shadow-indigo-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⏱️</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">LATENCY</span>
+                  </div>
+                  <div className="text-3xl font-black text-indigo-100">&lt;1ms</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Tokenization time</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-special">
+                <div className="p-5 rounded-xl bg-violet-600/90 border-2 border-violet-400 shadow-lg shadow-violet-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔖</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">SPECIAL</span>
+                  </div>
+                  <div className="text-3xl font-black text-violet-100">10-50</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Special tokens</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: INPUT PROCESSING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">1.1 INPUT PROCESSING</h2>
+                  <p className="text-blue-200/80">Prepare raw text for tokenization</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="input-text">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">📝 Raw Text</div>
+                    <div className="text-blue-100/80 text-sm">User prompt + context</div>
+                    <div className="text-blue-100/60 text-xs mt-2">System, history, query</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="input-template">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">💬 Chat Template</div>
+                    <div className="text-cyan-100/80 text-sm">Model-specific format</div>
+                    <div className="text-cyan-100/60 text-xs mt-2">ChatML, LLaMA, etc.</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="input-truncation">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">✂️ Truncation</div>
+                    <div className="text-indigo-100/80 text-sm">Handle long inputs</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">Left/right/smart</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-blue-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: TOKENIZATION ALGORITHMS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">1.2 TOKENIZATION ALGORITHMS</h2>
+                  <p className="text-green-200/80">How text is split into tokens</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <Hoverable id="algo-bpe">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-xl font-black text-green-200 mb-2">🔤 BPE</div>
+                    <div className="text-green-100/80 text-sm">Byte-Pair Encoding</div>
+                    <div className="text-green-100/60 text-xs mt-2">Most common</div>
+                    <div className="text-green-300 text-xs mt-1">GPT, LLaMA</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="algo-sentencepiece">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">📦 SentencePiece</div>
+                    <div className="text-emerald-100/80 text-sm">Language-agnostic</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">Raw bytes input</div>
+                    <div className="text-emerald-300 text-xs mt-1">T5, LLaMA</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="algo-tiktoken">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-xl font-black text-teal-200 mb-2">⚡ Tiktoken</div>
+                    <div className="text-teal-100/80 text-sm">OpenAI's fast BPE</div>
+                    <div className="text-teal-100/60 text-xs mt-2">Rust implementation</div>
+                    <div className="text-teal-300 text-xs mt-1">GPT-4, Claude</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="algo-wordpiece">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">🧩 WordPiece</div>
+                    <div className="text-cyan-100/80 text-sm">BERT-style</div>
+                    <div className="text-cyan-100/60 text-xs mt-2">## subword prefix</div>
+                    <div className="text-cyan-300 text-xs mt-1">BERT, older</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-green-400 to-yellow-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: ENCODING PROCESS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">1.3 ENCODING PROCESS</h2>
+                  <p className="text-yellow-200/80">Step-by-step text to tokens</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border-2 border-yellow-500/50 rounded-xl p-6">
+                <div className="flex items-center justify-between gap-2">
+                  <Hoverable id="encode-normalize">
+                    <div className="bg-yellow-900/50 border border-yellow-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-yellow-200 font-bold">🔧 Normalize</div>
+                      <div className="text-yellow-100/60 text-xs mt-1">Unicode, case</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-yellow-400 text-2xl">→</div>
+
+                  <Hoverable id="encode-pretok">
+                    <div className="bg-orange-900/50 border border-orange-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-orange-200 font-bold">✂️ Pre-tokenize</div>
+                      <div className="text-orange-100/60 text-xs mt-1">Split on whitespace</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-yellow-400 text-2xl">→</div>
+
+                  <Hoverable id="encode-bpe">
+                    <div className="bg-amber-900/50 border border-amber-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-amber-200 font-bold">🔄 BPE Encode</div>
+                      <div className="text-amber-100/60 text-xs mt-1">Apply merges</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-yellow-400 text-2xl">→</div>
+
+                  <Hoverable id="encode-ids">
+                    <div className="bg-lime-900/50 border-2 border-lime-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-lime-200 font-bold">🔢 Token IDs</div>
+                      <div className="text-lime-100/60 text-xs mt-1">[15496, 1917]</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* Example */}
+                <div className="mt-4 bg-black/50 rounded-lg p-4 font-mono text-sm">
+                  <div className="text-slate-400"># Example: "Hello world"</div>
+                  <div className="text-yellow-300">"Hello world" → ["Hello", " world"] → [15496, 1917]</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-yellow-400 to-purple-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: TOKEN TYPES */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">1.4 TOKEN TYPES</h2>
+                  <p className="text-purple-200/80">Regular, special, and byte fallback tokens</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="token-regular">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">📝 Regular</div>
+                    <div className="text-purple-100/80 text-sm">Words, subwords</div>
+                    <div className="text-purple-100/60 text-xs mt-2">"Hello" → 15496</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="token-special">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-xl font-black text-violet-200 mb-2">🔖 Special</div>
+                    <div className="text-violet-100/80 text-sm">BOS, EOS, PAD</div>
+                    <div className="text-violet-100/60 text-xs mt-2">Control tokens</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="token-byte">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">🔢 Byte Fallback</div>
+                    <div className="text-indigo-100/80 text-sm">Unknown → UTF-8 bytes</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">No UNK needed</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-purple-400 to-pink-400 rounded-full" />
+            </div>
+
+            {/* SECTION 5: ATTENTION MASK & POSITION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">1.5 MASKS & POSITIONS</h2>
+                  <p className="text-pink-200/80">Attention masks and position information</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Masks */}
+                <div className="bg-slate-900/80 border border-pink-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-pink-300 mb-4">🎭 Attention Masks</div>
+                  <div className="space-y-3">
+                    <Hoverable id="mask-concept">
+                      <div className="bg-pink-900/40 border border-pink-400 rounded-lg p-3">
+                        <div className="text-pink-200 font-bold text-sm">🎭 Mask Concept</div>
+                        <div className="text-pink-100/60 text-xs">1 = attend, 0 = ignore</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="mask-padding">
+                      <div className="bg-rose-900/40 border border-rose-400 rounded-lg p-3">
+                        <div className="text-rose-200 font-bold text-sm">📦 Padding Mask</div>
+                        <div className="text-rose-100/60 text-xs">Ignore padding tokens</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="mask-causal">
+                      <div className="bg-red-900/40 border border-red-400 rounded-lg p-3">
+                        <div className="text-red-200 font-bold text-sm">⬇️ Causal Mask</div>
+                        <div className="text-red-100/60 text-xs">No future attention</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Positions */}
+                <div className="bg-slate-900/80 border border-pink-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-pink-300 mb-4">📍 Position Information</div>
+                  <div className="space-y-3">
+                    <Hoverable id="pos-ids">
+                      <div className="bg-orange-900/40 border border-orange-400 rounded-lg p-3">
+                        <div className="text-orange-200 font-bold text-sm">📍 Position IDs</div>
+                        <div className="text-orange-100/60 text-xs">[0, 1, 2, ..., n-1]</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="pos-rope">
+                      <div className="bg-amber-900/40 border border-amber-400 rounded-lg p-3">
+                        <div className="text-amber-200 font-bold text-sm">🔄 RoPE Preparation</div>
+                        <div className="text-amber-100/60 text-xs">Precompute frequencies</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 6: BATCHING */}
+            <section className="mb-10">
+              <div className="bg-slate-900/60 border border-cyan-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-cyan-300 mb-4">📦 BATCHING STRATEGIES</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Hoverable id="batch-dynamic">
+                    <div className="bg-cyan-900/40 border border-cyan-400 rounded-lg p-4">
+                      <div className="text-cyan-200 font-bold">📦 Dynamic Batching</div>
+                      <div className="text-cyan-100/60 text-sm mt-1">Group similar-length requests</div>
+                      <div className="text-cyan-100/50 text-xs mt-1">Minimize padding waste</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="batch-continuous">
+                    <div className="bg-teal-900/40 border border-teal-400 rounded-lg p-4">
+                      <div className="text-teal-200 font-bold">🔄 Continuous Batching</div>
+                      <div className="text-teal-100/60 text-sm mt-1">Add/remove requests dynamically</div>
+                      <div className="text-teal-100/50 text-xs mt-1">vLLM, TGI use this</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Output */}
+            <Hoverable id="output-tensors">
+              <div className="bg-gradient-to-r from-blue-900/50 to-indigo-900/50 border-2 border-blue-400/50 rounded-xl p-8 text-center">
+                <div className="text-2xl font-black text-white mb-4">
+                  📤 Stage 1 Complete → Ready for Embedding
+                </div>
+                <div className="text-slate-300 max-w-3xl mx-auto mb-4">
+                  Text converted to tensors. Next: <span className="text-cyan-300 font-bold">Stage 2: Prefill</span> — process all prompt tokens in parallel.
+                </div>
+                <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto text-sm">
+                  <div className="bg-slate-800 rounded-lg p-3">
+                    <div className="text-blue-300 font-bold">input_ids</div>
+                    <div className="text-slate-400">[batch, seq_len]</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-lg p-3">
+                    <div className="text-blue-300 font-bold">attention_mask</div>
+                    <div className="text-slate-400">[batch, seq_len]</div>
+                  </div>
+                  <div className="bg-slate-800 rounded-lg p-3">
+                    <div className="text-blue-300 font-bold">position_ids</div>
+                    <div className="text-slate-400">[batch, seq_len]</div>
+                  </div>
+                </div>
+              </div>
+            </Hoverable>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Inference Stage 1: Tokenization & Input Processing • Inference Pipeline</p>
+              <p className="text-xs mt-1 text-slate-600">Raw Text → Template → Tokenize → Tensors</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TokenizationStage />);
+  </script>
+</body>
+</html>

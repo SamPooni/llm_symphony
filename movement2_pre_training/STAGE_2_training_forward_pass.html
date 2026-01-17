@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 2: Forward Pass - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function ForwardPassStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-flops': {
+          title: '⚡ FORWARD FLOPS',
+          content: 'Floating point operations for one forward pass. Dominated by matrix multiplications in attention and MLP. Backward is ~2× forward.',
+          formula: 'Forward FLOPs ≈ 2 × params × seq_len\n70B model, 4K seq: ~560 TFLOPs\nPer token: ~140 GFLOPs',
+          breakdown: 'Attention QKV: ~25%\nAttention matmul: ~15%\nMLP: ~60%\nOther: ~5%'
+        },
+        'metric-memory': {
+          title: '💾 ACTIVATION MEMORY',
+          content: 'Memory to store intermediate values for backward pass. Scales with batch × sequence × hidden × layers. Often the largest memory consumer.',
+          formula: 'Per layer ≈ 34 × B × S × H bytes (BF16)\nB=batch, S=seq, H=hidden',
+          example: '70B, batch=1, seq=4K:\n~60GB without checkpointing\n~15GB with checkpointing'
+        },
+        'metric-bandwidth': {
+          title: '📊 MEMORY BANDWIDTH',
+          content: 'Forward pass is compute-bound (unlike decode which is memory-bound). Tensor cores are the bottleneck, not HBM bandwidth.',
+          comparison: 'Forward: Compute-bound (GEMMs)\nDecode: Memory-bound (weight loading)\nH100: 3.35 TB/s HBM, 1979 TFLOPS',
+          utilization: 'Target: 50%+ MFU (Model FLOPS Utilization)\nReality: 30-50% typical'
+        },
+        'metric-precision': {
+          title: '🎯 PRECISION',
+          content: 'Mixed precision training: forward in BF16/FP16, accumulate in FP32. BF16 preferred (same range as FP32, less precision).',
+          types: 'BF16: 8 exp, 7 mantissa (standard)\nFP16: 5 exp, 10 mantissa (needs scaling)\nFP32: Master weights, accumulation\nFP8: Emerging, H100+ only',
+          benefit: '2× throughput vs FP32\n2× memory savings\nMinimal quality loss with BF16'
+        },
+
+        // Data Movement
+        'data-cpu-gpu': {
+          title: '🔄 CPU → GPU Transfer',
+          content: 'Batch loaded by DataLoader on CPU, then transferred to GPU. Use pin_memory and non_blocking for overlap.',
+          mechanism: 'pin_memory=True: Page-locked CPU memory\nnon_blocking=True: Async transfer\nPrefetch: Overlap with compute',
+          bandwidth: 'PCIe 5.0: 64 GB/s\nNVLink (GPU-GPU): 900 GB/s\nUsually not bottleneck with prefetch'
+        },
+        'data-scatter': {
+          title: '📤 Scatter to Pipeline Stages',
+          content: 'For Pipeline Parallel: first stage receives input, passes activations to next stage. Point-to-point communication.',
+          mechanism: 'Stage 0: Receives input batch\nStage N: Receives activations from N-1\nP2P send/recv between stages',
+          optimization: 'Overlap communication with compute\n1F1B schedule interleaves'
+        },
+        'data-broadcast': {
+          title: '📡 Broadcast for Tensor Parallel',
+          content: 'For Tensor Parallel: input must be available on all TP ranks. Either broadcast or each rank computes same embedding.',
+          mechanism: 'Option 1: Broadcast from rank 0\nOption 2: Replicate embedding table\nOption 3: Scatter after embedding',
+          typical: 'Usually replicate embeddings\nScatter after first norm'
+        },
+
+        // Embedding Layer
+        'embed-token': {
+          title: '📝 Token Embedding',
+          content: 'Lookup table mapping token IDs to dense vectors. First learnable operation. Often tied with output layer.',
+          shape: 'Input: [batch, seq] of int64\nTable: [vocab_size, hidden_dim]\nOutput: [batch, seq, hidden_dim]',
+          example: 'LLaMA-70B:\nVocab: 32,000\nHidden: 8,192\nTable: 262M params (0.4% of model)',
+          initialization: 'N(0, 0.02²) typical\nMay normalize rows'
+        },
+        'embed-position': {
+          title: '📍 Position Encoding',
+          content: 'Inject position information. RoPE applies in attention (not here). ALiBi/learned positions added to embeddings.',
+          types: 'RoPE: Applied in attention to Q, K\nALiBi: Bias in attention scores\nLearned: Add position embedding here\nSinusoidal: Fixed, added here',
+          modern: 'RoPE dominant for LLMs\nApplied per-layer in attention\nNo separate embedding add'
+        },
+        'embed-dropout': {
+          title: '💧 Embedding Dropout',
+          content: 'Regularization on embeddings. Often small or zero for large models. Randomly zeros elements during training.',
+          rate: 'Typical: 0.0 - 0.1\nLarge models: often 0.0\nSmaller models: 0.1',
+          behavior: 'Training: Apply dropout\nInference: Disabled (model.eval())\nScale by 1/(1-p) during training'
+        },
+        'embed-norm': {
+          title: '📊 Initial Normalization',
+          content: 'Some architectures normalize after embedding before first layer. Not universal.',
+          usage: 'GPT-2: No initial norm\nLLaMA: No initial norm\nSome models: RMSNorm here',
+          purpose: 'Stabilize input to first layer\nNot always necessary with good init'
+        },
+
+        // Transformer Block Overview
+        'block-structure': {
+          title: '🧱 Transformer Block Structure',
+          content: 'Repeated N times (80 layers for 70B). Each block: Attention → MLP with residual connections and normalization.',
+          pattern: 'Pre-Norm (modern):\nx → Norm → Attn → +x → Norm → MLP → +x\n\nPost-Norm (original):\nx → Attn → +x → Norm → MLP → +x → Norm',
+          layers: 'LLaMA-7B: 32 layers\nLLaMA-70B: 80 layers\nGPT-4: ~120 layers (rumored)'
+        },
+        'block-residual': {
+          title: '➕ Residual Connections',
+          content: 'Skip connections that add input to output. Critical for gradient flow in deep networks. Enable training of 100+ layer models.',
+          formula: 'output = input + sublayer(norm(input))\nGradient flows directly through +\nPrevents vanishing gradients',
+          importance: 'Without residuals: Cannot train deep\nWith residuals: 100+ layers possible\nResNet insight applied to transformers'
+        },
+
+        // Attention - Pre-Norm
+        'attn-prenorm': {
+          title: '📊 Pre-Attention Norm',
+          content: 'RMSNorm (or LayerNorm) before attention. Stabilizes input, enables deeper networks.',
+          formula: 'RMSNorm(x) = x / RMS(x) × γ\nRMS(x) = √(mean(x²))\nγ = learnable scale',
+          params: 'γ: [hidden_dim] = 8192 params\nNo β (bias) in RMSNorm\nPer-layer parameters'
+        },
+
+        // Attention - QKV
+        'attn-qkv-proj': {
+          title: '🔢 QKV Projections',
+          content: 'Three linear projections creating Query, Key, Value. The largest attention computation. Often fused into single matmul.',
+          shapes: 'Input: [B, S, H]\nWq: [H, H] → Q: [B, S, H]\nWk: [H, H_kv] → K: [B, S, H_kv]\nWv: [H, H_kv] → V: [B, S, H_kv]',
+          gqa: 'GQA: H_kv < H (fewer KV heads)\nLLaMA-70B: 64 Q heads, 8 KV heads\nKV heads shared across Q groups',
+          flops: '3 × B × S × H × H matmuls\n~25% of forward FLOPs'
+        },
+        'attn-qkv-split': {
+          title: '✂️ Split to Heads',
+          content: 'Reshape QKV tensors into multiple heads for parallel attention computation.',
+          reshape: 'Q: [B, S, H] → [B, n_heads, S, head_dim]\nK: [B, S, H_kv] → [B, n_kv, S, head_dim]\nV: [B, S, H_kv] → [B, n_kv, S, head_dim]',
+          example: 'H=8192, n_heads=64, head_dim=128\n8192 = 64 × 128'
+        },
+
+        // Attention - RoPE
+        'attn-rope': {
+          title: '🔄 RoPE (Rotary Position Embedding)',
+          content: 'Apply rotary embeddings to Q and K. Encodes relative positions through rotation in complex plane.',
+          formula: 'RoPE(x, pos) = x × cos(θ) + rotate(x) × sin(θ)\nθ = pos × base^(-2i/d)\nbase = 10000 (typical)',
+          properties: 'Relative positions: Q·K depends on (i-j)\nExtrapolation: Can extend context\nYaRN/NTK: Scaling for longer ctx',
+          applied_to: 'Only Q and K, not V\nApplied per-head\nBefore attention computation'
+        },
+
+        // Attention - Score Computation
+        'attn-scores': {
+          title: '📊 Attention Scores (QK^T)',
+          content: 'Compute similarity between all query-key pairs. This is the O(n²) operation in attention.',
+          formula: 'scores = Q @ K^T / √head_dim\nShape: [B, n_heads, S, S]\nO(n²) memory and compute',
+          scaling: '√head_dim scaling prevents softmax saturation\nhead_dim=128 → scale by 1/√128 ≈ 0.088',
+          flash: 'FlashAttention: Never materialize full [S,S]\nCompute in tiles, O(n) memory'
+        },
+
+        // Attention - Causal Mask
+        'attn-mask': {
+          title: '🎭 Causal Mask',
+          content: 'For autoregressive LLMs: prevent attending to future tokens. Upper triangular mask of -inf.',
+          mask: 'mask[i,j] = 0 if j ≤ i else -inf\nAfter softmax: future attention = 0\nLower triangular attention pattern',
+          implementation: 'Fused in FlashAttention\nOr: scores + mask before softmax\nEfficient: Only compute lower triangle'
+        },
+
+        // Attention - Softmax
+        'attn-softmax': {
+          title: '📈 Softmax',
+          content: 'Convert scores to probabilities. Each query position gets probability distribution over keys.',
+          formula: 'attn_weights = softmax(scores, dim=-1)\nsum(attn_weights[i, :]) = 1\nShape: [B, n_heads, S, S]',
+          numerical: 'Subtract max for stability\nexp(x - max(x)) / sum(...)\nFlashAttention: Online softmax'
+        },
+
+        // Attention - Weighted Sum
+        'attn-weighted': {
+          title: '⚖️ Weighted Sum (Attention @ V)',
+          content: 'Multiply attention weights by values. Aggregate information from attended positions.',
+          formula: 'output = attn_weights @ V\nShape: [B, n_heads, S, head_dim]\nWeighted combination of values',
+          meaning: 'Each position = weighted avg of all values\nWeights from softmax(QK^T)\nInformation aggregation step'
+        },
+
+        // Attention - Output
+        'attn-concat': {
+          title: '🔗 Concatenate Heads',
+          content: 'Merge multi-head outputs back to hidden dimension.',
+          reshape: '[B, n_heads, S, head_dim] → [B, S, H]\nConcatenate along head dimension\nH = n_heads × head_dim'
+        },
+        'attn-output-proj': {
+          title: '📤 Output Projection',
+          content: 'Final linear projection of attention output. Often initialized smaller for residual stability.',
+          shape: 'Wo: [H, H]\noutput = concat_heads @ Wo\nShape: [B, S, H]',
+          init: 'Scaled init: 1/√(2×n_layers)\nHelps residual stream stability\nSome use zero init'
+        },
+        'attn-dropout': {
+          title: '💧 Attention Dropout',
+          content: 'Dropout after output projection, before residual add. Often 0 for large models.',
+          placement: 'After output projection\nBefore residual connection\nRate: 0.0 - 0.1'
+        },
+        'attn-residual': {
+          title: '➕ Residual Add',
+          content: 'Add attention output to original input. The key to training deep networks.',
+          formula: 'x = x + attention_output\nGradient: ∂L/∂x flows directly\nNo vanishing through residual path'
+        },
+
+        // FlashAttention
+        'flash-algorithm': {
+          title: '⚡ FlashAttention Algorithm',
+          content: 'Tiled attention computation that never materializes the full attention matrix. O(n) memory instead of O(n²).',
+          mechanism: 'Tile Q, K, V into blocks\nCompute attention per tile\nAccumulate with online softmax\nNever store full [S, S] matrix',
+          memory: 'Standard: O(S²) for attention matrix\nFlash: O(S) - only store output\n4K seq: 64MB → 32KB',
+          speed: 'FlashAttention-2: 2× faster\nFlashAttention-3: Hopper optimized\nFused CUDA kernels'
+        },
+        'flash-tiling': {
+          title: '🧱 Tiling Strategy',
+          content: 'Process attention in SRAM-sized tiles. Recompute softmax normalization across tiles.',
+          tiles: 'Block size: fit in SRAM (e.g., 128×128)\nOuter loop: K, V blocks\nInner loop: Q blocks\nAccumulate partial results',
+          recomputation: 'Keep running max for softmax\nRescale previous results\nOnline softmax algorithm'
+        },
+
+        // MLP
+        'mlp-prenorm': {
+          title: '📊 Pre-MLP Norm',
+          content: 'Normalization before MLP block. Same RMSNorm as before attention.',
+          formula: 'x_norm = RMSNorm(x)\nInput to MLP is normalized\nSeparate γ parameters from attention norm'
+        },
+        'mlp-gate': {
+          title: '🚪 Gate Projection (SwiGLU)',
+          content: 'For SwiGLU: compute gating values. Applied element-wise to control information flow.',
+          formula: 'gate = x @ W_gate\nShape: [B, S, intermediate_dim]\nintermediate = 8/3 × hidden (SwiGLU)',
+          swiglu: 'SwiGLU uses 3 matrices vs 2 for GELU\nSlightly more params, better quality'
+        },
+        'mlp-up': {
+          title: '⬆️ Up Projection',
+          content: 'Expand hidden dimension to intermediate size. Standard MLP expansion.',
+          formula: 'up = x @ W_up\nShape: [B, S, intermediate_dim]\nExpansion: 4× (GELU) or 8/3× (SwiGLU)',
+          example: 'LLaMA-70B: 8192 → 28672\nExpansion factor: 3.5× (8/3 × 1.5 rounding)'
+        },
+        'mlp-activation': {
+          title: '🔥 Activation (SiLU/GELU)',
+          content: 'Non-linearity enabling network to learn complex functions. SiLU for SwiGLU, GELU for standard MLP.',
+          swiglu: 'SwiGLU: SiLU(gate) ⊙ up\nSiLU(x) = x × sigmoid(x)\nElement-wise product',
+          gelu: 'GELU: gelu(up)\nGELU(x) ≈ 0.5x(1 + tanh(√(2/π)(x + 0.044715x³)))'
+        },
+        'mlp-down': {
+          title: '⬇️ Down Projection',
+          content: 'Project back to hidden dimension. Returns to residual stream size.',
+          formula: 'output = activated @ W_down\nShape: [B, S, hidden_dim]\nW_down: [intermediate, hidden]',
+          init: 'Scaled init like attention output\n1/√(2×n_layers) scaling\nStabilizes deep networks'
+        },
+        'mlp-dropout': {
+          title: '💧 MLP Dropout',
+          content: 'Dropout after down projection. Usually 0 for large pretrained models.',
+          placement: 'After down projection\nBefore residual add\nRate: typically 0.0'
+        },
+        'mlp-residual': {
+          title: '➕ MLP Residual',
+          content: 'Add MLP output to input. Completes the transformer block.',
+          formula: 'x = x + mlp_output\nBlock complete\nRepeat for N layers'
+        },
+
+        // MLP FLOPs
+        'mlp-flops': {
+          title: '🔢 MLP FLOPs',
+          content: 'MLP is ~60% of forward FLOPs. Three large matrix multiplications (gate, up, down for SwiGLU).',
+          calculation: 'SwiGLU: 3 × B × S × H × I FLOPs\nI = intermediate dim\nLargest compute in transformer',
+          example: 'H=8192, I=28672, S=4096, B=1:\n3 × 1 × 4096 × 8192 × 28672 ≈ 2.9 TFLOPs/layer\n80 layers × 2.9 = 230 TFLOPs (MLP only)'
+        },
+
+        // MoE Routing (if MoE)
+        'moe-router': {
+          title: '🔀 MoE Router',
+          content: 'For MoE models: select which experts process each token. Learned gating network.',
+          mechanism: 'router_logits = x @ W_router\nshape: [B, S, n_experts]\nTop-k selection per token',
+          selection: 'Top-k (usually k=1 or k=2)\nSoftmax over selected experts\nWeighted combination of outputs'
+        },
+        'moe-dispatch': {
+          title: '📤 Expert Dispatch',
+          content: 'Send tokens to their assigned experts. May require All-to-All for Expert Parallel.',
+          mechanism: 'Group tokens by expert assignment\nPad to capacity if needed\nAll-to-All for EP distribution',
+          capacity: 'Capacity factor: max tokens per expert\nOverflow: drop or auxiliary expert\nLoad balancing via aux loss'
+        },
+        'moe-expert': {
+          title: '🧠 Expert FFN',
+          content: 'Each expert is a standard MLP. Only active experts compute. Sparse activation.',
+          structure: 'Same as regular MLP\nBut only k experts active per token\nParallel expert computation',
+          benefit: 'More params, same compute\nMixtral: 47B params, 13B active'
+        },
+        'moe-combine': {
+          title: '🔗 Expert Combine',
+          content: 'Weighted combination of expert outputs. All-to-All to gather results.',
+          formula: 'output = Σ (router_weight_i × expert_output_i)\nSum over selected experts\nWeights from router softmax'
+        },
+
+        // Output Head
+        'output-norm': {
+          title: '📊 Final Normalization',
+          content: 'RMSNorm after last transformer layer, before output projection.',
+          formula: 'x = RMSNorm(x)\nFinal normalization\nStabilizes logit computation'
+        },
+        'output-proj': {
+          title: '📤 LM Head (Output Projection)',
+          content: 'Project to vocabulary size. Produces logits for next-token prediction.',
+          shape: 'W_lm: [hidden_dim, vocab_size]\nlogits = x @ W_lm\nShape: [B, S, vocab_size]',
+          tying: 'Often tied with input embeddings\nW_lm = W_embed.T\nSaves vocab_size × hidden params',
+          example: 'LLaMA-70B:\n8192 × 32000 = 262M params\nTied: 0 extra params'
+        },
+        'output-logits': {
+          title: '📊 Logits',
+          content: 'Raw scores for each vocabulary token. Will be used for loss computation (training) or sampling (inference).',
+          shape: '[B, S, vocab_size]\nUnnormalized log-probabilities\nSoftmax converts to probs',
+          next: 'Training: Cross-entropy loss\nInference: Sampling (temp, top-k, top-p)'
+        },
+
+        // Compute Analysis
+        'compute-gemm': {
+          title: '🔢 GEMM Dominance',
+          content: 'Forward pass is >95% GEMMs (General Matrix Multiplications). Tensor Cores are the engine.',
+          breakdown: 'QKV projections: ~25%\nAttention matmul: ~15%\nMLP (gate, up, down): ~60%\nOther (norms, etc): <5%',
+          hardware: 'Tensor Cores: 1979 TFLOPS (H100 FP8)\nCUDA Cores: 67 TFLOPS (H100 FP32)\nTensor Cores do the heavy lifting'
+        },
+        'compute-mfu': {
+          title: '📊 Model FLOPS Utilization (MFU)',
+          content: 'Percentage of theoretical peak FLOPS actually achieved. Key efficiency metric.',
+          formula: 'MFU = Actual FLOPs / (Time × Peak FLOPs)\nPeak H100 BF16: 989 TFLOPS\nMFU = achieved / 989',
+          targets: 'Excellent: 50%+ MFU\nGood: 40-50% MFU\nPoor: <30% MFU\nReality: 30-50% typical'
+        },
+        'compute-overlap': {
+          title: '⏱️ Compute-Communication Overlap',
+          content: 'Hide communication latency by overlapping with compute. Critical for distributed efficiency.',
+          techniques: 'AllReduce during backward\nPrefetch during forward\nPipeline communication overlap',
+          fsdp: 'FSDP: AllGather next layer during current\nPrefetch: 1-2 layers ahead\nHides most communication'
+        },
+
+        // Bottlenecks
+        'bottleneck-compute': {
+          title: '🔥 Compute Bottleneck',
+          content: 'Forward pass is compute-bound. Tensor Cores are the limiting factor, not memory bandwidth.',
+          evidence: 'High arithmetic intensity\nGEMMs with large matrices\nUtilizes tensor cores well',
+          solution: 'More GPUs (data parallel)\nFaster GPUs (H100 → B200)\nBetter kernels (FlashAttention)'
+        },
+        'bottleneck-activation': {
+          title: '💾 Activation Memory',
+          content: 'Storing activations for backward is a major memory consumer. Checkpointing trades compute for memory.',
+          without: '70B, 4K seq: ~60GB activations\nScales with batch × seq × layers',
+          with: 'Checkpoint every layer: ~15GB\nRecompute during backward\n~33% extra compute'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 380 > window.innerHeight) top = window.innerHeight - 390;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.shape && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SHAPES</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.shape}</pre>
+              </div>
+            )}
+            {t.shapes && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SHAPES</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.shapes}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.breakdown && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">BREAKDOWN</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.breakdown}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.targets && (
+              <div className="text-xs text-amber-400 mt-2">
+                <span className="font-bold">🎯 </span>{t.targets}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      const Arrow = ({ direction = 'down', color = 'cyan' }) => (
+        <div className={`flex ${direction === 'right' ? 'flex-row' : 'flex-col'} items-center justify-center ${direction === 'right' ? 'mx-2' : 'my-2'}`}>
+          <div className={`${direction === 'right' ? 'w-8 h-1' : 'w-1 h-8'} bg-gradient-to-${direction === 'right' ? 'r' : 'b'} from-${color}-400 to-${color}-600 rounded-full`} />
+          <div className={`w-0 h-0 ${direction === 'right' ? 'border-l-8 border-l-' + color + '-600 border-y-4 border-y-transparent' : 'border-t-8 border-t-' + color + '-600 border-x-4 border-x-transparent'}`} />
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-green-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-blue-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-cyan-600/30 border border-cyan-400 rounded-full mb-6">
+                <span className="text-cyan-300 font-bold">STAGE 2</span>
+                <span className="text-white">•</span>
+                <span className="text-cyan-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-green-400 to-blue-400">
+                Forward Pass
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                Data flows through the model: <span className="text-cyan-300 font-bold">Embedding → Attention → MLP → Logits</span>
+                <span className="text-green-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-flops">
+                <div className="p-5 rounded-xl bg-cyan-600/90 border-2 border-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⚡</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">FLOPS</span>
+                  </div>
+                  <div className="text-3xl font-black text-cyan-100">560T</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">70B forward (4K seq)</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-memory">
+                <div className="p-5 rounded-xl bg-purple-600/90 border-2 border-purple-400 shadow-lg shadow-purple-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💾</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">ACTIVATIONS</span>
+                  </div>
+                  <div className="text-3xl font-black text-purple-100">60GB</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Without checkpointing</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-bandwidth">
+                <div className="p-5 rounded-xl bg-green-600/90 border-2 border-green-400 shadow-lg shadow-green-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">BOTTLENECK</span>
+                  </div>
+                  <div className="text-3xl font-black text-green-100">COMPUTE</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Tensor cores limited</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-precision">
+                <div className="p-5 rounded-xl bg-orange-600/90 border-2 border-orange-400 shadow-lg shadow-orange-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🎯</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">PRECISION</span>
+                  </div>
+                  <div className="text-3xl font-black text-orange-100">BF16</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Mixed precision training</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: DATA MOVEMENT */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">2.1 DATA MOVEMENT</h2>
+                  <p className="text-blue-200/80">Batch arrives on GPU, scattered to distributed workers</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="data-cpu-gpu">
+                  <div className="p-5 rounded-xl bg-blue-900/60 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">🔄 CPU → GPU</div>
+                    <div className="text-blue-100/80 text-sm">pin_memory, non_blocking</div>
+                    <div className="text-blue-100/60 text-xs mt-2">Overlap with compute</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="data-scatter">
+                  <div className="p-5 rounded-xl bg-indigo-900/60 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">📤 Pipeline Scatter</div>
+                    <div className="text-indigo-100/80 text-sm">P2P to stage 0</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">Activations flow forward</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="data-broadcast">
+                  <div className="p-5 rounded-xl bg-violet-900/60 border-2 border-violet-400">
+                    <div className="text-xl font-black text-violet-200 mb-2">📡 TP Broadcast</div>
+                    <div className="text-violet-100/80 text-sm">Input to all TP ranks</div>
+                    <div className="text-violet-100/60 text-xs mt-2">Or replicate embeddings</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-blue-400 to-cyan-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: EMBEDDING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">2.2 EMBEDDING LAYER</h2>
+                  <p className="text-cyan-200/80">Token IDs → Dense vectors. First learnable operation.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border-2 border-cyan-500/50 rounded-xl p-6">
+                <div className="flex items-center gap-4">
+                  {/* Input */}
+                  <div className="text-center">
+                    <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
+                      <div className="text-slate-400 text-xs">Input</div>
+                      <div className="text-cyan-300 font-mono text-sm">[B, S]</div>
+                      <div className="text-slate-500 text-xs">int64 IDs</div>
+                    </div>
+                  </div>
+                  
+                  <div className="text-cyan-400">→</div>
+                  
+                  {/* Token Embedding */}
+                  <Hoverable id="embed-token">
+                    <div className="bg-cyan-900/50 border-2 border-cyan-400 rounded-xl p-4 flex-1">
+                      <div className="text-cyan-200 font-bold">📝 Token Embedding</div>
+                      <div className="text-cyan-100/60 text-xs mt-1">Lookup table [vocab, hidden]</div>
+                      <div className="text-yellow-300 text-xs mt-1">262M params (LLaMA-70B)</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-cyan-400">→</div>
+                  
+                  {/* Position (optional) */}
+                  <Hoverable id="embed-position">
+                    <div className="bg-teal-900/50 border border-teal-400 rounded-xl p-4">
+                      <div className="text-teal-200 font-bold">📍 Position</div>
+                      <div className="text-teal-100/60 text-xs mt-1">RoPE: in attention</div>
+                      <div className="text-teal-100/60 text-xs">ALiBi: in scores</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-cyan-400">→</div>
+                  
+                  {/* Dropout */}
+                  <Hoverable id="embed-dropout">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded-xl p-4">
+                      <div className="text-slate-300 font-bold">💧 Dropout</div>
+                      <div className="text-slate-400 text-xs mt-1">Usually 0.0</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-cyan-400">→</div>
+                  
+                  {/* Output */}
+                  <div className="text-center">
+                    <div className="bg-slate-800 rounded-lg p-3 border border-cyan-500">
+                      <div className="text-slate-400 text-xs">Output</div>
+                      <div className="text-cyan-300 font-mono text-sm">[B, S, H]</div>
+                      <div className="text-slate-500 text-xs">BF16 embeddings</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-cyan-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: TRANSFORMER BLOCK */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">2.3 TRANSFORMER BLOCK (×N layers)</h2>
+                  <p className="text-green-200/80">The core computation: Attention → MLP, repeated N times</p>
+                </div>
+              </div>
+
+              {/* Block Overview */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <Hoverable id="block-structure">
+                  <div className="p-4 rounded-xl bg-green-900/40 border border-green-500">
+                    <div className="text-green-300 font-bold">🧱 Block Structure (Pre-Norm)</div>
+                    <div className="text-green-100/70 text-sm mt-1 font-mono">
+                      x → Norm → Attn → +x → Norm → MLP → +x
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="block-residual">
+                  <div className="p-4 rounded-xl bg-emerald-900/40 border border-emerald-500">
+                    <div className="text-emerald-300 font-bold">➕ Residual Connections</div>
+                    <div className="text-emerald-100/70 text-sm mt-1">
+                      Skip connections enable gradient flow in deep networks
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Attention Sub-Block */}
+              <div className="bg-slate-900/80 border-2 border-green-500/50 rounded-xl p-6 mb-4">
+                <div className="text-xl font-black text-green-300 mb-4">👁️ SELF-ATTENTION</div>
+                
+                <div className="grid grid-cols-7 gap-2 items-center">
+                  {/* Pre-Norm */}
+                  <Hoverable id="attn-prenorm">
+                    <div className="bg-green-900/50 border border-green-400 rounded-lg p-2 text-center">
+                      <div className="text-green-200 font-bold text-xs">RMSNorm</div>
+                      <div className="text-green-100/50 text-xs">Pre-Attn</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-green-400 text-center">→</div>
+                  
+                  {/* QKV */}
+                  <Hoverable id="attn-qkv-proj">
+                    <div className="bg-blue-900/50 border border-blue-400 rounded-lg p-2 text-center">
+                      <div className="text-blue-200 font-bold text-xs">QKV Proj</div>
+                      <div className="text-blue-100/50 text-xs">3 GEMMs</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-green-400 text-center">→</div>
+                  
+                  {/* RoPE */}
+                  <Hoverable id="attn-rope">
+                    <div className="bg-purple-900/50 border border-purple-400 rounded-lg p-2 text-center">
+                      <div className="text-purple-200 font-bold text-xs">RoPE</div>
+                      <div className="text-purple-100/50 text-xs">Q, K only</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-green-400 text-center">→</div>
+                  
+                  {/* Attention */}
+                  <div className="col-span-1">
+                    <Hoverable id="flash-algorithm">
+                      <div className="bg-yellow-900/50 border-2 border-yellow-400 rounded-lg p-2 text-center">
+                        <div className="text-yellow-200 font-bold text-xs">⚡ FlashAttn</div>
+                        <div className="text-yellow-100/50 text-xs">O(n) memory</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Attention Details Row */}
+                <div className="grid grid-cols-5 gap-2 mt-4 ml-[14%]">
+                  <Hoverable id="attn-scores">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded p-2 text-center">
+                      <div className="text-slate-300 text-xs">QK^T</div>
+                      <div className="text-slate-400 text-xs">Scores</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="attn-mask">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded p-2 text-center">
+                      <div className="text-slate-300 text-xs">Causal</div>
+                      <div className="text-slate-400 text-xs">Mask</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="attn-softmax">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded p-2 text-center">
+                      <div className="text-slate-300 text-xs">Softmax</div>
+                      <div className="text-slate-400 text-xs">Weights</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="attn-weighted">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded p-2 text-center">
+                      <div className="text-slate-300 text-xs">Attn @ V</div>
+                      <div className="text-slate-400 text-xs">Output</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="attn-output-proj">
+                    <div className="bg-cyan-900/50 border border-cyan-400 rounded p-2 text-center">
+                      <div className="text-cyan-300 text-xs">Output</div>
+                      <div className="text-cyan-400 text-xs">Proj</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* Residual */}
+                <div className="flex justify-end mt-4">
+                  <Hoverable id="attn-residual">
+                    <div className="bg-green-800/50 border border-green-400 rounded-lg px-4 py-2">
+                      <span className="text-green-300 font-bold">➕ Residual Add</span>
+                      <span className="text-green-100/60 text-sm ml-2">x = x + attn_out</span>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+
+              {/* MLP Sub-Block */}
+              <div className="bg-slate-900/80 border-2 border-emerald-500/50 rounded-xl p-6">
+                <div className="text-xl font-black text-emerald-300 mb-4">🧮 MLP / FFN (SwiGLU)</div>
+                
+                <div className="grid grid-cols-8 gap-2 items-center">
+                  {/* Pre-Norm */}
+                  <Hoverable id="mlp-prenorm">
+                    <div className="bg-emerald-900/50 border border-emerald-400 rounded-lg p-2 text-center">
+                      <div className="text-emerald-200 font-bold text-xs">RMSNorm</div>
+                      <div className="text-emerald-100/50 text-xs">Pre-MLP</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-emerald-400 text-center">→</div>
+                  
+                  {/* Gate + Up */}
+                  <div className="col-span-2">
+                    <div className="grid grid-rows-2 gap-1">
+                      <Hoverable id="mlp-gate">
+                        <div className="bg-orange-900/50 border border-orange-400 rounded p-1 text-center">
+                          <div className="text-orange-200 font-bold text-xs">🚪 Gate</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="mlp-up">
+                        <div className="bg-amber-900/50 border border-amber-400 rounded p-1 text-center">
+                          <div className="text-amber-200 font-bold text-xs">⬆️ Up</div>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+                  
+                  <div className="text-emerald-400 text-center">→</div>
+                  
+                  {/* Activation */}
+                  <Hoverable id="mlp-activation">
+                    <div className="bg-red-900/50 border border-red-400 rounded-lg p-2 text-center">
+                      <div className="text-red-200 font-bold text-xs">🔥 SiLU(g)⊙u</div>
+                      <div className="text-red-100/50 text-xs">SwiGLU</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-emerald-400 text-center">→</div>
+                  
+                  {/* Down */}
+                  <Hoverable id="mlp-down">
+                    <div className="bg-teal-900/50 border border-teal-400 rounded-lg p-2 text-center">
+                      <div className="text-teal-200 font-bold text-xs">⬇️ Down</div>
+                      <div className="text-teal-100/50 text-xs">→ hidden</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* MLP FLOPs note */}
+                <div className="flex justify-between items-center mt-4">
+                  <Hoverable id="mlp-flops">
+                    <div className="text-sm text-emerald-200/70">
+                      <span className="font-bold">~60% of forward FLOPs</span> • 3 large GEMMs
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="mlp-residual">
+                    <div className="bg-emerald-800/50 border border-emerald-400 rounded-lg px-4 py-2">
+                      <span className="text-emerald-300 font-bold">➕ Residual Add</span>
+                      <span className="text-emerald-100/60 text-sm ml-2">x = x + mlp_out</span>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+
+              {/* Layer Repeat Indicator */}
+              <div className="mt-4 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-500/30 rounded-xl p-4 text-center">
+                <div className="text-green-300 font-bold text-lg">
+                  ↻ Repeat for N = 80 layers (LLaMA-70B)
+                </div>
+                <div className="text-green-100/60 text-sm mt-1">
+                  Each layer: ~7B FLOPs • Total: 560T FLOPs forward
+                </div>
+              </div>
+            </section>
+
+            {/* MoE Routing (Optional) */}
+            <section className="mb-10">
+              <div className="bg-slate-900/60 border-2 border-pink-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-pink-300 mb-4">🔀 MoE ROUTING (Mixtral-style, if applicable)</div>
+                <div className="grid grid-cols-4 gap-4">
+                  <Hoverable id="moe-router">
+                    <div className="bg-pink-900/50 border border-pink-400 rounded-lg p-3 text-center">
+                      <div className="text-pink-200 font-bold text-sm">Router</div>
+                      <div className="text-pink-100/60 text-xs">Token → Expert scores</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="moe-dispatch">
+                    <div className="bg-rose-900/50 border border-rose-400 rounded-lg p-3 text-center">
+                      <div className="text-rose-200 font-bold text-sm">Dispatch</div>
+                      <div className="text-rose-100/60 text-xs">All-to-All to experts</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="moe-expert">
+                    <div className="bg-red-900/50 border border-red-400 rounded-lg p-3 text-center">
+                      <div className="text-red-200 font-bold text-sm">Expert FFN</div>
+                      <div className="text-red-100/60 text-xs">Parallel computation</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="moe-combine">
+                    <div className="bg-orange-900/50 border border-orange-400 rounded-lg p-3 text-center">
+                      <div className="text-orange-200 font-bold text-sm">Combine</div>
+                      <div className="text-orange-100/60 text-xs">Weighted sum</div>
+                    </div>
+                  </Hoverable>
+                </div>
+                <div className="text-pink-200/60 text-sm mt-3 text-center">
+                  Replaces standard MLP. Only k experts active per token (sparse activation).
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-green-400 to-purple-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: OUTPUT HEAD */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">2.4 OUTPUT HEAD</h2>
+                  <p className="text-purple-200/80">Hidden states → Vocabulary logits for next-token prediction</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border-2 border-purple-500/50 rounded-xl p-6">
+                <div className="flex items-center gap-4">
+                  {/* Input */}
+                  <div className="text-center">
+                    <div className="bg-slate-800 rounded-lg p-3 border border-slate-600">
+                      <div className="text-slate-400 text-xs">From Layer N</div>
+                      <div className="text-purple-300 font-mono text-sm">[B, S, H]</div>
+                      <div className="text-slate-500 text-xs">Hidden states</div>
+                    </div>
+                  </div>
+                  
+                  <div className="text-purple-400">→</div>
+                  
+                  {/* Final Norm */}
+                  <Hoverable id="output-norm">
+                    <div className="bg-purple-900/50 border border-purple-400 rounded-xl p-4">
+                      <div className="text-purple-200 font-bold">📊 Final RMSNorm</div>
+                      <div className="text-purple-100/60 text-xs mt-1">Stabilize before projection</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-purple-400">→</div>
+                  
+                  {/* LM Head */}
+                  <Hoverable id="output-proj">
+                    <div className="bg-violet-900/50 border-2 border-violet-400 rounded-xl p-4 flex-1">
+                      <div className="text-violet-200 font-bold">📤 LM Head</div>
+                      <div className="text-violet-100/60 text-xs mt-1">Linear [H → vocab_size]</div>
+                      <div className="text-yellow-300 text-xs mt-1">Often tied with embedding</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-purple-400">→</div>
+                  
+                  {/* Output */}
+                  <Hoverable id="output-logits">
+                    <div className="text-center">
+                      <div className="bg-gradient-to-br from-purple-800 to-violet-800 rounded-lg p-4 border-2 border-purple-400">
+                        <div className="text-purple-200 font-bold">📊 Logits</div>
+                        <div className="text-purple-300 font-mono text-sm">[B, S, V]</div>
+                        <div className="text-purple-100/60 text-xs">V = 32,000</div>
+                      </div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 5: COMPUTE ANALYSIS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">2.5 COMPUTE ANALYSIS</h2>
+                  <p className="text-orange-200/80">Understanding what dominates the forward pass</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-6">
+                <Hoverable id="compute-gemm">
+                  <div className="bg-orange-900/50 border-2 border-orange-400 rounded-xl p-5">
+                    <div className="text-2xl font-black text-orange-200 mb-2">🔢 GEMM Dominance</div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-orange-100/80">MLP (g, u, d)</span>
+                        <span className="text-orange-300 font-bold">~60%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-orange-100/80">Attention QKV</span>
+                        <span className="text-orange-300 font-bold">~25%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-orange-100/80">Attention scores</span>
+                        <span className="text-orange-300 font-bold">~15%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-orange-100/80">Other</span>
+                        <span className="text-orange-300 font-bold">&lt;5%</span>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="compute-mfu">
+                  <div className="bg-yellow-900/50 border-2 border-yellow-400 rounded-xl p-5">
+                    <div className="text-2xl font-black text-yellow-200 mb-2">📊 MFU Targets</div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-yellow-100/80">Excellent</span>
+                        <span className="text-green-400 font-bold">&gt;50%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-yellow-100/80">Good</span>
+                        <span className="text-yellow-400 font-bold">40-50%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-yellow-100/80">Typical</span>
+                        <span className="text-orange-400 font-bold">30-40%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-yellow-100/80">Poor</span>
+                        <span className="text-red-400 font-bold">&lt;30%</span>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="compute-overlap">
+                  <div className="bg-red-900/50 border-2 border-red-400 rounded-xl p-5">
+                    <div className="text-2xl font-black text-red-200 mb-2">⏱️ Optimization</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="text-red-100/80">• Overlap comm with compute</div>
+                      <div className="text-red-100/80">• Prefetch next layer params</div>
+                      <div className="text-red-100/80">• FlashAttention for memory</div>
+                      <div className="text-red-100/80">• Kernel fusion where possible</div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Bottleneck Summary */}
+              <div className="mt-6 grid grid-cols-2 gap-4">
+                <Hoverable id="bottleneck-compute">
+                  <div className="bg-gradient-to-r from-red-900/50 to-orange-900/50 border border-red-500/50 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">🔥</span>
+                      <div>
+                        <div className="text-red-300 font-bold">Forward: COMPUTE-BOUND</div>
+                        <div className="text-red-100/70 text-sm">Tensor Cores are the limit, not memory bandwidth</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bottleneck-activation">
+                  <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border border-purple-500/50 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">💾</span>
+                      <div>
+                        <div className="text-purple-300 font-bold">Activations: MEMORY-HEAVY</div>
+                        <div className="text-purple-100/70 text-sm">Checkpointing trades compute for memory</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-cyan-900/50 to-green-900/50 border-2 border-cyan-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                Stage 2 Complete → Logits Ready for Loss Computation
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto">
+                Input tokens transformed through embedding, N transformer blocks (attention + MLP), and output head.
+                Activations stored for backward pass. Next: <span className="text-red-300 font-bold">Stage 3: Loss Computation</span>
+              </div>
+              <div className="mt-4 flex justify-center gap-8 text-sm">
+                <div className="text-cyan-300">
+                  <span className="font-bold">560 TFLOPs</span> forward compute
+                </div>
+                <div className="text-purple-300">
+                  <span className="font-bold">60GB</span> activation memory
+                </div>
+                <div className="text-green-300">
+                  <span className="font-bold">Compute-bound</span> bottleneck
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 2: Forward Pass • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">Embedding → Attention → MLP → Output → Logits</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ForwardPassStage />);
+  </script>
+</body>
+</html>

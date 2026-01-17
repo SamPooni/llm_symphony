@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>End-to-End Training Pipeline - Flow Diagram</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #020617; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    @keyframes dash { to { stroke-dashoffset: -24; } }
+    .animate-dash { animation: dash 1s linear infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .animate-pulse-slow { animation: pulse 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function TrainingPipelineDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      // Comprehensive tooltips for all training pipeline stages
+      const tooltips = {
+        // Pre-Training Infrastructure
+        'cluster': {
+          title: '🖥️ Cluster Provisioning',
+          content: 'GPU allocation and infrastructure setup. The foundation of any training run.',
+          details: 'Hardware: H100/B200/TPU v5p pods. Networking: NVLink (900GB/s), NVSwitch, InfiniBand (400-800Gbps). Storage: Lustre, GPFS, FSx for high-throughput I/O.',
+          metric: 'Networking is often the bottleneck, not compute. InfiniBand essential for 1000+ GPU scale.'
+        },
+        'environment': {
+          title: '📦 Environment Setup',
+          content: 'Reproducibility starts here. Pin EVERYTHING.',
+          details: 'Framework versions (PyTorch, JAX), CUDA/ROCm drivers, dependencies (requirements.txt), Docker containers, random seeds for data shuffling and weight init.',
+          metric: '"Works on my machine" is not acceptable at scale. Full reproducibility required.'
+        },
+        'config': {
+          title: '⚙️ Configuration',
+          content: 'All hyperparameters externalized. Immutable once training starts.',
+          details: 'Model architecture (layers, heads, hidden_dim), training params (LR, warmup, batch_size), distributed config (DP/TP/PP degrees), checkpoint policy.',
+          metric: 'Configuration drift causes silent failures. Use Hydra/OmegaConf.'
+        },
+        
+        // Data Pipeline
+        'data-acquire': {
+          title: '📥 Data Acquisition',
+          content: 'Raw data sourcing. Quality here dominates model quality.',
+          details: 'LLMs: Web crawls (Common Crawl, FineWeb), books, papers, code (The Pile, RedPajama). VLMs: Image-text pairs (LAION, DataComp). Synthetic data increasingly important.',
+          metric: 'Data quality > data quantity. Garbage in = garbage out.'
+        },
+        'data-clean': {
+          title: '🧹 Data Cleaning',
+          content: 'Filter and deduplicate at massive scale. 80%+ of raw web data is typically discarded.',
+          details: 'Deduplication (MinHash), language filtering (fastText), quality scoring (perplexity), PII removal, toxicity filtering, domain balancing.',
+          metric: 'Spark/Dask at PB scale. Quality classifiers are critical.'
+        },
+        'data-tokenize': {
+          title: '🔤 Tokenization',
+          content: 'Pre-tokenize entire dataset ONCE. Store as memory-mapped binary files.',
+          details: 'Train tokenizer (BPE/SentencePiece, 32K-256K vocab). Serialize to .bin/.idx format or streaming (WebDataset, MosaicML StreamingDataset).',
+          metric: 'Tokenize once, train forever. Pre-tokenization essential for efficiency.'
+        },
+        'dataloader': {
+          title: '📊 DataLoader',
+          content: 'High-throughput data feeding. Must saturate GPU compute.',
+          details: 'Multiple workers, prefetching to GPU, deterministic shuffling for reproducibility, distributed sampling (each rank sees unique data), resumable from any step.',
+          metric: 'Data starvation = wasted GPU cycles. Often CPU-bound bottleneck.'
+        },
+        
+        // Model Initialization
+        'architecture': {
+          title: '🏗️ Architecture Definition',
+          content: 'Define the neural network structure. nn.Module / Flax modules.',
+          details: 'Attention variant (MHA, GQA, MQA), positional encoding (RoPE, ALiBi), normalization (RMSNorm), activation (SiLU/GELU). Architectures: Dense transformers, MoE, SSMs.',
+          metric: 'Architecture choices have massive downstream impact on training efficiency.'
+        },
+        'weight-init': {
+          title: '🎲 Weight Initialization',
+          content: 'Critical for training stability. Bad init = divergence in first 100 steps.',
+          details: 'Xavier/Glorot, He/Kaiming, scaled init (GPT-2 style, scale by 1/√depth). Special cases: embeddings N(0, 0.02), zero init for residual projections.',
+          metric: 'MoE routers need careful init to prevent expert collapse.'
+        },
+        'sharding': {
+          title: '🔀 Model Sharding',
+          content: 'Distribute model across GPUs. Essential for models that don\'t fit on one device.',
+          details: 'DP (replicate model, split batch), TP (split layers, requires NVLink), PP (split stages, micro-batching), FSDP/ZeRO (shard params+grads+optimizer), EP (distribute MoE experts).',
+          metric: '3D parallelism (DP × TP × PP) standard for 100B+ models.'
+        },
+        
+        // Optimizer Setup
+        'optimizer': {
+          title: '📈 Optimizer',
+          content: 'AdamW is the default for transformers. Manages optimizer state memory.',
+          details: 'AdamW: β₁=0.9, β₂=0.95, weight_decay=0.1. Alternatives: LAMB/LARS (large batch), Adafactor (memory-efficient), 8-bit Adam (quantized states).',
+          metric: 'Adam needs 2× model size for m + v states. This is why FSDP/ZeRO matters.'
+        },
+        'lr-schedule': {
+          title: '📉 LR Schedule',
+          content: 'Learning rate warmup → decay. Wrong schedule = wasted run.',
+          details: 'Pattern: Linear warmup (1-5% of training) → Cosine decay to ~10% of peak LR. Peak LR scales with √batch_size. Typical: 1e-4 to 6e-4 for LLMs.',
+          metric: 'LR is the most sensitive hyperparameter. Get it wrong, waste millions.'
+        },
+        'grad-clip': {
+          title: '✂️ Gradient Clipping',
+          content: 'Prevent gradient explosions. Essential for stability.',
+          details: 'Global norm clipping: clip if ||g|| > max_norm. Typical max_norm: 1.0. Especially important with long contexts and early training.',
+          metric: 'Without clipping, loss spikes can destabilize entire run.'
+        },
+        
+        // Forward Pass
+        'embedding': {
+          title: '📝 Embedding Lookup',
+          content: 'Token IDs → dense vectors. First operation in forward pass.',
+          details: 'Token embeddings from learned table. Position encodings: RoPE applied in attention, or ALiBi/learned added here. Dropout applied during training.',
+          metric: 'Embedding table can be large: 256K vocab × 8192 dim = 2B params.'
+        },
+        'attention': {
+          title: '👁️ Attention Layer',
+          content: 'Self-attention: Q, K, V projections → scaled dot-product → output projection.',
+          details: 'Large GEMMs for QKV projections. RoPE applied to Q, K. FlashAttention for O(n) memory instead of O(n²). Multi-head attention parallelized.',
+          metric: 'Compute-heavy | O(n²) attention | Benefits from FlashAttention optimization.'
+        },
+        'mlp': {
+          title: '🧮 MLP / FFN',
+          content: 'Feed-forward network. Contains ~2/3 of model parameters.',
+          details: 'Up-projection → Activation (SiLU/GELU) → Down-projection. Expansion: 4× or 8/3× for SwiGLU. Residual connection + LayerNorm/RMSNorm.',
+          metric: 'Tensor core dominated. Weight loading from HBM is bottleneck during decode.'
+        },
+        'moe-router': {
+          title: '🔀 MoE Router',
+          content: 'For Mixture of Experts: route tokens to specialized expert networks.',
+          details: 'Router computes expert scores per token. Top-k experts selected (typically k=2). Tokens dispatched, expert outputs combined. Load balancing loss prevents collapse.',
+          metric: 'Enables massive models (100B+ effective) with sparse activation.'
+        },
+        'output-head': {
+          title: '📊 Output Head',
+          content: 'Final projection to vocabulary for next-token prediction.',
+          details: 'Final RMSNorm → Linear projection (hidden → vocab_size). Produces logits for cross-entropy loss computation.',
+          metric: 'Often weight-tied with input embeddings to save parameters.'
+        },
+        
+        // Loss Computation
+        'cross-entropy': {
+          title: '📉 Cross-Entropy Loss',
+          content: 'The training objective: minimize -log P(target | context).',
+          details: 'Averaged over all tokens in batch. Optimizations: fused cross-entropy (avoid materializing full logits), label smoothing (optional regularization).',
+          metric: 'Loss is the signal. Everything else serves to minimize this.'
+        },
+        'aux-loss': {
+          title: '⚖️ Auxiliary Losses',
+          content: 'For MoE: load balancing and router z-loss for stability.',
+          details: 'Load balancing loss: encourages even expert utilization, prevents expert collapse. Router z-loss: stabilizes routing decisions. Weighted and added to main loss.',
+          metric: 'Without aux losses, MoE experts collapse to using only 1-2 experts.'
+        },
+        'loss-scale': {
+          title: '📐 Loss Scaling',
+          content: 'For FP16 training: scale up to prevent gradient underflow.',
+          details: 'Scale loss before backward (prevent underflow in FP16), scale gradients down after. Dynamic loss scaling adjusts automatically. BF16 preferred—no scaling needed.',
+          metric: 'BF16 is now standard. Same range as FP32, just less precision.'
+        },
+        
+        // Backward Pass
+        'autograd': {
+          title: '⬅️ Autograd',
+          content: 'Backpropagation: traverse computation graph in reverse, compute gradients via chain rule.',
+          details: 'Autograd builds graph during forward, traverses in reverse during backward. Gradients accumulated in .grad tensors. Memory-intensive: stores activations.',
+          metric: 'Peak memory often occurs during backward pass.'
+        },
+        'activation-ckpt': {
+          title: '💾 Activation Checkpointing',
+          content: 'Trade compute for memory: recompute activations during backward instead of storing.',
+          details: 'Don\'t store all activations—recompute during backward. ~33% more compute, ~50-70% less memory. Per-block or selective checkpointing.',
+          metric: 'Essential for large models. Memory vs compute trade-off.'
+        },
+        'gradient-acc': {
+          title: '📦 Gradient Accumulation',
+          content: 'Simulate larger batch sizes with smaller micro-batches.',
+          details: 'Run multiple forward/backward passes, accumulate gradients, then step optimizer. Enables large effective batch sizes on limited GPU memory.',
+          metric: 'Effective batch = micro_batch × accumulation_steps × DP_world_size.'
+        },
+        
+        // Gradient Sync
+        'allreduce': {
+          title: '🔄 AllReduce',
+          content: 'Data Parallel gradient synchronization. Average gradients across all DP ranks.',
+          details: 'Ring-AllReduce or tree-AllReduce. Libraries: NCCL (NVIDIA), RCCL (AMD), Gloo (CPU). Overlap with backward via gradient bucketing.',
+          metric: 'Network bandwidth critical. InfiniBand essential at scale.'
+        },
+        'reduce-scatter': {
+          title: '📤 Reduce-Scatter',
+          content: 'FSDP/ZeRO: each rank gets 1/N of reduced gradients.',
+          details: 'Instead of AllReduce (all ranks get all), Reduce-Scatter partitions result. Each rank gets its assigned shard. Reduces memory and bandwidth.',
+          metric: 'Key to FSDP efficiency. Combined with AllGather for full params.'
+        },
+        'allgather': {
+          title: '📥 AllGather',
+          content: 'FSDP/ZeRO: gather full parameters before forward/backward.',
+          details: 'Before computation, gather sharded params to reconstruct full layer. After optimizer step, re-shard. Enables training models larger than single GPU memory.',
+          metric: 'Trade communication for memory. Essential for large model training.'
+        },
+        'all2all': {
+          title: '↔️ All-to-All',
+          content: 'MoE expert parallelism: redistribute tokens to expert-owning GPUs.',
+          details: 'Tokens sent to GPUs owning their assigned experts. After expert computation, results returned. Requires efficient collective communication.',
+          metric: 'Communication pattern determines MoE scaling efficiency.'
+        },
+        
+        // Optimizer Step
+        'unscale': {
+          title: '🔓 Unscale Gradients',
+          content: 'Reverse loss scaling before gradient processing.',
+          details: 'If using FP16 with loss scaling, divide gradients by scale factor. Check for NaN/Inf—skip step if detected. Not needed for BF16.',
+          metric: 'NaN detection here prevents corrupted weight updates.'
+        },
+        'clip-grads': {
+          title: '✂️ Clip Gradients',
+          content: 'Apply global norm clipping to prevent explosions.',
+          details: 'Compute global gradient norm across all parameters. If > max_norm, scale all gradients down proportionally. Typical max_norm: 1.0.',
+          metric: 'Essential stability mechanism. Logged for monitoring.'
+        },
+        'weight-update': {
+          title: '⬆️ Weight Update',
+          content: 'Apply optimizer algorithm to update model parameters.',
+          details: 'AdamW: update moments (m, v), bias correct, compute update with weight decay. w = w - lr × (m̂ / (√v̂ + ε) + wd × w)',
+          example: 'm = β₁m + (1-β₁)g\nv = β₂v + (1-β₂)g²\nw -= lr × (m̂/(√v̂+ε) + wd×w)',
+          metric: 'The actual learning step. Everything else leads to this moment.'
+        },
+        'lr-step': {
+          title: '📊 LR Step',
+          content: 'Update learning rate according to schedule.',
+          details: 'scheduler.step() called. LR adjusted per schedule (warmup phase → cosine decay). Logged for monitoring.',
+          metric: 'LR changes are logged inflection points in training curves.'
+        },
+        'zero-grad': {
+          title: '🗑️ Zero Gradients',
+          content: 'Clear gradients for next iteration.',
+          details: 'Set .grad tensors to zero (or None for memory optimization). Prepares for next forward/backward pass.',
+          metric: 'Simple but essential. Forgetting this = gradient accumulation bug.'
+        },
+        
+        // Checkpointing
+        'checkpoint-save': {
+          title: '💾 Save Checkpoint',
+          content: 'Persist training state for recovery. Lost checkpoints = lost GPU hours = lost money.',
+          details: 'Save: model weights (sharded or full), optimizer state (m, v), LR scheduler, RNG states, step count, config. Strategies: sync, async, distributed/sharded.',
+          metric: 'Every N steps (1000-5000) or N hours. Async preferred for speed.'
+        },
+        'checkpoint-resume': {
+          title: '🔄 Resume from Checkpoint',
+          content: 'Recover from failures. At scale, failures are guaranteed.',
+          details: 'Load all state, verify integrity, resume from exact step. Requires: matching world size, same config, deterministic data loading for reproducibility.',
+          metric: 'Elastic training (add/remove nodes) is advanced but increasingly important.'
+        },
+        
+        // Evaluation & Monitoring
+        'eval': {
+          title: '📊 Evaluation',
+          content: 'Periodic validation to track progress and detect overfitting.',
+          details: 'Validation loss on held-out data. Benchmarks: MMLU (knowledge), HumanEval (code), HellaSwag (commonsense). Model set to .eval() mode.',
+          metric: 'Expensive = less frequent. Balance monitoring needs vs compute cost.'
+        },
+        'logging': {
+          title: '📈 Logging & Monitoring',
+          content: 'If you can\'t see it, you can\'t debug it.',
+          details: 'Metrics: loss, grad_norm, LR, GPU utilization, memory, throughput (tokens/sec). Tools: TensorBoard, W&B, MLflow. Alerts for anomalies.',
+          metric: 'Target >90% GPU utilization. Track communication time separately.'
+        },
+        
+        // Bottleneck Labels
+        'cpu-bottleneck': {
+          title: 'CPU Bottleneck',
+          content: 'Data loading and preprocessing are CPU-bound.',
+          metric: 'Multiple DataLoader workers + prefetching essential.'
+        },
+        'gpu-compute': {
+          title: 'GPU Compute Bottleneck',
+          content: 'Forward and backward passes are compute-bound. GEMMs dominate.',
+          metric: 'Tensor cores utilized. Scales with model size and batch.'
+        },
+        'memory-bottleneck': {
+          title: 'Memory Bottleneck',
+          content: 'Activations, gradients, and optimizer state consume HBM.',
+          metric: 'Activation checkpointing + FSDP/ZeRO address this.'
+        },
+        'network-bottleneck': {
+          title: 'Network Bottleneck',
+          content: 'Gradient synchronization is bandwidth-bound at scale.',
+          metric: 'AllReduce/Reduce-Scatter dominate. InfiniBand essential.'
+        },
+        'storage-bottleneck': {
+          title: 'Storage Bottleneck',
+          content: 'Checkpointing I/O can stall training if synchronous.',
+          metric: 'Async checkpointing + fast storage (NVMe, parallel FS) required.'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 300 > window.innerHeight) top = window.innerHeight - 310;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.details && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div>
+                <p className="text-xs text-cyan-300">{t.details}</p>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.metric && (
+              <div className="text-xs text-amber-400">
+                <span className="font-bold">📊 </span>{t.metric}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 p-6 overflow-x-auto" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background effects */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-purple-500/5 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-cyan-500/5 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-orange-500/5 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-[1900px] mx-auto">
+            {/* Header */}
+            <header className="text-center mb-8">
+              <h1 className="text-4xl font-black mb-2 bg-gradient-to-r from-cyan-400 via-purple-500 to-orange-500 bg-clip-text text-transparent">
+                End-to-End Training Pipeline
+              </h1>
+              <p className="text-slate-400">Data → Forward → Backward → Update → Repeat • <span className="text-cyan-400">🖱️ Hover over any stage for detailed tooltips</span></p>
+            </header>
+
+            {/* Main Pipeline SVG */}
+            <svg viewBox="0 0 1850 1100" className="w-full min-w-[1400px]">
+              <defs>
+                {/* Gradients */}
+                <linearGradient id="infraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6366F1" />
+                  <stop offset="100%" stopColor="#8B5CF6" />
+                </linearGradient>
+                <linearGradient id="dataGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#F59E0B" />
+                  <stop offset="100%" stopColor="#EF4444" />
+                </linearGradient>
+                <linearGradient id="modelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#EC4899" />
+                  <stop offset="100%" stopColor="#F43F5E" />
+                </linearGradient>
+                <linearGradient id="forwardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#06B6D4" />
+                  <stop offset="100%" stopColor="#22D3EE" />
+                </linearGradient>
+                <linearGradient id="lossGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#EF4444" />
+                  <stop offset="100%" stopColor="#F87171" />
+                </linearGradient>
+                <linearGradient id="backwardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#F97316" />
+                  <stop offset="100%" stopColor="#FB923C" />
+                </linearGradient>
+                <linearGradient id="syncGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#8B5CF6" />
+                  <stop offset="100%" stopColor="#A855F7" />
+                </linearGradient>
+                <linearGradient id="optimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#10B981" />
+                  <stop offset="100%" stopColor="#34D399" />
+                </linearGradient>
+                <linearGradient id="ckptGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#0EA5E9" />
+                  <stop offset="100%" stopColor="#38BDF8" />
+                </linearGradient>
+                
+                {/* Arrow markers */}
+                <marker id="arrowPurple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#8B5CF6" />
+                </marker>
+                <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#F59E0B" />
+                </marker>
+                <marker id="arrowCyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#06B6D4" />
+                </marker>
+                <marker id="arrowRed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#EF4444" />
+                </marker>
+                <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#10B981" />
+                </marker>
+                <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#0EA5E9" />
+                </marker>
+              </defs>
+
+              {/* SECTION LABELS */}
+              <g transform="translate(40, 25)">
+                <rect x="0" y="0" width="280" height="28" rx="14" fill="#6366F1" opacity="0.2"/>
+                <text x="140" y="19" textAnchor="middle" fill="#6366F1" fontSize="11" fontWeight="bold">PRE-TRAINING SETUP</text>
+              </g>
+              
+              <g transform="translate(350, 25)">
+                <rect x="0" y="0" width="280" height="28" rx="14" fill="#F59E0B" opacity="0.2"/>
+                <text x="140" y="19" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">DATA PIPELINE</text>
+              </g>
+              
+              <g transform="translate(660, 25)">
+                <rect x="0" y="0" width="250" height="28" rx="14" fill="#EC4899" opacity="0.2"/>
+                <text x="125" y="19" textAnchor="middle" fill="#EC4899" fontSize="11" fontWeight="bold">MODEL INIT</text>
+              </g>
+              
+              <g transform="translate(940, 25)">
+                <rect x="0" y="0" width="550" height="28" rx="14" fill="#06B6D4" opacity="0.2"/>
+                <text x="275" y="19" textAnchor="middle" fill="#06B6D4" fontSize="11" fontWeight="bold">TRAINING STEP (GPU)</text>
+              </g>
+              
+              <g transform="translate(1520, 25)">
+                <rect x="0" y="0" width="280" height="28" rx="14" fill="#10B981" opacity="0.2"/>
+                <text x="140" y="19" textAnchor="middle" fill="#10B981" fontSize="11" fontWeight="bold">CHECKPOINT & MONITOR</text>
+              </g>
+
+              {/* ROW 1: PRE-TRAINING INFRASTRUCTURE */}
+              
+              {/* Cluster */}
+              <g transform="translate(40, 70)" 
+                 onMouseEnter={() => setTooltip('cluster')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#infraGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#6366F1" fontSize="11" fontWeight="bold">CLUSTER</text>
+                <text x="60" y="42" textAnchor="middle" fill="#A5B4FC" fontSize="9">GPUs • Network</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">H100 • InfiniBand</text>
+              </g>
+              
+              <line x1="165" y1="105" x2="185" y2="105" stroke="#6366F1" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Environment */}
+              <g transform="translate(190, 70)"
+                 onMouseEnter={() => setTooltip('environment')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#infraGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#6366F1" fontSize="11" fontWeight="bold">ENVIRONMENT</text>
+                <text x="60" y="42" textAnchor="middle" fill="#A5B4FC" fontSize="9">Docker • Seeds</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">Reproducibility</text>
+              </g>
+
+              {/* ROW 2: DATA PIPELINE */}
+              
+              <path d="M 250 140 L 250 170 L 400 170 L 400 200" stroke="#F59E0B" strokeWidth="3" fill="none" markerEnd="url(#arrowOrange)"/>
+              
+              {/* Data Acquire */}
+              <g transform="translate(340, 205)"
+                 onMouseEnter={() => setTooltip('data-acquire')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">ACQUIRE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FCD34D" fontSize="9">Web • Books • Code</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">CommonCrawl</text>
+              </g>
+              
+              <line x1="465" y1="240" x2="485" y2="240" stroke="#F59E0B" strokeWidth="3" markerEnd="url(#arrowOrange)"/>
+              
+              {/* Data Clean */}
+              <g transform="translate(490, 205)"
+                 onMouseEnter={() => setTooltip('data-clean')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">CLEAN</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FCD34D" fontSize="9">Dedup • Filter</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">80%+ filtered out</text>
+              </g>
+              
+              <line x1="615" y1="240" x2="635" y2="240" stroke="#F59E0B" strokeWidth="3" markerEnd="url(#arrowOrange)"/>
+              
+              {/* Data Tokenize */}
+              <g transform="translate(640, 205)"
+                 onMouseEnter={() => setTooltip('data-tokenize')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">TOKENIZE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FCD34D" fontSize="9">BPE • Serialize</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">.bin / .idx files</text>
+              </g>
+
+              {/* ROW 3: MODEL INITIALIZATION */}
+              
+              <path d="M 700 275 L 700 310 L 400 310 L 400 345" stroke="#EC4899" strokeWidth="3" fill="none" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Architecture */}
+              <g transform="translate(340, 350)"
+                 onMouseEnter={() => setTooltip('architecture')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#modelGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#EC4899" fontSize="11" fontWeight="bold">ARCHITECTURE</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FBCFE8" fontSize="9">Transformer • MoE</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">nn.Module</text>
+              </g>
+              
+              <line x1="465" y1="385" x2="485" y2="385" stroke="#EC4899" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Weight Init */}
+              <g transform="translate(490, 350)"
+                 onMouseEnter={() => setTooltip('weight-init')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#modelGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#EC4899" fontSize="11" fontWeight="bold">WEIGHT INIT</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FBCFE8" fontSize="9">Xavier • Kaiming</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">Scaled by depth</text>
+              </g>
+              
+              <line x1="615" y1="385" x2="635" y2="385" stroke="#EC4899" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+              
+              {/* Sharding */}
+              <g transform="translate(640, 350)"
+                 onMouseEnter={() => setTooltip('sharding')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#modelGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="25" textAnchor="middle" fill="#EC4899" fontSize="11" fontWeight="bold">SHARDING</text>
+                <text x="60" y="42" textAnchor="middle" fill="#FBCFE8" fontSize="9">DP • TP • PP</text>
+                <text x="60" y="56" textAnchor="middle" fill="#94A3B8" fontSize="8">FSDP / ZeRO</text>
+              </g>
+
+              {/* ROW 4: OPTIMIZER SETUP */}
+              
+              <path d="M 700 420 L 700 455 L 550 455 L 550 490" stroke="#10B981" strokeWidth="3" fill="none" markerEnd="url(#arrowGreen)"/>
+              
+              {/* Optimizer */}
+              <g transform="translate(340, 495)"
+                 onMouseEnter={() => setTooltip('optimizer')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="60" rx="12" fill="url(#optimGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="54" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="22" textAnchor="middle" fill="#10B981" fontSize="11" fontWeight="bold">OPTIMIZER</text>
+                <text x="60" y="38" textAnchor="middle" fill="#6EE7B7" fontSize="9">AdamW</text>
+                <text x="60" y="52" textAnchor="middle" fill="#94A3B8" fontSize="8">β₁=0.9 β₂=0.95</text>
+              </g>
+              
+              <line x1="465" y1="525" x2="485" y2="525" stroke="#10B981" strokeWidth="3" markerEnd="url(#arrowGreen)"/>
+              
+              {/* LR Schedule */}
+              <g transform="translate(490, 495)"
+                 onMouseEnter={() => setTooltip('lr-schedule')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="60" rx="12" fill="url(#optimGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="54" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="22" textAnchor="middle" fill="#10B981" fontSize="11" fontWeight="bold">LR SCHEDULE</text>
+                <text x="60" y="38" textAnchor="middle" fill="#6EE7B7" fontSize="9">Warmup → Cosine</text>
+                <text x="60" y="52" textAnchor="middle" fill="#94A3B8" fontSize="8">1e-4 to 6e-4</text>
+              </g>
+              
+              <line x1="615" y1="525" x2="635" y2="525" stroke="#10B981" strokeWidth="3" markerEnd="url(#arrowGreen)"/>
+              
+              {/* Grad Clip */}
+              <g transform="translate(640, 495)"
+                 onMouseEnter={() => setTooltip('grad-clip')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="120" height="60" rx="12" fill="url(#optimGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="114" height="54" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="60" y="22" textAnchor="middle" fill="#10B981" fontSize="11" fontWeight="bold">GRAD CLIP</text>
+                <text x="60" y="38" textAnchor="middle" fill="#6EE7B7" fontSize="9">Global Norm</text>
+                <text x="60" y="52" textAnchor="middle" fill="#94A3B8" fontSize="8">max_norm=1.0</text>
+              </g>
+
+              {/* ═══════════════════════════════════════════════════════════ */}
+              {/* MAIN TRAINING LOOP - THE HEART OF THE DIAGRAM */}
+              {/* ═══════════════════════════════════════════════════════════ */}
+              
+              {/* Training Loop Zone */}
+              <rect x="780" y="65" width="700" height="680" rx="20" fill="#06B6D4" opacity="0.03" stroke="#06B6D4" strokeWidth="2" strokeDasharray="8,4"/>
+              <text x="1130" y="90" textAnchor="middle" fill="#06B6D4" fontSize="12" fontWeight="bold" opacity="0.6">⚡ TRAINING STEP (repeats for each batch)</text>
+
+              {/* Connector to training loop */}
+              <path d="M 700 555 L 700 590 L 830 590 L 830 610" stroke="#06B6D4" strokeWidth="3" fill="none" markerEnd="url(#arrowCyan)"/>
+
+              {/* DataLoader */}
+              <g transform="translate(780, 115)"
+                 onMouseEnter={() => setTooltip('dataloader')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="130" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="124" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
+                <text x="65" y="25" textAnchor="middle" fill="#F59E0B" fontSize="11" fontWeight="bold">DATALOADER</text>
+                <text x="65" y="42" textAnchor="middle" fill="#FCD34D" fontSize="9">Load Batch</text>
+                <text x="65" y="58" textAnchor="middle" fill="#94A3B8" fontSize="8">Prefetch • Shuffle</text>
+              </g>
+
+              {/* Arrow to Forward */}
+              <line x1="845" y1="185" x2="845" y2="205" stroke="#06B6D4" strokeWidth="3" markerEnd="url(#arrowCyan)"/>
+
+              {/* FORWARD PASS BOX */}
+              <g transform="translate(790, 210)">
+                <rect x="0" y="0" width="330" height="210" rx="16" fill="#06B6D4" opacity="0.08" stroke="#06B6D4" strokeWidth="2"/>
+                <text x="165" y="22" textAnchor="middle" fill="#06B6D4" fontSize="11" fontWeight="bold">FORWARD PASS</text>
+                
+                {/* Embedding */}
+                <g transform="translate(15, 35)"
+                   onMouseEnter={() => setTooltip('embedding')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="95" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="91" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
+                  <text x="47" y="18" textAnchor="middle" fill="#22D3EE" fontSize="9" fontWeight="bold">EMBEDDING</text>
+                  <text x="47" y="34" textAnchor="middle" fill="#94A3B8" fontSize="7">Token → Vector</text>
+                </g>
+                
+                <line x1="115" y1="58" x2="125" y2="58" stroke="#06B6D4" strokeWidth="2" markerEnd="url(#arrowCyan)"/>
+                
+                {/* Attention */}
+                <g transform="translate(130, 35)"
+                   onMouseEnter={() => setTooltip('attention')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="80" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="76" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
+                  <text x="40" y="18" textAnchor="middle" fill="#22D3EE" fontSize="9" fontWeight="bold">ATTENTION</text>
+                  <text x="40" y="34" textAnchor="middle" fill="#94A3B8" fontSize="7">QKV • Flash</text>
+                </g>
+                
+                <line x1="215" y1="58" x2="225" y2="58" stroke="#06B6D4" strokeWidth="2" markerEnd="url(#arrowCyan)"/>
+                
+                {/* MLP */}
+                <g transform="translate(230, 35)"
+                   onMouseEnter={() => setTooltip('mlp')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="80" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="76" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
+                  <text x="40" y="18" textAnchor="middle" fill="#22D3EE" fontSize="9" fontWeight="bold">MLP</text>
+                  <text x="40" y="34" textAnchor="middle" fill="#94A3B8" fontSize="7">Up → Act → Down</text>
+                </g>
+                
+                {/* Repeat indicator */}
+                <path d="M 280 85 Q 320 85 320 110 Q 320 135 280 135 L 60 135 Q 20 135 20 110 Q 20 85 60 85" 
+                      stroke="#06B6D4" strokeWidth="1.5" fill="none" strokeDasharray="4,2" opacity="0.5"/>
+                <text x="165" y="130" textAnchor="middle" fill="#67E8F9" fontSize="8" opacity="0.7">× N layers</text>
+                
+                {/* MoE Router (optional) */}
+                <g transform="translate(15, 145)"
+                   onMouseEnter={() => setTooltip('moe-router')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="95" height="45" rx="8" fill="#8B5CF6" opacity="0.3" stroke="#8B5CF6" strokeWidth="1" strokeDasharray="3,2"/>
+                  <rect x="2" y="2" width="91" height="41" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="47" y="18" textAnchor="middle" fill="#A855F7" fontSize="9" fontWeight="bold">MoE ROUTER</text>
+                  <text x="47" y="34" textAnchor="middle" fill="#94A3B8" fontSize="7">(if MoE)</text>
+                </g>
+                
+                {/* Output Head */}
+                <g transform="translate(130, 145)"
+                   onMouseEnter={() => setTooltip('output-head')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="95" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="91" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
+                  <text x="47" y="18" textAnchor="middle" fill="#22D3EE" fontSize="9" fontWeight="bold">OUTPUT HEAD</text>
+                  <text x="47" y="34" textAnchor="middle" fill="#94A3B8" fontSize="7">→ Vocab Logits</text>
+                </g>
+              </g>
+
+              {/* Arrow to Loss */}
+              <line x1="1125" y1="315" x2="1150" y2="315" stroke="#EF4444" strokeWidth="3" markerEnd="url(#arrowRed)"/>
+
+              {/* LOSS COMPUTATION */}
+              <g transform="translate(1155, 240)">
+                <rect x="0" y="0" width="160" height="150" rx="16" fill="#EF4444" opacity="0.08" stroke="#EF4444" strokeWidth="2"/>
+                <text x="80" y="22" textAnchor="middle" fill="#EF4444" fontSize="11" fontWeight="bold">LOSS</text>
+                
+                {/* Cross Entropy */}
+                <g transform="translate(15, 35)"
+                   onMouseEnter={() => setTooltip('cross-entropy')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="35" rx="8" fill="url(#lossGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="126" height="31" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="65" y="15" textAnchor="middle" fill="#F87171" fontSize="9" fontWeight="bold">CROSS-ENTROPY</text>
+                  <text x="65" y="28" textAnchor="middle" fill="#94A3B8" fontSize="7">-log P(target|ctx)</text>
+                </g>
+                
+                {/* Aux Loss */}
+                <g transform="translate(15, 80)"
+                   onMouseEnter={() => setTooltip('aux-loss')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="35" rx="8" fill="#EF4444" opacity="0.3" stroke="#EF4444" strokeWidth="1" strokeDasharray="3,2"/>
+                  <rect x="2" y="2" width="126" height="31" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="65" y="15" textAnchor="middle" fill="#F87171" fontSize="9" fontWeight="bold">AUX LOSS</text>
+                  <text x="65" y="28" textAnchor="middle" fill="#94A3B8" fontSize="7">MoE balance (if MoE)</text>
+                </g>
+                
+                {/* Loss Scale */}
+                <g transform="translate(55, 120)"
+                   onMouseEnter={() => setTooltip('loss-scale')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="50" height="20" rx="4" fill="#FBBF24" opacity="0.3"/>
+                  <text x="25" y="14" textAnchor="middle" fill="#FCD34D" fontSize="7" fontWeight="bold">SCALE</text>
+                </g>
+              </g>
+
+              {/* Arrow to Backward */}
+              <line x1="1235" y1="395" x2="1235" y2="420" stroke="#F97316" strokeWidth="3" markerEnd="url(#arrowOrange)"/>
+
+              {/* BACKWARD PASS */}
+              <g transform="translate(1155, 425)">
+                <rect x="0" y="0" width="160" height="145" rx="16" fill="#F97316" opacity="0.08" stroke="#F97316" strokeWidth="2"/>
+                <text x="80" y="22" textAnchor="middle" fill="#F97316" fontSize="11" fontWeight="bold">BACKWARD PASS</text>
+                
+                {/* Autograd */}
+                <g transform="translate(15, 35)"
+                   onMouseEnter={() => setTooltip('autograd')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="32" rx="8" fill="url(#backwardGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="126" height="28" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="65" y="14" textAnchor="middle" fill="#FB923C" fontSize="9" fontWeight="bold">AUTOGRAD</text>
+                  <text x="65" y="26" textAnchor="middle" fill="#94A3B8" fontSize="7">Chain rule ∂L/∂w</text>
+                </g>
+                
+                {/* Activation Checkpoint */}
+                <g transform="translate(15, 75)"
+                   onMouseEnter={() => setTooltip('activation-ckpt')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="32" rx="8" fill="url(#backwardGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="126" height="28" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="65" y="14" textAnchor="middle" fill="#FB923C" fontSize="9" fontWeight="bold">ACT CKPT</text>
+                  <text x="65" y="26" textAnchor="middle" fill="#94A3B8" fontSize="7">Recompute activations</text>
+                </g>
+                
+                {/* Gradient Accumulation */}
+                <g transform="translate(15, 115)"
+                   onMouseEnter={() => setTooltip('gradient-acc')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="130" height="22" rx="6" fill="#F97316" opacity="0.3" stroke="#F97316" strokeWidth="1" strokeDasharray="3,2"/>
+                  <text x="65" y="15" textAnchor="middle" fill="#FB923C" fontSize="8">Grad Accumulation</text>
+                </g>
+              </g>
+
+              {/* Arrow to Sync */}
+              <line x1="1150" y1="495" x2="1125" y2="495" stroke="#8B5CF6" strokeWidth="3" markerEnd="url(#arrowPurple)"/>
+
+              {/* GRADIENT SYNC */}
+              <g transform="translate(925, 425)">
+                <rect x="0" y="0" width="195" height="180" rx="16" fill="#8B5CF6" opacity="0.08" stroke="#8B5CF6" strokeWidth="2"/>
+                <text x="97" y="22" textAnchor="middle" fill="#8B5CF6" fontSize="11" fontWeight="bold">GRADIENT SYNC</text>
+                
+                {/* AllReduce */}
+                <g transform="translate(10, 35)"
+                   onMouseEnter={() => setTooltip('allreduce')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="85" height="40" rx="8" fill="url(#syncGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="42" y="16" textAnchor="middle" fill="#A855F7" fontSize="9" fontWeight="bold">ALLREDUCE</text>
+                  <text x="42" y="32" textAnchor="middle" fill="#94A3B8" fontSize="7">DP sync</text>
+                </g>
+                
+                {/* Reduce-Scatter */}
+                <g transform="translate(100, 35)"
+                   onMouseEnter={() => setTooltip('reduce-scatter')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="85" height="40" rx="8" fill="url(#syncGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="42" y="16" textAnchor="middle" fill="#A855F7" fontSize="9" fontWeight="bold">REDUCE-</text>
+                  <text x="42" y="28" textAnchor="middle" fill="#A855F7" fontSize="9" fontWeight="bold">SCATTER</text>
+                </g>
+                
+                {/* AllGather */}
+                <g transform="translate(10, 85)"
+                   onMouseEnter={() => setTooltip('allgather')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="85" height="40" rx="8" fill="url(#syncGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="42" y="16" textAnchor="middle" fill="#A855F7" fontSize="9" fontWeight="bold">ALLGATHER</text>
+                  <text x="42" y="32" textAnchor="middle" fill="#94A3B8" fontSize="7">FSDP params</text>
+                </g>
+                
+                {/* All-to-All */}
+                <g transform="translate(100, 85)"
+                   onMouseEnter={() => setTooltip('all2all')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="85" height="40" rx="8" fill="#8B5CF6" opacity="0.3" stroke="#8B5CF6" strokeWidth="1" strokeDasharray="3,2"/>
+                  <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
+                  <text x="42" y="16" textAnchor="middle" fill="#A855F7" fontSize="9" fontWeight="bold">ALL-TO-ALL</text>
+                  <text x="42" y="32" textAnchor="middle" fill="#94A3B8" fontSize="7">MoE experts</text>
+                </g>
+                
+                {/* NCCL label */}
+                <rect x="60" y="135" width="75" height="18" rx="4" fill="#8B5CF6" opacity="0.3"/>
+                <text x="97" y="148" textAnchor="middle" fill="#C4B5FD" fontSize="8" fontWeight="bold">NCCL / RCCL</text>
+                
+                {/* Network indicator */}
+                <text x="97" y="170" textAnchor="middle" fill="#94A3B8" fontSize="7">InfiniBand / NVLink</text>
+              </g>
+
+              {/* Arrow to Optimizer Step */}
+              <line x1="920" y1="515" x2="895" y2="515" stroke="#10B981" strokeWidth="3" markerEnd="url(#arrowGreen)"/>
+
+              {/* OPTIMIZER STEP */}
+              <g transform="translate(790, 615)">
+                <rect x="0" y="0" width="330" height="115" rx="16" fill="#10B981" opacity="0.08" stroke="#10B981" strokeWidth="2"/>
+                <text x="165" y="22" textAnchor="middle" fill="#10B981" fontSize="11" fontWeight="bold">OPTIMIZER STEP</text>
+                
+                {/* Unscale */}
+                <g transform="translate(10, 35)"
+                   onMouseEnter={() => setTooltip('unscale')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="60" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="56" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
+                  <text x="30" y="15" textAnchor="middle" fill="#34D399" fontSize="8" fontWeight="bold">UNSCALE</text>
+                  <text x="30" y="28" textAnchor="middle" fill="#94A3B8" fontSize="6">÷ scale</text>
+                </g>
+                
+                <line x1="75" y1="53" x2="85" y2="53" stroke="#10B981" strokeWidth="2"/>
+                
+                {/* Clip */}
+                <g transform="translate(90, 35)"
+                   onMouseEnter={() => setTooltip('clip-grads')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="55" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="51" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
+                  <text x="27" y="15" textAnchor="middle" fill="#34D399" fontSize="8" fontWeight="bold">CLIP</text>
+                  <text x="27" y="28" textAnchor="middle" fill="#94A3B8" fontSize="6">||g|| ≤ 1</text>
+                </g>
+                
+                <line x1="150" y1="53" x2="160" y2="53" stroke="#10B981" strokeWidth="2"/>
+                
+                {/* Weight Update */}
+                <g transform="translate(165, 35)"
+                   onMouseEnter={() => setTooltip('weight-update')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="70" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="66" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
+                  <text x="35" y="15" textAnchor="middle" fill="#34D399" fontSize="8" fontWeight="bold">UPDATE</text>
+                  <text x="35" y="28" textAnchor="middle" fill="#94A3B8" fontSize="6">w -= lr·Δ</text>
+                </g>
+                
+                <line x1="240" y1="53" x2="250" y2="53" stroke="#10B981" strokeWidth="2"/>
+                
+                {/* LR Step */}
+                <g transform="translate(255, 35)"
+                   onMouseEnter={() => setTooltip('lr-step')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="60" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
+                  <rect x="2" y="2" width="56" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
+                  <text x="30" y="15" textAnchor="middle" fill="#34D399" fontSize="8" fontWeight="bold">LR STEP</text>
+                  <text x="30" y="28" textAnchor="middle" fill="#94A3B8" fontSize="6">schedule</text>
+                </g>
+                
+                {/* Zero Grad */}
+                <g transform="translate(135, 80)"
+                   onMouseEnter={() => setTooltip('zero-grad')}
+                   onMouseLeave={() => setTooltip(null)}
+                   style={{ cursor: 'pointer' }}>
+                  <rect x="0" y="0" width="60" height="25" rx="6" fill="#10B981" opacity="0.4"/>
+                  <text x="30" y="17" textAnchor="middle" fill="#6EE7B7" fontSize="8" fontWeight="bold">ZERO GRAD</text>
+                </g>
+              </g>
+
+              {/* LOOP BACK ARROW */}
+              <path d="M 955 730 L 955 760 Q 955 780 935 780 L 860 780 Q 840 780 840 760 L 840 190" 
+                    stroke="#FBBF24" strokeWidth="3" fill="none" strokeDasharray="10,5" markerEnd="url(#arrowOrange)"/>
+              <text x="875" y="800" textAnchor="middle" fill="#FBBF24" fontSize="11" fontWeight="bold">↺ REPEAT FOR EACH BATCH</text>
+
+              {/* ═══════════════════════════════════════════════════════════ */}
+              {/* CHECKPOINT & MONITORING */}
+              {/* ═══════════════════════════════════════════════════════════ */}
+
+              {/* Arrow to Checkpoint */}
+              <path d="M 1320 670 L 1380 670 L 1380 150" stroke="#0EA5E9" strokeWidth="3" fill="none" markerEnd="url(#arrowBlue)"/>
+
+              {/* Checkpoint Save */}
+              <g transform="translate(1520, 115)"
+                 onMouseEnter={() => setTooltip('checkpoint-save')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="80" rx="12" fill="url(#ckptGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="74" rx="10" fill="#0a1a2e" opacity="0.95"/>
+                <text x="70" y="25" textAnchor="middle" fill="#0EA5E9" fontSize="11" fontWeight="bold">💾 CHECKPOINT</text>
+                <text x="70" y="43" textAnchor="middle" fill="#7DD3FC" fontSize="9">Weights • Optimizer</text>
+                <text x="70" y="58" textAnchor="middle" fill="#7DD3FC" fontSize="9">RNG • Config</text>
+                <text x="70" y="72" textAnchor="middle" fill="#94A3B8" fontSize="8">Every N steps</text>
+              </g>
+
+              {/* Evaluation */}
+              <g transform="translate(1520, 210)"
+                 onMouseEnter={() => setTooltip('eval')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="70" rx="12" fill="url(#ckptGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="64" rx="10" fill="#0a1a2e" opacity="0.95"/>
+                <text x="70" y="22" textAnchor="middle" fill="#0EA5E9" fontSize="11" fontWeight="bold">📊 EVALUATION</text>
+                <text x="70" y="40" textAnchor="middle" fill="#7DD3FC" fontSize="9">Val Loss • MMLU</text>
+                <text x="70" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">Periodic benchmarks</text>
+              </g>
+
+              {/* Logging */}
+              <g transform="translate(1520, 295)"
+                 onMouseEnter={() => setTooltip('logging')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="140" height="70" rx="12" fill="url(#ckptGrad)" opacity="0.9"/>
+                <rect x="3" y="3" width="134" height="64" rx="10" fill="#0a1a2e" opacity="0.95"/>
+                <text x="70" y="22" textAnchor="middle" fill="#0EA5E9" fontSize="11" fontWeight="bold">📈 LOGGING</text>
+                <text x="70" y="40" textAnchor="middle" fill="#7DD3FC" fontSize="9">Loss • Grad Norm</text>
+                <text x="70" y="55" textAnchor="middle" fill="#94A3B8" fontSize="8">W&B • TensorBoard</text>
+              </g>
+
+              {/* Resume */}
+              <g transform="translate(1680, 115)"
+                 onMouseEnter={() => setTooltip('checkpoint-resume')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="130" height="70" rx="12" fill="#64748B" opacity="0.2" stroke="#64748B" strokeWidth="1" strokeDasharray="4,4"/>
+                <text x="65" y="25" textAnchor="middle" fill="#94A3B8" fontSize="10" fontWeight="bold">🔄 RESUME</text>
+                <text x="65" y="42" textAnchor="middle" fill="#64748B" fontSize="9">From checkpoint</text>
+                <text x="65" y="56" textAnchor="middle" fill="#475569" fontSize="8">On failure</text>
+              </g>
+
+              {/* BOTTLENECK INDICATORS */}
+              <g transform="translate(415, 280)"
+                 onMouseEnter={() => setTooltip('cpu-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="40" height="14" rx="4" fill="#3B82F6" opacity="0.8"/>
+                <text x="20" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">CPU</text>
+              </g>
+              
+              <g transform="translate(955, 265)"
+                 onMouseEnter={() => setTooltip('gpu-compute')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="70" height="14" rx="4" fill="#EF4444" opacity="0.8"/>
+                <text x="35" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">GPU COMPUTE</text>
+              </g>
+              
+              <g transform="translate(1180, 575)"
+                 onMouseEnter={() => setTooltip('memory-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="70" height="14" rx="4" fill="#F59E0B" opacity="0.8"/>
+                <text x="35" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">MEMORY</text>
+              </g>
+              
+              <g transform="translate(975, 610)"
+                 onMouseEnter={() => setTooltip('network-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="60" height="14" rx="4" fill="#8B5CF6" opacity="0.8"/>
+                <text x="30" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">NETWORK</text>
+              </g>
+              
+              <g transform="translate(1590, 380)"
+                 onMouseEnter={() => setTooltip('storage-bottleneck')}
+                 onMouseLeave={() => setTooltip(null)}
+                 style={{ cursor: 'pointer' }}>
+                <rect x="0" y="0" width="60" height="14" rx="4" fill="#0EA5E9" opacity="0.8"/>
+                <text x="30" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">STORAGE</text>
+              </g>
+
+              {/* DATA FLOW LABELS */}
+              <g transform="translate(440, 160)">
+                <rect x="0" y="0" width="50" height="16" rx="4" fill="#F59E0B" opacity="0.3"/>
+                <text x="25" y="12" textAnchor="middle" fill="#FCD34D" fontSize="8" fontWeight="bold">RAW</text>
+              </g>
+              
+              <g transform="translate(590, 160)">
+                <rect x="0" y="0" width="55" height="16" rx="4" fill="#F59E0B" opacity="0.3"/>
+                <text x="27" y="12" textAnchor="middle" fill="#FCD34D" fontSize="8" fontWeight="bold">CLEAN</text>
+              </g>
+              
+              <g transform="translate(730, 160)">
+                <rect x="0" y="0" width="55" height="16" rx="4" fill="#F59E0B" opacity="0.3"/>
+                <text x="27" y="12" textAnchor="middle" fill="#FCD34D" fontSize="8" fontWeight="bold">TOKENS</text>
+              </g>
+              
+              <g transform="translate(1040, 410)">
+                <rect x="0" y="0" width="55" height="16" rx="4" fill="#06B6D4" opacity="0.3"/>
+                <text x="27" y="12" textAnchor="middle" fill="#67E8F9" fontSize="8" fontWeight="bold">LOGITS</text>
+              </g>
+              
+              <g transform="translate(1130, 400)">
+                <rect x="0" y="0" width="45" height="16" rx="4" fill="#EF4444" opacity="0.3"/>
+                <text x="22" y="12" textAnchor="middle" fill="#F87171" fontSize="8" fontWeight="bold">LOSS</text>
+              </g>
+              
+              <g transform="translate(1090, 575)">
+                <rect x="0" y="0" width="55" height="16" rx="4" fill="#F97316" opacity="0.3"/>
+                <text x="27" y="12" textAnchor="middle" fill="#FB923C" fontSize="8" fontWeight="bold">GRADS</text>
+              </g>
+
+              {/* Cost Formula Box */}
+              <g transform="translate(1520, 500)">
+                <rect x="0" y="0" width="290" height="100" rx="12" fill="#10B981" opacity="0.1" stroke="#10B981" strokeWidth="1"/>
+                <text x="145" y="22" textAnchor="middle" fill="#10B981" fontSize="11" fontWeight="bold">💰 COST MODEL</text>
+                <text x="145" y="45" textAnchor="middle" fill="#6EE7B7" fontSize="10" fontFamily="monospace">FLOPs ≈ 6 × N × D</text>
+                <text x="145" y="62" textAnchor="middle" fill="#94A3B8" fontSize="8">N = params, D = tokens</text>
+                <text x="145" y="82" textAnchor="middle" fill="#64748B" fontSize="8">70B × 2T × 6 = 840 ZFLOPs ≈ 1M H100-hrs</text>
+              </g>
+
+              {/* Scale indicator */}
+              <g transform="translate(1520, 620)">
+                <rect x="0" y="0" width="290" height="80" rx="12" fill="#8B5CF6" opacity="0.1" stroke="#8B5CF6" strokeWidth="1"/>
+                <text x="145" y="22" textAnchor="middle" fill="#8B5CF6" fontSize="11" fontWeight="bold">📊 SCALE REFERENCE</text>
+                <text x="145" y="45" textAnchor="middle" fill="#C4B5FD" fontSize="10">LLaMA-70B: 2T tokens, 1M GPU-hrs</text>
+                <text x="145" y="62" textAnchor="middle" fill="#94A3B8" fontSize="9">GPT-4: ~13T tokens, ~$100M compute</text>
+                <text x="145" y="78" textAnchor="middle" fill="#64748B" fontSize="8">MFU target: 40-50%</text>
+              </g>
+            </svg>
+
+            {/* Legend */}
+            <div className="mt-8 flex flex-wrap justify-center gap-6 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500"></div>
+                <span className="text-slate-400">Infrastructure</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-orange-500 to-red-500"></div>
+                <span className="text-slate-400">Data Pipeline</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-pink-500 to-rose-500"></div>
+                <span className="text-slate-400">Model Init</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-cyan-500 to-teal-500"></div>
+                <span className="text-slate-400">Forward Pass</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-red-500 to-orange-500"></div>
+                <span className="text-slate-400">Loss & Backward</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-violet-500 to-purple-500"></div>
+                <span className="text-slate-400">Gradient Sync</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-500 to-green-500"></div>
+                <span className="text-slate-400">Optimizer</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-sky-500 to-blue-500"></div>
+                <span className="text-slate-400">Checkpoint</span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-8 text-center text-slate-500 text-sm">
+              <p>End-to-End Training Pipeline • Interactive Flow Diagram with Tooltips</p>
+              <p className="text-xs mt-1 text-slate-600">Data → Forward → Loss → Backward → Sync → Update → Repeat</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TrainingPipelineDiagram />);
+  </script>
+</body>
+</html>

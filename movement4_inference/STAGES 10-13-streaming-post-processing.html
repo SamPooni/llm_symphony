@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Streaming & Post-Processing - Inference Stages 10-13</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    @keyframes typewriter { from { width: 0 } to { width: 100% } }
+    @keyframes blink { 50% { border-color: transparent } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+    function StreamingPostProcessing() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+
+      const tooltips = {
+        // Key Metrics
+        'metric-ttft': { title: '⏱️ TTFT', content: 'Time To First Token — the latency until user sees first character. Critical UX metric. Dominated by prefill time for long prompts.', example: 'Good: <500ms\nAcceptable: <2s\nBad: >5s\n\nLong prompt = slow TTFT\nShort prompt = fast TTFT' },
+        'metric-tpot': { title: '📊 TPOT', content: 'Time Per Output Token — latency between tokens during streaming. Determines "typing speed" perception. Should be <100ms for smooth UX.', example: '50ms/token = 20 tok/s = fast typing\n100ms/token = 10 tok/s = readable\n200ms/token = 5 tok/s = sluggish' },
+        'metric-ux': { title: '👁️ UX', content: 'Streaming creates perception of faster response. User reads while model generates. Hides total latency behind progressive display.', example: 'Non-streaming: Wait 10s, see all\nStreaming: See first token in 500ms\n\nSame total time, feels 20× faster!' },
+        'metric-safety': { title: '🛡️ SAFETY', content: 'Post-processing filters catch harmful content before delivery. Output classifiers, PII detection, format validation. Last line of defense.', example: 'Checks:\n- Harmful content classifier\n- PII/secrets detection\n- Copyright/plagiarism\n- Format compliance' },
+
+        // Streaming
+        'stream-sse': { title: 'Server-Sent Events (SSE)', content: 'HTTP-based streaming protocol. Server pushes events to client over single long-lived connection. Most common for LLM streaming.', details: 'Format:\ndata: {"token": "Hello"}\n\ndata: {"token": " world"}\n\ndata: [DONE]\n\nContent-Type: text/event-stream\nConnection: keep-alive', example: 'curl -N https://api.openai.com/v1/chat/completions \\\n  -H "Accept: text/event-stream"\n\nReceives:\ndata: {"choices":[{"delta":{"content":"Hello"}}]}\ndata: {"choices":[{"delta":{"content":" world"}}]}' },
+        'stream-websocket': { title: 'WebSocket', content: 'Full-duplex communication. Client can send while receiving. Better for interactive/bidirectional use cases.', details: 'Pros:\n- Bidirectional\n- Lower overhead per message\n- Can interrupt/cancel easily\n\nCons:\n- More complex\n- Stateful connection\n- Harder to load balance', example: 'ws.onmessage = (event) => {\n  const data = JSON.parse(event.data);\n  appendText(data.token);\n};\n\nws.send(JSON.stringify({action: "cancel"}));' },
+        'stream-grpc': { title: 'gRPC Streaming', content: 'Protocol buffer-based streaming. Efficient binary format. Common for internal service-to-service communication.', details: 'Types:\n- Server streaming (LLM output)\n- Client streaming (audio input)\n- Bidirectional (real-time chat)\n\nPros: Efficient, typed, multiplexed\nCons: Not browser-native', example: 'service LLM {\n  rpc Generate(Prompt) returns (stream Token);\n}\n\nfor token in stub.Generate(prompt):\n    print(token.text, end="")' },
+        'stream-chunked': { title: 'Chunked Transfer', content: 'HTTP chunked encoding. Each chunk contains one or more tokens. Simplest streaming approach.', details: 'Transfer-Encoding: chunked\n\nServer sends:\n5\\r\\nHello\\r\\n\n6\\r\\n world\\r\\n\n0\\r\\n\\r\\n (end)\n\nNo special client support needed', example: 'fetch(url).then(response => {\n  const reader = response.body.getReader();\n  // Read chunks as they arrive\n});' },
+
+        // Detokenization
+        'detok-lookup': { title: 'Token → Text Lookup', content: 'Reverse of tokenization. Look up each token ID in vocabulary to get text. Simple table lookup.', details: 'Vocab: {15496: "Hello", 995: " world", 0: "<pad>"}\n\ntoken_ids = [15496, 995]\ntext = "".join(vocab[id] for id in token_ids)\n# "Hello world"', example: 'Token IDs: [15496, 995, 0]\nLookup: ["Hello", " world", "<pad>"]\nJoin: "Hello world<pad>"\nStrip special: "Hello world"' },
+        'detok-utf8': { title: 'UTF-8 Boundary Handling', content: 'Multi-byte UTF-8 characters may span multiple tokens. Must buffer incomplete sequences until complete.', details: 'UTF-8 bytes per char:\n- ASCII: 1 byte\n- Latin: 2 bytes\n- CJK: 3 bytes\n- Emoji: 4 bytes\n\nProblem: Token boundary mid-character\nSolution: Buffer until valid UTF-8', example: 'Token 1: bytes [0xE4, 0xB8] (incomplete 中)\nToken 2: bytes [0xAD] (completes 中)\n\nBuffer token 1, combine with token 2\nOutput: "中"' },
+        'detok-special': { title: 'Strip Special Tokens', content: 'Remove control tokens from output. BOS, EOS, PAD, chat markers should not appear in final text.', details: 'Special tokens to strip:\n- <s>, </s> (BOS/EOS)\n- <pad> (padding)\n- <|im_start|>, <|im_end|> (chat)\n- <|endoftext|> (GPT)\n\nKeep: User-visible content only', example: 'Raw: "<|im_start|>assistant\\nHello!<|im_end|>"\nStripped: "Hello!"' },
+        'detok-incremental': { title: 'Incremental Detokenization', content: 'Detokenize token-by-token during streaming. Handle partial tokens and UTF-8 boundaries incrementally.', details: 'Challenge: Some tokenizers need context\nSolution: Keep small buffer\n\nProcess:\n1. Add new token to buffer\n2. Try to detokenize\n3. Output complete characters\n4. Keep incomplete in buffer', example: 'Buffer: []\nToken 1: [15496] → "Hello" ✓ output\nToken 2: [234] → incomplete UTF-8, buffer\nToken 3: [567] → completes char, output both' },
+
+        // Output Formatting
+        'format-markdown': { title: 'Markdown Rendering', content: 'Parse and render markdown in output. Headers, lists, code blocks, links. Client-side rendering.', details: 'Elements:\n- # Headers\n- **bold**, *italic*\n- ```code blocks```\n- [links](url)\n- - lists\n\nLibraries: marked.js, markdown-it', example: 'Model output:\n"Here is code:\\n```python\\nprint(1)\\n```"\n\nRendered:\nHere is code:\n[syntax highlighted code block]' },
+        'format-code': { title: 'Code Syntax Highlighting', content: 'Detect language in code blocks, apply syntax highlighting. Improves readability for technical content.', details: 'Detection:\n- Explicit: ```python\n- Inferred: Heuristics on content\n\nLibraries: Prism.js, highlight.js\nLanguages: 100+ supported', example: '```python\ndef hello():\n    print("world")\n```\n\n→ Colorized keywords, strings, etc.' },
+        'format-latex': { title: 'LaTeX/Math Rendering', content: 'Render mathematical notation. Inline $x^2$ and display $$\\int$$ math. KaTeX or MathJax.', details: 'Delimiters:\n- Inline: $...$, \\(...\\)\n- Display: $$...$$, \\[...\\]\n\nLibraries: KaTeX (fast), MathJax (complete)\nRendering: To HTML/SVG', example: 'Model: "The formula is $E=mc^2$"\n\nRendered: The formula is E=mc²\n(with proper superscript)' },
+        'format-citations': { title: 'Citation Formatting', content: 'Format references and citations. Link to sources, footnotes, bibliography. Important for RAG applications.', details: 'Formats:\n- Inline: [1], (Smith 2023)\n- Footnotes: Superscript numbers\n- Bibliography: End of response\n\nRAG: Link to retrieved documents', example: 'Model: "According to [1], the answer is 42."\n\n[1] → Clickable link to source document' },
+
+        // Safety Filters
+        'safety-classifier': { title: 'Output Classifier', content: 'ML model that classifies output for harmful content. Runs on generated text. Can block or flag responses.', details: 'Categories:\n- Violence, hate speech\n- Sexual content\n- Self-harm, dangerous\n- Illegal activities\n\nAction: Block, warn, or log', example: 'Output: "Here\'s how to make..."\nClassifier: HARMFUL (0.95)\nAction: Block response, return error\n\nLatency: 10-50ms additional' },
+        'safety-pii': { title: 'PII Detection', content: 'Detect personally identifiable information in output. Names, emails, phone numbers, SSNs, addresses.', details: 'PII types:\n- Email: regex + validation\n- Phone: pattern matching\n- SSN: format detection\n- Names: NER model\n- Addresses: NER + geocoding\n\nAction: Redact [REDACTED] or block', example: 'Output: "Contact john@email.com at 555-1234"\nPII detected: email, phone\nRedacted: "Contact [EMAIL] at [PHONE]"' },
+        'safety-secrets': { title: 'Secrets Detection', content: 'Detect leaked API keys, passwords, credentials in output. Prevent accidental exposure of sensitive data.', details: 'Patterns:\n- API keys: sk-xxx, AKIA...\n- Passwords: common patterns\n- Tokens: JWT, OAuth\n- Private keys: -----BEGIN...\n\nAction: Redact or block', example: 'Output: "Use API key sk-abc123..."\nSecret detected: OpenAI API key\nAction: Block, log security event' },
+        'safety-copyright': { title: 'Copyright Check', content: 'Detect potentially copyrighted content. Song lyrics, book excerpts, code with licenses. Prevent IP violations.', details: 'Detection:\n- Exact match against corpus\n- Fuzzy matching for paraphrase\n- License detection for code\n\nAction: Warn, truncate, or block', example: 'Output: [50 lines of copyrighted lyrics]\nMatch: 95% similarity to known work\nAction: Truncate, add disclaimer' },
+
+        // Tool/Function Output
+        'tool-parse': { title: 'Tool Call Parsing', content: 'Parse structured tool call from model output. Extract function name, arguments. Validate against schema.', details: 'Formats:\n- OpenAI: {"name": "fn", "arguments": {...}}\n- Anthropic: <tool_use><name>fn</name>...</tool_use>\n- Custom: function_call: {...}\n\nValidation: JSON schema check', example: 'Output: {"tool": "search", "query": "weather NYC"}\nParsed: tool=search, args={query: "weather NYC"}\nValidated: ✓ matches schema' },
+        'tool-execute': { title: 'Tool Execution', content: 'Execute the parsed tool call. Call external API, run code, query database. Handle errors and timeouts.', details: 'Execution:\n1. Validate arguments\n2. Check permissions\n3. Execute with timeout\n4. Capture result/error\n5. Format for model\n\nSandbox: Untrusted code in container', example: 'Tool: search("weather NYC")\nExecute: Call weather API\nResult: {"temp": 72, "conditions": "sunny"}\nReturn to model for next turn' },
+        'tool-format': { title: 'Result Formatting', content: 'Format tool execution result for model consumption. Truncate large results, handle errors gracefully.', details: 'Formatting:\n- Truncate: Max chars/tokens\n- Summarize: Large results\n- Error: Clear error message\n- Timeout: Indicate timeout\n\nInsert as next message in conversation', example: 'Raw result: [10KB of JSON]\nFormatted: "Weather in NYC: 72°F, sunny. Humidity 45%."\n\nInserted as tool_result message' },
+
+        // Response Assembly
+        'assemble-buffer': { title: 'Response Buffer', content: 'Accumulate tokens into complete response. Handle streaming chunks, maintain state across network issues.', details: 'Buffer operations:\n- Append new tokens\n- Track total length\n- Handle reconnection\n- Maintain ordering\n\nState: Persists across stream chunks', example: 'Chunk 1: "Hello"\nBuffer: "Hello"\nChunk 2: " world"\nBuffer: "Hello world"\nChunk 3: "!"\nFinal: "Hello world!"' },
+        'assemble-validate': { title: 'Response Validation', content: 'Validate complete response meets requirements. JSON validity, length limits, format compliance.', details: 'Validations:\n- JSON: Parse check\n- Length: Within limits\n- Format: Matches expected\n- Completeness: Not truncated mid-sentence\n\nAction: Return or request continuation', example: 'Expected: JSON object\nReceived: {"name": "test"\n(incomplete)\nAction: Invalid JSON, return error or retry' },
+        'assemble-metadata': { title: 'Add Metadata', content: 'Attach usage statistics, timing info, model details to response. Important for billing and debugging.', details: 'Metadata:\n- usage: {prompt_tokens, completion_tokens, total_tokens}\n- model: "gpt-4-turbo"\n- finish_reason: "stop" | "length" | "tool_calls"\n- latency: {ttft, total}', example: '{\n  "content": "Hello world!",\n  "usage": {"prompt_tokens": 10, "completion_tokens": 3},\n  "finish_reason": "stop",\n  "model": "gpt-4"\n}' },
+
+        // Delivery
+        'deliver-compress': { title: 'Response Compression', content: 'Compress response for network efficiency. gzip or brotli. Reduces bandwidth, especially for long responses.', details: 'Methods:\n- gzip: Universal support\n- brotli: Better compression\n- None: For short responses\n\nHeader: Accept-Encoding: gzip, br\nResponse: Content-Encoding: gzip', example: 'Original: 10KB response\ngzip: 2KB (80% reduction)\nbrotli: 1.5KB (85% reduction)\n\nAlways compress for responses >1KB' },
+        'deliver-cache': { title: 'Response Caching', content: 'Cache identical requests for faster response. Deterministic requests (T=0) are cacheable. Saves compute.', details: 'Cache key:\n- Model + messages + parameters\n- Hash for lookup\n\nCacheable if:\n- temperature = 0\n- Same seed\n- No random elements', example: 'Request: "What is 2+2?" (T=0)\nCache hit: Return stored "4"\nLatency: 1ms vs 500ms\n\n10K identical requests → 1 computation' },
+        'deliver-log': { title: 'Logging & Telemetry', content: 'Log request/response for debugging, analytics, compliance. Trace IDs, timing, token counts.', details: 'Log fields:\n- request_id: Unique trace ID\n- timestamp: Request/response times\n- tokens: Input/output counts\n- latency: TTFT, total\n- status: Success/error\n- user_id: For analytics', example: '{\n  "request_id": "req_abc123",\n  "ttft_ms": 450,\n  "total_ms": 2340,\n  "input_tokens": 150,\n  "output_tokens": 89,\n  "status": "success"\n}' },
+
+        // Error Handling
+        'error-timeout': { title: 'Timeout Handling', content: 'Handle generation timeouts gracefully. Return partial response or error. Set reasonable timeouts.', details: 'Timeout types:\n- Connection: 10-30s\n- First token: 30-60s\n- Total: 60-300s\n\nAction:\n- Return partial if useful\n- Clear error message\n- Retry suggestion', example: 'Timeout after 60s, 500 tokens generated\nOption A: Return partial with "...[truncated]"\nOption B: Return error, suggest retry\n\nDepends on use case' },
+        'error-rate': { title: 'Rate Limit Response', content: 'Handle rate limiting gracefully. Return retry-after header. Implement client-side backoff.', details: 'Response:\nHTTP 429 Too Many Requests\nRetry-After: 30\n\nClient:\n- Exponential backoff\n- Respect Retry-After\n- Queue requests', example: 'Response: 429, Retry-After: 30\nClient waits 30s\nRetry with exponential backoff:\n30s → 60s → 120s → fail' },
+        'error-content': { title: 'Content Filter Response', content: 'Handle blocked content gracefully. Clear message about why blocked. Don\'t expose filter details.', details: 'Response:\n{\n  "error": "content_filter",\n  "message": "Response blocked due to content policy"\n}\n\nDon\'t reveal:\n- Specific trigger\n- Filter thresholds\n- Bypass methods', example: 'Model generated harmful content\nFilter blocked\n\nUser sees:\n"I can\'t help with that request. Please try a different question."' },
+
+        // Final Response
+        'final-json': { title: 'JSON Response Format', content: 'Standard JSON response structure. Content, usage, metadata. Consistent across streaming and non-streaming.', details: 'OpenAI format:\n{\n  "id": "chatcmpl-xxx",\n  "choices": [{\n    "message": {"role": "assistant", "content": "..."},\n    "finish_reason": "stop"\n  }],\n  "usage": {...}\n}', example: '{\n  "id": "chatcmpl-abc",\n  "model": "gpt-4",\n  "choices": [{\n    "message": {\n      "role": "assistant",\n      "content": "Hello!"\n    },\n    "finish_reason": "stop"\n  }],\n  "usage": {\n    "prompt_tokens": 10,\n    "completion_tokens": 2,\n    "total_tokens": 12\n  }\n}' },
+        'final-stream': { title: 'Stream End Signal', content: 'Signal end of streaming response. [DONE] marker or close connection. Client knows response is complete.', details: 'SSE: data: [DONE]\nWebSocket: {"type": "done"} or close\ngRPC: Stream completion\n\nClient:\n- Stop reading\n- Finalize display\n- Enable input', example: 'data: {"delta": {"content": "!"}}\n\ndata: [DONE]\n\nClient: Response complete, enable user input' },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        let left = mousePos.x + 15, top = mousePos.y + 15;
+        if (left + 400 > window.innerWidth) left = mousePos.x - 400;
+        if (top + 300 > window.innerHeight) top = window.innerHeight - 310;
+        return (
+          <div className="fixed z-50 w-[380px] p-4 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl" style={{ left, top }}>
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-2">{t.content}</p>
+            {t.details && <div className="bg-black/50 rounded-lg p-2 mb-2"><div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div><p className="text-xs text-cyan-300 whitespace-pre-wrap">{t.details}</p></div>}
+            {t.example && <div className="bg-black/50 rounded-lg p-2"><div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div><pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre></div>}
+          </div>
+        );
+      };
+
+      const H = ({ id, children, className = '' }) => (
+        <div className={`cursor-help transition-all hover:scale-[1.02] ${className}`} onMouseEnter={() => setTooltip(id)} onMouseLeave={() => setTooltip(null)}>{children}</div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-6" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-cyan-500/20 border-2 border-cyan-400 mb-4">
+                <span className="text-cyan-300 font-black text-lg">STAGES 10-13</span>
+                <span className="text-white">•</span>
+                <span className="text-cyan-200 font-medium">From Tokens to User</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-400">Streaming & Post-Processing</h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto"><span className="text-cyan-300 font-bold">Tokens → Text → User</span> — delivery, safety, and the final response. <span className="text-cyan-300">🖱️ Hover for details.</span></p>
+            </header>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-10">
+              <H id="metric-ttft"><div className="p-5 rounded-xl bg-green-600 border-2 border-green-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">⏱️</span><span className="text-sm font-black text-white/90">TTFT</span></div><div className="text-3xl font-black text-green-100">&lt;500ms</div><div className="text-sm text-white/80">Time to First Token</div></div></H>
+              <H id="metric-tpot"><div className="p-5 rounded-xl bg-blue-600 border-2 border-blue-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">📊</span><span className="text-sm font-black text-white/90">TPOT</span></div><div className="text-3xl font-black text-blue-100">&lt;100ms</div><div className="text-sm text-white/80">Time Per Output Token</div></div></H>
+              <H id="metric-ux"><div className="p-5 rounded-xl bg-purple-600 border-2 border-purple-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">👁️</span><span className="text-sm font-black text-white/90">UX</span></div><div className="text-3xl font-black text-purple-100">STREAM</div><div className="text-sm text-white/80">Feels faster to user</div></div></H>
+              <H id="metric-safety"><div className="p-5 rounded-xl bg-red-600 border-2 border-red-400"><div className="flex items-center gap-2 mb-2"><span className="text-2xl">🛡️</span><span className="text-sm font-black text-white/90">SAFETY</span></div><div className="text-3xl font-black text-red-100">FILTER</div><div className="text-sm text-white/80">Last line of defense</div></div></H>
+            </div>
+
+            {/* Stage 10: Streaming */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-cyan-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">10</div>
+                <div><h2 className="text-3xl font-black text-cyan-300">10.0 STREAMING</h2><p className="text-cyan-200/80">Real-time token delivery to client</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-cyan-950 to-blue-950 border-2 border-cyan-400 rounded-xl p-6">
+                <div className="text-cyan-300 font-black text-lg mb-4">📡 STREAMING PROTOCOLS</div>
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <H id="stream-sse"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">📨</div><div className="text-white font-bold">SSE</div><div className="text-cyan-200 text-xs mt-1">Server-Sent Events</div><div className="text-cyan-400 text-xs mt-2">Most common, HTTP-based</div></div></H>
+                  <H id="stream-websocket"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">🔌</div><div className="text-white font-bold">WebSocket</div><div className="text-cyan-200 text-xs mt-1">Full-duplex</div><div className="text-cyan-400 text-xs mt-2">Bidirectional, interactive</div></div></H>
+                  <H id="stream-grpc"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">⚡</div><div className="text-white font-bold">gRPC</div><div className="text-cyan-200 text-xs mt-1">Protocol buffers</div><div className="text-cyan-400 text-xs mt-2">Efficient, typed</div></div></H>
+                  <H id="stream-chunked"><div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4"><div className="text-2xl mb-2">📦</div><div className="text-white font-bold">Chunked</div><div className="text-cyan-200 text-xs mt-1">HTTP Transfer-Encoding</div><div className="text-cyan-400 text-xs mt-2">Simple, universal</div></div></H>
+                </div>
+
+                {/* Streaming Visualization */}
+                <div className="bg-black/30 border border-cyan-500/50 rounded-xl p-4">
+                  <div className="text-cyan-300 font-bold mb-3">⏱️ Streaming Timeline</div>
+                  <div className="relative h-16">
+                    <div className="absolute inset-x-0 top-1/2 h-1 bg-slate-700 rounded"></div>
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-green-500 rounded-full"></div>
+                    <div className="absolute left-[15%] top-1/2 -translate-y-1/2 w-3 h-3 bg-cyan-500 rounded-full"></div>
+                    <div className="absolute left-[25%] top-1/2 -translate-y-1/2 w-3 h-3 bg-cyan-500 rounded-full"></div>
+                    <div className="absolute left-[35%] top-1/2 -translate-y-1/2 w-3 h-3 bg-cyan-500 rounded-full"></div>
+                    <div className="absolute left-[45%] top-1/2 -translate-y-1/2 w-3 h-3 bg-cyan-500 rounded-full"></div>
+                    <div className="absolute left-[55%] top-1/2 -translate-y-1/2 w-3 h-3 bg-cyan-500 rounded-full"></div>
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full"></div>
+                    <div className="absolute left-0 top-0 text-xs text-green-400">Request</div>
+                    <div className="absolute left-[15%] top-0 text-xs text-cyan-400">TTFT</div>
+                    <div className="absolute left-[25%] bottom-0 text-xs text-slate-400">tok</div>
+                    <div className="absolute left-[35%] bottom-0 text-xs text-slate-400">tok</div>
+                    <div className="absolute left-[45%] bottom-0 text-xs text-slate-400">tok</div>
+                    <div className="absolute left-[55%] bottom-0 text-xs text-slate-400">...</div>
+                    <div className="absolute right-0 top-0 text-xs text-red-400">[DONE]</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Stage 11: Detokenization */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-blue-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">11</div>
+                <div><h2 className="text-3xl font-black text-blue-300">11.0 DETOKENIZATION</h2><p className="text-blue-200/80">Convert token IDs back to text</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-950 to-indigo-950 border-2 border-blue-400 rounded-xl p-6">
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <H id="detok-lookup"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4"><div className="text-2xl mb-2">📖</div><div className="text-white font-bold">Token Lookup</div><div className="text-blue-200 text-xs mt-1">ID → text from vocab</div></div></H>
+                  <H id="detok-utf8"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4"><div className="text-2xl mb-2">🔤</div><div className="text-white font-bold">UTF-8 Handling</div><div className="text-blue-200 text-xs mt-1">Multi-byte boundaries</div></div></H>
+                  <H id="detok-special"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4"><div className="text-2xl mb-2">🚫</div><div className="text-white font-bold">Strip Special</div><div className="text-blue-200 text-xs mt-1">Remove &lt;s&gt;, &lt;/s&gt;, etc.</div></div></H>
+                  <H id="detok-incremental"><div className="bg-black/40 border-2 border-blue-400 rounded-xl p-4"><div className="text-2xl mb-2">➡️</div><div className="text-white font-bold">Incremental</div><div className="text-blue-200 text-xs mt-1">Token-by-token decode</div></div></H>
+                </div>
+
+                {/* Output Formatting */}
+                <div className="text-indigo-300 font-black text-lg mb-4">🎨 OUTPUT FORMATTING</div>
+                <div className="grid grid-cols-4 gap-4">
+                  <H id="format-markdown"><div className="bg-black/40 border-2 border-indigo-400 rounded-xl p-4 text-center"><div className="text-2xl mb-2">📝</div><div className="text-white font-bold text-sm">Markdown</div><div className="text-indigo-200 text-xs">Headers, lists, bold</div></div></H>
+                  <H id="format-code"><div className="bg-black/40 border-2 border-indigo-400 rounded-xl p-4 text-center"><div className="text-2xl mb-2">💻</div><div className="text-white font-bold text-sm">Syntax Highlight</div><div className="text-indigo-200 text-xs">Code colorization</div></div></H>
+                  <H id="format-latex"><div className="bg-black/40 border-2 border-indigo-400 rounded-xl p-4 text-center"><div className="text-2xl mb-2">∑</div><div className="text-white font-bold text-sm">LaTeX/Math</div><div className="text-indigo-200 text-xs">KaTeX rendering</div></div></H>
+                  <H id="format-citations"><div className="bg-black/40 border-2 border-indigo-400 rounded-xl p-4 text-center"><div className="text-2xl mb-2">📚</div><div className="text-white font-bold text-sm">Citations</div><div className="text-indigo-200 text-xs">Links, references</div></div></H>
+                </div>
+              </div>
+            </section>
+
+            {/* Stage 12: Safety Filters */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-red-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">12</div>
+                <div><h2 className="text-3xl font-black text-red-300">12.0 SAFETY FILTERS</h2><p className="text-red-200/80">Last line of defense — block harmful content</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-red-950 to-rose-950 border-2 border-red-400 rounded-xl p-6">
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <H id="safety-classifier"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4"><div className="text-2xl mb-2">🤖</div><div className="text-white font-bold">Output Classifier</div><div className="text-red-200 text-xs mt-1">ML harm detection</div><div className="text-red-400 text-xs mt-2">Block/flag harmful</div></div></H>
+                  <H id="safety-pii"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4"><div className="text-2xl mb-2">👤</div><div className="text-white font-bold">PII Detection</div><div className="text-red-200 text-xs mt-1">Names, emails, SSNs</div><div className="text-red-400 text-xs mt-2">Redact [REDACTED]</div></div></H>
+                  <H id="safety-secrets"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4"><div className="text-2xl mb-2">🔑</div><div className="text-white font-bold">Secrets Detection</div><div className="text-red-200 text-xs mt-1">API keys, passwords</div><div className="text-red-400 text-xs mt-2">Block exposure</div></div></H>
+                  <H id="safety-copyright"><div className="bg-black/40 border-2 border-red-400 rounded-xl p-4"><div className="text-2xl mb-2">©</div><div className="text-white font-bold">Copyright Check</div><div className="text-red-200 text-xs mt-1">Lyrics, excerpts</div><div className="text-red-400 text-xs mt-2">Truncate/warn</div></div></H>
+                </div>
+
+                {/* Tool Handling */}
+                <div className="text-orange-300 font-black text-lg mb-4">🔧 TOOL/FUNCTION OUTPUT</div>
+                <div className="grid grid-cols-3 gap-4">
+                  <H id="tool-parse"><div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4"><div className="text-2xl mb-2">📋</div><div className="text-white font-bold">Parse Tool Call</div><div className="text-orange-200 text-xs mt-1">Extract function, args</div></div></H>
+                  <H id="tool-execute"><div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4"><div className="text-2xl mb-2">▶️</div><div className="text-white font-bold">Execute</div><div className="text-orange-200 text-xs mt-1">Run with sandboxing</div></div></H>
+                  <H id="tool-format"><div className="bg-black/40 border-2 border-orange-400 rounded-xl p-4"><div className="text-2xl mb-2">📤</div><div className="text-white font-bold">Format Result</div><div className="text-orange-200 text-xs mt-1">Truncate, return</div></div></H>
+                </div>
+              </div>
+            </section>
+
+            {/* Stage 13: Response Delivery */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-green-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">13</div>
+                <div><h2 className="text-3xl font-black text-green-300">13.0 RESPONSE DELIVERY</h2><p className="text-green-200/80">Final assembly and client delivery</p></div>
+              </div>
+
+              <div className="bg-gradient-to-br from-green-950 to-emerald-950 border-2 border-green-400 rounded-xl p-6">
+                {/* Response Assembly */}
+                <div className="text-green-300 font-black text-lg mb-4">📦 RESPONSE ASSEMBLY</div>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <H id="assemble-buffer"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4"><div className="text-2xl mb-2">📝</div><div className="text-white font-bold">Buffer</div><div className="text-green-200 text-xs mt-1">Accumulate tokens</div></div></H>
+                  <H id="assemble-validate"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4"><div className="text-2xl mb-2">✓</div><div className="text-white font-bold">Validate</div><div className="text-green-200 text-xs mt-1">JSON, format check</div></div></H>
+                  <H id="assemble-metadata"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4"><div className="text-2xl mb-2">📊</div><div className="text-white font-bold">Metadata</div><div className="text-green-200 text-xs mt-1">Usage, timing, model</div></div></H>
+                </div>
+
+                {/* Delivery */}
+                <div className="text-emerald-300 font-black text-lg mb-4">🚀 DELIVERY</div>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <H id="deliver-compress"><div className="bg-black/40 border-2 border-emerald-400 rounded-xl p-4"><div className="text-2xl mb-2">🗜️</div><div className="text-white font-bold">Compress</div><div className="text-emerald-200 text-xs mt-1">gzip/brotli</div></div></H>
+                  <H id="deliver-cache"><div className="bg-black/40 border-2 border-emerald-400 rounded-xl p-4"><div className="text-2xl mb-2">💾</div><div className="text-white font-bold">Cache</div><div className="text-emerald-200 text-xs mt-1">Deterministic requests</div></div></H>
+                  <H id="deliver-log"><div className="bg-black/40 border-2 border-emerald-400 rounded-xl p-4"><div className="text-2xl mb-2">📋</div><div className="text-white font-bold">Log</div><div className="text-emerald-200 text-xs mt-1">Telemetry, analytics</div></div></H>
+                </div>
+
+                {/* Error Handling */}
+                <div className="text-amber-300 font-black text-lg mb-4">⚠️ ERROR HANDLING</div>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <H id="error-timeout"><div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4"><div className="text-2xl mb-2">⏰</div><div className="text-white font-bold">Timeout</div><div className="text-amber-200 text-xs mt-1">Partial or retry</div></div></H>
+                  <H id="error-rate"><div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4"><div className="text-2xl mb-2">🚦</div><div className="text-white font-bold">Rate Limit</div><div className="text-amber-200 text-xs mt-1">429 + Retry-After</div></div></H>
+                  <H id="error-content"><div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4"><div className="text-2xl mb-2">🚫</div><div className="text-white font-bold">Content Filter</div><div className="text-amber-200 text-xs mt-1">Blocked gracefully</div></div></H>
+                </div>
+
+                {/* Final Response */}
+                <div className="grid grid-cols-2 gap-4">
+                  <H id="final-json"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4">
+                    <div className="text-green-300 font-bold mb-2">📄 JSON Response</div>
+                    <pre className="text-xs text-slate-300 bg-black/50 rounded p-2 overflow-x-auto">{`{
+  "id": "chatcmpl-abc",
+  "choices": [{
+    "message": {
+      "content": "Hello!"
+    },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 2
+  }
+}`}</pre>
+                  </div></H>
+                  <H id="final-stream"><div className="bg-black/40 border-2 border-green-400 rounded-xl p-4">
+                    <div className="text-green-300 font-bold mb-2">📡 Stream End</div>
+                    <pre className="text-xs text-slate-300 bg-black/50 rounded p-2 overflow-x-auto">{`data: {"delta":{"content":"!"}}
+
+data: [DONE]
+
+// Client actions:
+// - Stop reading
+// - Finalize display
+// - Enable user input
+// - Log metrics`}</pre>
+                  </div></H>
+                </div>
+              </div>
+            </section>
+
+            {/* Complete Pipeline Summary */}
+            <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-6 mb-8">
+              <div className="text-slate-300 font-black text-lg mb-4 text-center">🔄 COMPLETE POST-MODEL PIPELINE</div>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <div className="bg-amber-700 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">Logits</div></div>
+                <div className="text-slate-500">→</div>
+                <div className="bg-amber-600 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">Sample</div></div>
+                <div className="text-slate-500">→</div>
+                <div className="bg-cyan-600 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">Stream</div></div>
+                <div className="text-slate-500">→</div>
+                <div className="bg-blue-600 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">Detokenize</div></div>
+                <div className="text-slate-500">→</div>
+                <div className="bg-red-600 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">Safety</div></div>
+                <div className="text-slate-500">→</div>
+                <div className="bg-green-600 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">Deliver</div></div>
+                <div className="text-slate-500">→</div>
+                <div className="bg-purple-600 rounded-lg p-2 text-center"><div className="text-white text-xs font-bold">User</div></div>
+              </div>
+            </div>
+
+            {/* Final Output */}
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 border-2 border-purple-400 rounded-xl p-6 shadow-lg shadow-purple-500/30">
+              <div className="flex items-center justify-center gap-4">
+                <span className="text-5xl">🎉</span>
+                <div className="text-center">
+                  <div className="text-3xl font-black text-white">INFERENCE COMPLETE</div>
+                  <div className="text-purple-200 font-medium">User sees response • Metrics logged • Ready for next request</div>
+                </div>
+                <span className="text-5xl">✨</span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">Streaming & Post-Processing • Stages 10-13 of Inference Lifecycle</p>
+              <p className="text-cyan-400 font-bold mt-1">TOKENS → TEXT → SAFE → DELIVERED → USER HAPPY 🎉</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<StreamingPostProcessing />);
+  </script>
+</body>
+</html>

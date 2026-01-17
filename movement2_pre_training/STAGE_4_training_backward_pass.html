@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 4: Backward Pass - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function BackwardPassStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-flops': {
+          title: '⚡ BACKWARD FLOPS',
+          content: 'Backward pass is ~2× forward FLOPs. Must compute gradients for all activations AND all parameters.',
+          formula: 'Backward FLOPs ≈ 2 × Forward FLOPs\n70B model: ~1120 TFLOPs backward\nTotal step: ~1.7 PFLOPs',
+          why: '2× because: gradient w.r.t. input AND gradient w.r.t. weights for each layer'
+        },
+        'metric-memory': {
+          title: '💾 GRADIENT MEMORY',
+          content: 'Gradients same size as parameters. Plus activation gradients flowing backward. Memory peaks during backward.',
+          breakdown: 'Parameter gradients: 2 bytes/param (BF16)\n70B model: 140GB gradients\nActivation gradients: transient',
+          peak: 'Memory peaks mid-backward\nActivations still needed + gradients computed\nCheckpointing reduces peak'
+        },
+        'metric-chain': {
+          title: '🔗 CHAIN RULE',
+          content: 'The mathematical foundation of backpropagation. Derivatives compose by multiplication.',
+          formula: '∂L/∂x = ∂L/∂y × ∂y/∂x\nFor deep networks: multiply through all layers\nAutograd handles automatically',
+          intuition: 'How much does L change if x changes?\nMultiply all the "sensitivities" along the path'
+        },
+        'metric-autograd': {
+          title: '🤖 AUTOGRAD',
+          content: 'PyTorch/JAX automatic differentiation. Builds computation graph during forward, traverses backward.',
+          mechanism: 'Forward: Build graph, save tensors\nBackward: Traverse reverse, compute grads\nAll automatic from loss.backward()',
+          implementation: 'Each op has forward() and backward()\nGraph stored in .grad_fn\nGradients in .grad tensors'
+        },
+
+        // Autograd
+        'autograd-graph': {
+          title: '🕸️ Computation Graph',
+          content: 'DAG of operations built during forward pass. Each node knows how to compute its gradient.',
+          structure: 'Nodes: Operations (matmul, relu, etc.)\nEdges: Tensors flowing between ops\nLeaves: Parameters (need gradients)',
+          storage: 'Graph stored in .grad_fn attribute\nReferences to saved tensors\nReleased after backward'
+        },
+        'autograd-traverse': {
+          title: '⬅️ Reverse Traversal',
+          content: 'Starting from loss, traverse graph in reverse topological order. Compute gradients via chain rule.',
+          order: 'Start: Loss scalar (gradient = 1)\nMiddle: Intermediate ops\nEnd: Parameters (leaf tensors)',
+          mechanism: 'Each node: receives upstream grad\nComputes: local Jacobian × upstream\nPasses: gradient to inputs'
+        },
+        'autograd-accumulate': {
+          title: '➕ Gradient Accumulation',
+          content: 'Gradients accumulate (add) into .grad tensors. Multiple paths to same parameter sum gradients.',
+          why: 'Parameter used multiple times → multiple gradient contributions\nAll must be summed\nAlso enables gradient accumulation across micro-batches',
+          implementation: '.grad += computed_gradient\nMust zero_grad() between steps\nOr gradients keep accumulating'
+        },
+
+        // Layer Gradients
+        'grad-output': {
+          title: '📤 Output Layer Gradient',
+          content: 'Gradient from loss w.r.t. logits. First gradient computed, flows into LM head.',
+          shape: '[B, S, V] - same as logits\nValues: how logits should change\nSparse: mostly near target token',
+          formula: '∂L/∂logits = softmax(logits) - one_hot(target)\nSimple closed-form for CE loss'
+        },
+        'grad-lm-head': {
+          title: '🎯 LM Head Gradient',
+          content: 'Gradient for output projection weights. Large matrix: [hidden, vocab].',
+          computation: '∂L/∂W = hidden^T × ∂L/∂logits\n∂L/∂hidden = ∂L/∂logits × W^T',
+          size: '[8192, 32000] = 262M params\nSame size as embedding (often tied)'
+        },
+        'grad-transformer': {
+          title: '🔄 Transformer Block Gradients',
+          content: 'Gradients flow through each block in reverse. Attention and MLP gradients computed.',
+          flow: 'Residual: Gradient flows straight through\nMLP: Down → Activation → Up/Gate\nAttn: Output → Attention → QKV',
+          complexity: 'Same structure as forward, reversed\nReuse saved activations\nOr recompute if checkpointing'
+        },
+        'grad-attention': {
+          title: '👁️ Attention Backward',
+          content: 'Gradient through attention mechanism. Most complex backward in transformer.',
+          steps: '1. Grad w.r.t. output projection\n2. Grad w.r.t. attention weights\n3. Grad w.r.t. Q, K, V\n4. Grad w.r.t. QKV projections',
+          flash: 'FlashAttention: Recompute attention in backward\nNever stored full attention matrix\nMemory efficient'
+        },
+        'grad-mlp': {
+          title: '🧮 MLP Backward',
+          content: 'Gradient through feedforward network. Multiple large matmul gradients.',
+          swiglu: 'Down: ∂L/∂W_down, ∂L/∂activated\nActivation: ∂SwiGLU (gate and up)\nGate/Up: ∂L/∂W_gate, ∂L/∂W_up',
+          flops: '~60% of backward FLOPs\nSame as forward proportion'
+        },
+        'grad-embedding': {
+          title: '📝 Embedding Gradient',
+          content: 'Gradient for embedding table. Sparse update: only touched tokens get gradients.',
+          mechanism: 'Gradient: [B, S, H]\nScatter-add to embedding table\nOnly accessed rows updated',
+          tied: 'If tied with LM head:\nGradients from both paths\nSum together'
+        },
+
+        // Activation Checkpointing
+        'checkpoint-concept': {
+          title: '💾 Activation Checkpointing',
+          content: 'Don\'t save all activations. Save at checkpoints, recompute between. Trade compute for memory.',
+          tradeoff: 'Standard: Save all → ~60GB activations (70B)\nCheckpoint: Save some → ~15GB\nCost: ~33% more compute',
+          memory: 'Without: O(layers × batch × seq × hidden)\nWith: O(√layers × batch × seq × hidden)'
+        },
+        'checkpoint-what': {
+          title: '📍 What to Checkpoint',
+          content: 'Typically checkpoint at layer boundaries. Recompute within-layer activations.',
+          strategy: 'Option 1: Every layer boundary\nOption 2: Every N layers\nOption 3: Selective (attention only)',
+          saved: 'Input to each checkpointed region\nRNG states for dropout\nNorm parameters'
+        },
+        'checkpoint-recompute': {
+          title: '🔄 Recomputation',
+          content: 'During backward, re-run forward for checkpointed regions to get activations.',
+          mechanism: '1. Backward reaches checkpoint\n2. Re-run forward for that region\n3. Compute gradients with fresh activations\n4. Discard recomputed activations',
+          overhead: '~33% more forward FLOPs\nBut 2-4× less activation memory\nWorth it for large models'
+        },
+        'checkpoint-selective': {
+          title: '🎯 Selective Checkpointing',
+          content: 'Only checkpoint expensive-to-store activations. Keep cheap ones.',
+          keep: 'Small tensors (norms, residuals)\nRNG states\nLayer inputs',
+          recompute: 'Attention matrices (huge!)\nMLP intermediates\nActivation function outputs',
+          tuning: 'Profile memory vs compute\nFind optimal tradeoff\nModel and hardware dependent'
+        },
+
+        // Gradient Accumulation
+        'accum-concept': {
+          title: '📦 Gradient Accumulation',
+          content: 'Run multiple micro-batches, accumulate gradients, then update. Simulates larger batch size.',
+          why: 'Can\'t fit large batch in memory\nWant benefits of large batch training\nAccumulate over K micro-batches',
+          formula: 'Effective batch = micro_batch × K × num_GPUs\nK = accumulation steps'
+        },
+        'accum-steps': {
+          title: '🔢 Accumulation Steps',
+          content: 'Number of micro-batches before optimizer step. Gradients sum across steps.',
+          implementation: 'for i in range(accum_steps):\n  loss = forward(batch[i])\n  (loss / accum_steps).backward()\noptimizer.step()',
+          scaling: 'Divide loss by accum_steps\nOr scale learning rate\nEffective LR same as large batch'
+        },
+        'accum-memory': {
+          title: '💾 Memory Pattern',
+          content: 'Gradient memory persists across accumulation. Activation memory freed each micro-batch.',
+          pattern: 'Gradients: Accumulate, not freed\nActivations: Freed after each backward\nPeak: During single micro-batch backward',
+          benefit: 'Large effective batch\nMemory of small batch\nLatency cost: K× backward passes'
+        },
+
+        // Numerical Issues
+        'num-vanishing': {
+          title: '📉 Vanishing Gradients',
+          content: 'Gradients shrink exponentially through deep networks. With residuals, largely solved.',
+          cause: 'Multiply small numbers many times\nChain rule: product of derivatives\nDeep networks: many multiplications',
+          solutions: 'Residual connections ✓\nCareful initialization ✓\nNormalization layers ✓'
+        },
+        'num-exploding': {
+          title: '📈 Exploding Gradients',
+          content: 'Gradients grow exponentially. Causes NaN/Inf. Gradient clipping is the defense.',
+          cause: 'Multiply large numbers many times\nUnstable training dynamics\nBad initialization',
+          solutions: 'Gradient clipping ✓\nCareful initialization ✓\nLower learning rate'
+        },
+        'num-precision': {
+          title: '🎯 Numerical Precision',
+          content: 'Gradients computed in BF16 but may need FP32 accumulation for stability.',
+          practice: 'Compute gradients in BF16\nAccumulate in FP32 (optimizer)\nMixed precision training',
+          stability: 'BF16 forward/backward\nFP32 master weights\nFP32 optimizer states'
+        },
+
+        // Distributed Considerations
+        'dist-overlap': {
+          title: '⏱️ Compute-Communication Overlap',
+          content: 'Start gradient synchronization while still computing other gradients. Hides latency.',
+          mechanism: 'Gradient ready → Start AllReduce\nContinue backward for other layers\nOverlap reduces wall time',
+          implementation: 'Gradient bucketing in DDP\nAsync AllReduce\nOverlap with next layer backward'
+        },
+        'dist-fsdp': {
+          title: '🔀 FSDP Backward',
+          content: 'For FSDP: AllGather parameters before layer backward, Reduce-Scatter gradients after.',
+          sequence: '1. AllGather params for layer\n2. Compute layer backward\n3. Reduce-Scatter gradients\n4. Free unsharded params',
+          memory: 'Only unsharded params for current layer\nGradients sharded immediately\nMemory efficient'
+        },
+        'dist-pp': {
+          title: '📑 Pipeline Backward',
+          content: 'For Pipeline Parallel: backward micro-batches interleaved with forward (1F1B schedule).',
+          schedule: '1F1B: F₁F₂F₃F₄B₁F₅B₂F₆B₃...\nStart backward ASAP\nOverlap stages',
+          activation: 'Save activation between stages\nSend gradients to previous stage\nP2P communication'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 380 > window.innerHeight) top = window.innerHeight - 390;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.tradeoff && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TRADEOFF</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.tradeoff}</pre>
+              </div>
+            )}
+            {t.implementation && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">IMPLEMENTATION</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.implementation}</pre>
+              </div>
+            )}
+            {t.solutions && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ Solutions: </span>{t.solutions}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-orange-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-red-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-amber-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-orange-600/30 border border-orange-400 rounded-full mb-6">
+                <span className="text-orange-300 font-bold">STAGE 4</span>
+                <span className="text-white">•</span>
+                <span className="text-orange-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-red-400 to-amber-400">
+                Backward Pass
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-orange-300 font-bold">Gradients flow backward</span> through the computation graph via chain rule.
+                <span className="text-red-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-flops">
+                <div className="p-5 rounded-xl bg-orange-600/90 border-2 border-orange-400 shadow-lg shadow-orange-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">⚡</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">FLOPS</span>
+                  </div>
+                  <div className="text-3xl font-black text-orange-100">2×</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Forward FLOPs</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-memory">
+                <div className="p-5 rounded-xl bg-red-600/90 border-2 border-red-400 shadow-lg shadow-red-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💾</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">GRADIENTS</span>
+                  </div>
+                  <div className="text-3xl font-black text-red-100">140GB</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">70B param gradients</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-chain">
+                <div className="p-5 rounded-xl bg-amber-600/90 border-2 border-amber-400 shadow-lg shadow-amber-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔗</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">CHAIN RULE</span>
+                  </div>
+                  <div className="text-3xl font-black text-amber-100">∂L/∂x</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Multiply derivatives</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-autograd">
+                <div className="p-5 rounded-xl bg-yellow-600/90 border-2 border-yellow-400 shadow-lg shadow-yellow-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🤖</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">AUTOGRAD</span>
+                  </div>
+                  <div className="text-3xl font-black text-yellow-100">AUTO</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Automatic differentiation</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: AUTOGRAD */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">4.1 AUTOGRAD ENGINE</h2>
+                  <p className="text-orange-200/80">Automatic differentiation: build graph forward, traverse backward</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border-2 border-orange-500/50 rounded-xl p-6">
+                <div className="grid grid-cols-3 gap-4">
+                  <Hoverable id="autograd-graph">
+                    <div className="bg-orange-900/50 border-2 border-orange-400 rounded-xl p-5">
+                      <div className="text-xl font-black text-orange-200 mb-2">🕸️ Computation Graph</div>
+                      <div className="text-orange-100/70 text-sm">DAG built during forward</div>
+                      <div className="text-orange-100/60 text-xs mt-2">Nodes: Ops • Edges: Tensors</div>
+                      <div className="text-orange-100/60 text-xs">Stored in .grad_fn</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="autograd-traverse">
+                    <div className="bg-red-900/50 border-2 border-red-400 rounded-xl p-5">
+                      <div className="text-xl font-black text-red-200 mb-2">⬅️ Reverse Traversal</div>
+                      <div className="text-red-100/70 text-sm">Topological order, reversed</div>
+                      <div className="text-red-100/60 text-xs mt-2">Start: Loss (grad=1)</div>
+                      <div className="text-red-100/60 text-xs">End: Parameters (leaves)</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="autograd-accumulate">
+                    <div className="bg-amber-900/50 border-2 border-amber-400 rounded-xl p-5">
+                      <div className="text-xl font-black text-amber-200 mb-2">➕ Grad Accumulation</div>
+                      <div className="text-amber-100/70 text-sm">Gradients sum into .grad</div>
+                      <div className="text-amber-100/60 text-xs mt-2">Multiple paths → sum grads</div>
+                      <div className="text-amber-100/60 text-xs">Must zero_grad() between steps</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* Visual representation */}
+                <div className="mt-6 bg-black/40 rounded-xl p-4">
+                  <div className="text-center text-sm text-orange-200/70 mb-4">Gradient Flow (Reverse of Forward)</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="bg-gradient-to-r from-green-700 to-green-600 rounded-lg px-4 py-3 text-center">
+                      <div className="text-green-200 font-bold">Loss</div>
+                      <div className="text-green-300 font-mono text-xs">∂L/∂L = 1</div>
+                    </div>
+                    <div className="text-orange-400">←</div>
+                    <div className="bg-gradient-to-r from-blue-700 to-blue-600 rounded-lg px-4 py-3 text-center">
+                      <div className="text-blue-200 font-bold">LM Head</div>
+                      <div className="text-blue-300 font-mono text-xs">∂L/∂logits</div>
+                    </div>
+                    <div className="text-orange-400">←</div>
+                    <div className="bg-gradient-to-r from-purple-700 to-purple-600 rounded-lg px-4 py-3 text-center">
+                      <div className="text-purple-200 font-bold">Layer N</div>
+                      <div className="text-purple-300 font-mono text-xs">∂L/∂h_N</div>
+                    </div>
+                    <div className="text-orange-400">← ... ←</div>
+                    <div className="bg-gradient-to-r from-pink-700 to-pink-600 rounded-lg px-4 py-3 text-center">
+                      <div className="text-pink-200 font-bold">Layer 1</div>
+                      <div className="text-pink-300 font-mono text-xs">∂L/∂h_1</div>
+                    </div>
+                    <div className="text-orange-400">←</div>
+                    <div className="bg-gradient-to-r from-cyan-700 to-cyan-600 rounded-lg px-4 py-3 text-center">
+                      <div className="text-cyan-200 font-bold">Embed</div>
+                      <div className="text-cyan-300 font-mono text-xs">∂L/∂E</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-orange-400 to-red-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: LAYER GRADIENTS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">4.2 LAYER GRADIENTS</h2>
+                  <p className="text-red-200/80">Gradients for each component, computed in reverse order</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Output Gradients */}
+                <div className="bg-slate-900/80 border-2 border-red-500/50 rounded-xl p-5">
+                  <div className="text-lg font-black text-red-300 mb-4">📤 OUTPUT GRADIENTS</div>
+                  <div className="space-y-3">
+                    <Hoverable id="grad-output">
+                      <div className="bg-green-900/50 border border-green-400 rounded-lg p-3">
+                        <div className="text-green-200 font-bold">∂L/∂logits</div>
+                        <div className="text-green-100/60 text-xs mt-1">softmax(logits) - one_hot(target)</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="grad-lm-head">
+                      <div className="bg-blue-900/50 border border-blue-400 rounded-lg p-3">
+                        <div className="text-blue-200 font-bold">∂L/∂W_lm</div>
+                        <div className="text-blue-100/60 text-xs mt-1">hidden.T @ ∂L/∂logits</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Transformer Gradients */}
+                <div className="bg-slate-900/80 border-2 border-pink-500/50 rounded-xl p-5">
+                  <div className="text-lg font-black text-pink-300 mb-4">🔄 TRANSFORMER GRADIENTS</div>
+                  <div className="space-y-3">
+                    <Hoverable id="grad-transformer">
+                      <div className="bg-pink-900/50 border border-pink-400 rounded-lg p-3">
+                        <div className="text-pink-200 font-bold">Block Gradient Flow</div>
+                        <div className="text-pink-100/60 text-xs mt-1">Residual + Attention + MLP gradients</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="grad-attention">
+                      <div className="bg-purple-900/50 border border-purple-400 rounded-lg p-3">
+                        <div className="text-purple-200 font-bold">∂L/∂Attention</div>
+                        <div className="text-purple-100/60 text-xs mt-1">Output → Scores → QKV</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="grad-mlp">
+                      <div className="bg-violet-900/50 border border-violet-400 rounded-lg p-3">
+                        <div className="text-violet-200 font-bold">∂L/∂MLP</div>
+                        <div className="text-violet-100/60 text-xs mt-1">Down → Activation → Up/Gate</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+
+              {/* Embedding Gradient */}
+              <div className="mt-4">
+                <Hoverable id="grad-embedding">
+                  <div className="bg-cyan-900/40 border border-cyan-500 rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-cyan-200 font-bold">📝 Embedding Gradient</div>
+                        <div className="text-cyan-100/70 text-sm mt-1">Sparse update: only accessed tokens get gradients</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-cyan-300 font-mono">scatter_add(grads, token_ids)</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-red-400 to-purple-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: ACTIVATION CHECKPOINTING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">4.3 ACTIVATION CHECKPOINTING</h2>
+                  <p className="text-purple-200/80">Trade compute for memory: recompute activations during backward</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border-2 border-purple-500/50 rounded-xl p-6">
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <Hoverable id="checkpoint-concept">
+                    <div className="bg-purple-900/50 border-2 border-purple-400 rounded-xl p-4">
+                      <div className="text-2xl mb-2">💾</div>
+                      <div className="text-purple-200 font-bold">Concept</div>
+                      <div className="text-purple-100/60 text-xs mt-1">Save less, recompute more</div>
+                      <div className="text-yellow-300 text-xs mt-1">~33% more compute</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="checkpoint-what">
+                    <div className="bg-violet-900/50 border-2 border-violet-400 rounded-xl p-4">
+                      <div className="text-2xl mb-2">📍</div>
+                      <div className="text-violet-200 font-bold">What to Save</div>
+                      <div className="text-violet-100/60 text-xs mt-1">Layer boundaries</div>
+                      <div className="text-violet-100/60 text-xs">RNG states</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="checkpoint-recompute">
+                    <div className="bg-indigo-900/50 border-2 border-indigo-400 rounded-xl p-4">
+                      <div className="text-2xl mb-2">🔄</div>
+                      <div className="text-indigo-200 font-bold">Recompute</div>
+                      <div className="text-indigo-100/60 text-xs mt-1">Run forward again</div>
+                      <div className="text-indigo-100/60 text-xs">During backward</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="checkpoint-selective">
+                    <div className="bg-blue-900/50 border-2 border-blue-400 rounded-xl p-4">
+                      <div className="text-2xl mb-2">🎯</div>
+                      <div className="text-blue-200 font-bold">Selective</div>
+                      <div className="text-blue-100/60 text-xs mt-1">Keep cheap tensors</div>
+                      <div className="text-blue-100/60 text-xs">Recompute expensive</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* Memory Comparison */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4">
+                    <div className="text-red-300 font-bold mb-2">❌ Without Checkpointing</div>
+                    <div className="flex items-end gap-1 h-20">
+                      <div className="flex-1 bg-red-500 rounded-t" style={{height: '100%'}}></div>
+                    </div>
+                    <div className="text-red-200 text-sm mt-2">~60GB activations (70B)</div>
+                  </div>
+                  <div className="bg-green-900/30 border border-green-500/50 rounded-xl p-4">
+                    <div className="text-green-300 font-bold mb-2">✅ With Checkpointing</div>
+                    <div className="flex items-end gap-1 h-20">
+                      <div className="flex-1 bg-green-500 rounded-t" style={{height: '25%'}}></div>
+                    </div>
+                    <div className="text-green-200 text-sm mt-2">~15GB activations (70B)</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-purple-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: GRADIENT ACCUMULATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">4.4 GRADIENT ACCUMULATION</h2>
+                  <p className="text-green-200/80">Simulate larger batches by accumulating over micro-batches</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="accum-concept">
+                  <div className="bg-green-900/50 border-2 border-green-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-green-200 mb-2">📦 Concept</div>
+                    <div className="text-green-100/70 text-sm">Run K micro-batches, then update</div>
+                    <div className="mt-3 bg-black/30 rounded-lg p-2 font-mono text-xs text-green-300">
+                      effective_batch = micro × K × GPUs
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="accum-steps">
+                  <div className="bg-emerald-900/50 border-2 border-emerald-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-emerald-200 mb-2">🔢 Implementation</div>
+                    <div className="text-emerald-100/70 text-sm">Divide loss, accumulate grads</div>
+                    <div className="mt-3 bg-black/30 rounded-lg p-2 font-mono text-xs text-emerald-300">
+                      (loss / K).backward()
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="accum-memory">
+                  <div className="bg-teal-900/50 border-2 border-teal-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-teal-200 mb-2">💾 Memory</div>
+                    <div className="text-teal-100/70 text-sm">Grads persist, activations freed</div>
+                    <div className="mt-3 bg-black/30 rounded-lg p-2 font-mono text-xs text-teal-300">
+                      Peak = single micro-batch
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Visual */}
+              <div className="mt-6 bg-slate-900/80 border border-green-500/30 rounded-xl p-4">
+                <div className="text-green-300 font-bold mb-3">Accumulation over 4 micro-batches:</div>
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <React.Fragment key={i}>
+                      <div className="flex-1 bg-green-900/50 border border-green-500 rounded-lg p-2 text-center">
+                        <div className="text-green-200 font-bold text-sm">μBatch {i}</div>
+                        <div className="text-green-100/60 text-xs">backward()</div>
+                        <div className="text-green-300 text-xs mt-1">+= grads</div>
+                      </div>
+                      {i < 4 && <div className="text-green-400">→</div>}
+                    </React.Fragment>
+                  ))}
+                  <div className="text-green-400">→</div>
+                  <div className="bg-green-700 border-2 border-green-400 rounded-lg p-2 text-center">
+                    <div className="text-green-100 font-bold text-sm">optimizer</div>
+                    <div className="text-green-200 text-xs">.step()</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-4">
+              <div className="w-1 h-8 bg-gradient-to-b from-green-400 to-yellow-400 rounded-full" />
+            </div>
+
+            {/* SECTION 5: NUMERICAL ISSUES */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">4.5 NUMERICAL STABILITY</h2>
+                  <p className="text-yellow-200/80">Vanishing, exploding gradients, and precision</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="num-vanishing">
+                  <div className="bg-blue-900/50 border-2 border-blue-400 rounded-xl p-4">
+                    <div className="text-2xl mb-2">📉</div>
+                    <div className="text-blue-200 font-bold">Vanishing Grads</div>
+                    <div className="text-blue-100/60 text-xs mt-1">Shrink through layers</div>
+                    <div className="text-green-400 text-xs mt-1">✓ Solved by residuals</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="num-exploding">
+                  <div className="bg-red-900/50 border-2 border-red-400 rounded-xl p-4">
+                    <div className="text-2xl mb-2">📈</div>
+                    <div className="text-red-200 font-bold">Exploding Grads</div>
+                    <div className="text-red-100/60 text-xs mt-1">Grow through layers</div>
+                    <div className="text-yellow-400 text-xs mt-1">→ Gradient clipping</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="num-precision">
+                  <div className="bg-purple-900/50 border-2 border-purple-400 rounded-xl p-4">
+                    <div className="text-2xl mb-2">🎯</div>
+                    <div className="text-purple-200 font-bold">Precision</div>
+                    <div className="text-purple-100/60 text-xs mt-1">BF16 compute, FP32 accum</div>
+                    <div className="text-purple-100/60 text-xs">Mixed precision</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 6: DISTRIBUTED */}
+            <section className="mb-10">
+              <div className="text-xl font-black text-slate-300 mb-4">🌐 DISTRIBUTED BACKWARD</div>
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="dist-overlap">
+                  <div className="bg-slate-800/50 border border-slate-600 rounded-xl p-4">
+                    <div className="text-slate-300 font-bold">⏱️ Overlap</div>
+                    <div className="text-slate-400 text-xs mt-1">AllReduce during backward</div>
+                    <div className="text-slate-400 text-xs">Gradient bucketing</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="dist-fsdp">
+                  <div className="bg-slate-800/50 border border-slate-600 rounded-xl p-4">
+                    <div className="text-slate-300 font-bold">🔀 FSDP</div>
+                    <div className="text-slate-400 text-xs mt-1">AllGather → Backward → ReduceScatter</div>
+                    <div className="text-slate-400 text-xs">Shard gradients immediately</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="dist-pp">
+                  <div className="bg-slate-800/50 border border-slate-600 rounded-xl p-4">
+                    <div className="text-slate-300 font-bold">📑 Pipeline</div>
+                    <div className="text-slate-400 text-xs mt-1">1F1B schedule</div>
+                    <div className="text-slate-400 text-xs">Interleaved F/B</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-orange-900/50 to-red-900/50 border-2 border-orange-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                Stage 4 Complete → Gradients Ready for Synchronization
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto">
+                Gradients computed via autograd, activations recomputed if checkpointed, accumulated over micro-batches.
+                Next: <span className="text-purple-300 font-bold">Stage 5: Gradient Synchronization</span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 4: Backward Pass • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">loss.backward() → Chain Rule → Checkpointing → Accumulation → Gradients</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<BackwardPassStage />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Input Normalization & Tokenization - Inference Stage 1-2</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function InputNormalizationTokenization() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      // Comprehensive tooltips
+      const tooltips = {
+        // Key Metrics
+        'metric-reproducibility': {
+          title: '🔄 REPRODUCIBILITY',
+          content: 'Same input MUST produce same tokens every time. Unicode normalization ensures "café" (composed) and "café" (decomposed) tokenize identically. Without this, debugging is nightmare.',
+          example: 'é (U+00E9) vs e + ́ (U+0065 U+0301)\nBoth should → same token ID',
+        },
+        'metric-security': {
+          title: '🛡️ SECURITY',
+          content: 'Input normalization is your last defense before tokenization. Zero-width characters, homoglyphs, and control characters can be used for prompt injection attacks.',
+          example: 'Attack: "Ignore\\u200Bprevious" (invisible char)\nDefense: Strip all zero-width characters',
+        },
+        'metric-correctness': {
+          title: '✓ CORRECTNESS',
+          content: 'Token count determines: context window usage, KV cache size, billing, and whether the request even fits. Wrong token count = wrong everything downstream.',
+          example: '"Hello" → 1 token\n"Hello!" → 2 tokens\nEmoji → 1-4 tokens depending on model',
+        },
+        'metric-cost': {
+          title: '💰 COST',
+          content: 'Tokens are the billing unit. Every token costs money for both input (prefill) and output (decode). Efficient tokenization directly impacts your bill.',
+          example: 'GPT-4: ~$0.03/1K input, ~$0.06/1K output\n10K token prompt = $0.30 just for input',
+        },
+
+        // Input Normalization
+        'norm-unicode': {
+          title: 'Unicode Normalization (NFC)',
+          content: 'Converts all Unicode to Canonical Composition form. Ensures equivalent characters have identical byte representations. Critical for consistent tokenization.',
+          details: 'NFC: Compose characters (é = single codepoint)\nNFD: Decompose (é = e + combining accent)\nNFKC/NFKD: Also normalize compatibility chars (ﬁ → fi)',
+          example: 'Input: "naïve" (various forms)\nNFC: "naïve" (U+006E U+0061 U+00EF U+0076 U+0065)\nAlways same bytes → always same tokens',
+        },
+        'norm-whitespace': {
+          title: 'Whitespace Normalization',
+          content: 'Standardize all whitespace types to regular spaces/newlines. Different whitespace characters can produce different tokens.',
+          details: 'Convert: \\t → spaces, \\r\\n → \\n, NBSP → space\nCollapse: Multiple spaces → single (optional)\nTrim: Leading/trailing whitespace',
+          example: 'Input: "Hello\\t\\tworld\\r\\n"\nOutput: "Hello  world\\n" or "Hello world\\n"',
+        },
+        'norm-control': {
+          title: 'Strip Control Characters',
+          content: 'Remove ASCII control characters (0x00-0x1F except \\n, \\t) and other invisible characters. These can break tokenizers or enable attacks.',
+          details: 'Remove: NULL (\\x00), BEL (\\x07), BS (\\x08), VT (\\x0B), FF (\\x0C), etc.\nKeep: LF (\\x0A), TAB (\\x09), CR (\\x0D)',
+          example: 'Input: "Hello\\x00World\\x07!"\nOutput: "HelloWorld!"',
+        },
+        'norm-zerowidth': {
+          title: 'Remove Zero-Width Characters',
+          content: 'Strip invisible Unicode characters that take no visual space. Common in copy-paste from web, and used in prompt injection attacks.',
+          details: 'Remove: ZWSP (U+200B), ZWNJ (U+200C), ZWJ (U+200D), FEFF (BOM), Word Joiner (U+2060)',
+          example: 'Input: "Ignore\\u200Bthis" (invisible char between)\nOutput: "Ignorethis"\nPrevents hidden instruction injection',
+        },
+        'norm-homoglyph': {
+          title: 'Homoglyph Detection',
+          content: 'Detect visually similar characters from different scripts. "а" (Cyrillic) looks like "a" (Latin) but has different codepoint. Used for phishing/confusion.',
+          details: 'Confusables: а/a, о/o, е/e (Cyrillic vs Latin)\nGreek: Α/A, Β/B, Ε/E\nAction: Normalize to ASCII or flag for review',
+          example: '"pаypal.com" (Cyrillic а) vs "paypal.com"\nLook identical, different bytes, different tokens!',
+        },
+        'norm-length': {
+          title: 'Length Validation',
+          content: 'Enforce maximum character/byte limits BEFORE tokenization. Tokenization is expensive — don\'t waste CPU on obviously too-long inputs.',
+          details: 'Check: Max chars (e.g., 500K), Max bytes (e.g., 2MB)\nAction: Reject with 413 or truncate with warning\nNote: Char count ≠ token count',
+          example: '128K char limit → ~32K-50K tokens (varies by content)\nReject > 500K chars immediately',
+        },
+        'norm-encoding': {
+          title: 'Encoding Validation',
+          content: 'Ensure input is valid UTF-8. Invalid byte sequences can crash tokenizers or produce garbage tokens.',
+          details: 'Detect: Invalid UTF-8 sequences, overlong encodings, surrogate pairs\nAction: Replace with U+FFFD (�) or reject\nSource: Often from legacy systems, binary data',
+          example: 'Invalid: \\xFF\\xFE (not valid UTF-8)\nFixed: Replace with � or reject request',
+        },
+
+        // Tool/Code Safety
+        'tool-escape': {
+          title: 'Escape Tool Arguments',
+          content: 'When model outputs tool calls, arguments must be escaped/validated before execution. Prevents command injection.',
+          details: 'Escape: Shell metacharacters, SQL quotes, path traversal\nValidate: Against schema, allowlists\nSandbox: Execute in isolated environment',
+          example: 'Tool call: read_file("../../etc/passwd")\nValidation: Reject path traversal attempts',
+        },
+        'tool-schema': {
+          title: 'Schema Validation',
+          content: 'Tool arguments must match their JSON schema. Type checking, required fields, enum values, string patterns.',
+          details: 'Validate: Types (string, number, array), Required fields, Enum values, Regex patterns, Min/max lengths',
+          example: '{"location": "NYC", "units": "kelvin"}\nSchema: units enum ["celsius", "fahrenheit"]\n→ Reject: invalid enum value',
+        },
+        'tool-sandbox': {
+          title: 'Sandbox Execution',
+          content: 'Execute tool calls in isolated environments. Limit filesystem, network, CPU, memory. Never trust model-generated code.',
+          details: 'Isolation: Docker, gVisor, Firecracker\nLimits: CPU time, memory, no network (unless needed)\nCapabilities: Drop all unnecessary permissions',
+          example: 'Code execution tool → run in container\nMax 10s CPU, 512MB RAM, no network\nRead-only filesystem except /tmp',
+        },
+
+        // Tokenization
+        'tok-bpe': {
+          title: 'BPE (Byte Pair Encoding)',
+          content: 'Most common algorithm (GPT, Claude). Iteratively merges frequent byte pairs. Produces subword tokens that balance vocabulary size and sequence length.',
+          details: 'Training: Count pair frequencies, merge most common, repeat\nResult: Common words = 1 token, rare = multiple\nVocab: Typically 32K-100K+ tokens',
+          example: '"unhappiness" → ["un", "happiness"] or ["un", "happy", "ness"]\n"the" → single token (common)\n"cryptocurrency" → multiple tokens',
+        },
+        'tok-sentencepiece': {
+          title: 'SentencePiece',
+          content: 'Google\'s tokenizer (LLaMA, T5). Treats input as raw bytes, uses ▁ for word boundaries. Language-agnostic, handles any Unicode.',
+          details: 'Algorithms: BPE or Unigram (probabilistic)\nSpecial: ▁ marks word start (including spaces)\nBenefit: No pre-tokenization needed, works on raw text',
+          example: '"Hello world" → ["▁Hello", "▁world"]\n▁ = word boundary marker\nSpaces encoded in tokens, not separate',
+        },
+        'tok-wordpiece': {
+          title: 'WordPiece',
+          content: 'BERT\'s tokenizer. Similar to BPE but uses likelihood-based merging. Uses ## prefix for continuation tokens.',
+          details: 'Merging: Maximize likelihood, not just frequency\nContinuation: ## prefix for non-initial subwords\nTypically: Smaller vocab than BPE',
+          example: '"playing" → ["play", "##ing"]\n"unbelievable" → ["un", "##bel", "##iev", "##able"]',
+        },
+        'tok-tiktoken': {
+          title: 'Tiktoken (OpenAI)',
+          content: 'OpenAI\'s fast BPE implementation in Rust. Used for GPT-3.5, GPT-4. Different encodings for different models.',
+          details: 'Encodings: cl100k_base (GPT-4), p50k_base (GPT-3), r50k_base (Codex)\nSpeed: Very fast, Rust implementation\nSpecial: Handles special tokens like <|endoftext|>',
+          example: 'import tiktoken\nenc = tiktoken.get_encoding("cl100k_base")\nenc.encode("Hello world") → [9906, 1917]',
+        },
+
+        // Token Types
+        'token-input': {
+          title: 'input_ids',
+          content: 'The actual token numbers. Each token maps to an integer ID in the vocabulary. This is what the model sees.',
+          details: 'Shape: [batch_size, sequence_length]\nDtype: int32 or int64\nRange: 0 to vocab_size-1',
+          example: '"Hello world" → [15496, 995]\nVocab: {15496: "Hello", 995: " world"}\nModel sees: [15496, 995]',
+        },
+        'token-attention': {
+          title: 'attention_mask',
+          content: 'Binary mask indicating which positions are real tokens (1) vs padding (0). Prevents attention to padding tokens.',
+          details: 'Shape: [batch_size, sequence_length]\nValues: 1 = real token, 0 = padding\nUsed in: Attention computation (mask out padding)',
+          example: 'Batch: ["Hello world", "Hi"]\nPadded: [[15496, 995, 0], [2324, 0, 0]]\nMask: [[1, 1, 0], [1, 0, 0]]',
+        },
+        'token-position': {
+          title: 'position_ids',
+          content: 'Position indices for positional encoding. Usually 0, 1, 2, ... but can be custom for special architectures.',
+          details: 'Shape: [batch_size, sequence_length]\nValues: 0 to max_position (e.g., 0-2047)\nRoPE: Uses positions for rotary embeddings',
+          example: 'Sequence length 5 → [0, 1, 2, 3, 4]\nWith padding: [[0, 1, 2], [0, 0, 0]] (padded positions ignored)',
+        },
+
+        // Special Tokens
+        'special-bos': {
+          title: 'BOS (Beginning of Sequence)',
+          content: 'Marks the start of a sequence. Model learns to generate after this token. Not all models use it.',
+          details: 'Examples: <s>, <|startoftext|>, [CLS]\nUsage: Prepended to input automatically\nSome models: Implicit (no explicit BOS)',
+          example: 'Input: "Hello"\nWith BOS: [<s>, Hello] → [1, 15496]',
+        },
+        'special-eos': {
+          title: 'EOS (End of Sequence)',
+          content: 'Marks the end of generation. When model outputs this, generation stops. Critical for knowing when to stop.',
+          details: 'Examples: </s>, <|endoftext|>, [SEP], <|im_end|>\nGeneration: Stop when EOS probability is highest\nStreaming: Send final chunk, close connection',
+          example: 'Model output: "The answer is 42<|endoftext|>"\nDetect EOS → stop generation → return response',
+        },
+        'special-pad': {
+          title: 'PAD (Padding)',
+          content: 'Fills sequences to equal length for batching. Masked out in attention so doesn\'t affect output.',
+          details: 'Examples: <pad>, [PAD], token ID 0\nBatching: Pad shorter sequences to max length\nEfficiency: Dynamic batching avoids excessive padding',
+          example: 'Batch: ["Hello world", "Hi"]\nPadded: ["Hello world<pad>", "Hi<pad><pad><pad>"]',
+        },
+        'special-chat': {
+          title: 'Chat/Role Tokens',
+          content: 'Mark speaker turns in conversations. <|im_start|>user, <|im_start|>assistant, etc. Model learns conversation structure.',
+          details: 'ChatML: <|im_start|>role\\n...content...<|im_end|>\nLlama: [INST]...[/INST]\nClaude: Human:, Assistant:',
+          example: '<|im_start|>user\nWhat is 2+2?<|im_end|>\n<|im_start|>assistant\nThe answer is 4.<|im_end|>',
+        },
+
+        // Tokenization Process
+        'process-pretok': {
+          title: 'Pre-tokenization',
+          content: 'Initial splitting before BPE. Usually splits on whitespace and punctuation. Defines boundaries BPE won\'t cross.',
+          details: 'Splitting: Whitespace, punctuation, numbers\nPurpose: Prevents merging across word boundaries\nGPT: Uses regex pattern for splitting',
+          example: '"Hello, world!" → ["Hello", ",", " world", "!"]\nThen BPE applied to each piece separately',
+        },
+        'process-encode': {
+          title: 'BPE Encoding',
+          content: 'Apply learned merge rules to convert text to tokens. Greedy: always apply highest-priority merge available.',
+          details: 'Algorithm: For each piece, repeatedly apply merges\nMerge order: Determined by training (most frequent first)\nResult: Sequence of token IDs',
+          example: '"lower" → "l" "o" "w" "e" "r"\nMerges: lo, low, er, lower\nFinal: ["lower"] (single token if in vocab)',
+        },
+        'process-special': {
+          title: 'Add Special Tokens',
+          content: 'Insert BOS, EOS, chat markers as needed. Different for base models vs instruct/chat models.',
+          details: 'Base model: Maybe just BOS\nChat model: Full chat template with role markers\nDon\'t double-add: Check if already present',
+          example: 'Input: "Hello"\nBase: [<s>, "Hello"]\nChat: [<|im_start|>, user, \\n, "Hello", <|im_end|>]',
+        },
+        'process-truncate': {
+          title: 'Truncation',
+          content: 'Cut sequences that exceed max length. Strategy: truncate left (oldest), right (newest), or middle.',
+          details: 'Left: Keep recent, drop oldest (chat history)\nRight: Keep start, drop end (documents)\nMiddle: Keep start and end, drop middle',
+          example: 'Max tokens: 4096\nInput: 5000 tokens\nTruncate left → keep last 4096\nWarn user: context was truncated',
+        },
+        'process-pad': {
+          title: 'Padding',
+          content: 'Add PAD tokens to make sequences equal length for batching. Left-pad or right-pad depending on model.',
+          details: 'Left-pad: GPT-style (generation)\nRight-pad: BERT-style (classification)\nDynamic: Group similar lengths to minimize padding',
+          example: 'Batch of [100, 150, 80] tokens\nPad to 150: Add [50, 0, 70] PAD tokens\nAttention mask excludes PAD positions',
+        },
+
+        // Output
+        'output-ids': {
+          title: 'Token IDs Array',
+          content: 'Final integer array ready for model. Each number indexes into embedding table. This is the model\'s input.',
+          details: 'Shape: [batch, seq_len]\nNext step: Embedding lookup → dense vectors\nGPU transfer: Move tensor to GPU memory',
+          example: '"Hello world" → [15496, 995]\nTo GPU → torch.tensor([15496, 995]).cuda()',
+        },
+        'output-count': {
+          title: 'Token Count',
+          content: 'Number of tokens after encoding. Determines: context usage, KV cache size, compute cost, billing.',
+          details: 'Track: Input tokens, output tokens (separate)\nBilling: Charged per token (input cheaper than output)\nLimits: Must fit in context window',
+          example: 'Input: 2000 tokens, Output: 500 tokens\nTotal context used: 2500 tokens\nBill: 2000 × $0.03 + 500 × $0.06 = $0.09',
+        },
+
+        // Examples
+        'example-hello': {
+          title: 'Simple Text Example',
+          content: 'Basic tokenization of common text. Shows how common words become single tokens.',
+          example: '"Hello, how are you?"\n→ ["Hello", ",", " how", " are", " you", "?"]\n→ [15496, 11, 703, 527, 499, 30]\n6 tokens total',
+        },
+        'example-code': {
+          title: 'Code Example',
+          content: 'Programming languages tokenize differently. Keywords, operators, indentation all become tokens.',
+          example: '"def hello():\\n    print(\\"Hi\\")"\n→ ["def", " hello", "()", ":", "\\n", "    ", "print", ...]\nIndentation = tokens (expensive!)',
+        },
+        'example-unicode': {
+          title: 'Unicode Example',
+          content: 'Non-ASCII text may use more tokens. Emoji, CJK characters, special symbols vary widely.',
+          example: '"Hello 👋 世界"\n→ ["Hello", " ", "👋", " ", "世", "界"]\nEmoji: 1-4 tokens\nCJK: Often 1 char = 1 token',
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 300 > window.innerHeight) top = window.innerHeight - 310;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.details && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div>
+                <p className="text-xs text-cyan-300 whitespace-pre-wrap">{t.details}</p>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div
+          className={`cursor-help transition-all hover:scale-[1.02] ${className}`}
+          onMouseEnter={() => setTooltip(id)}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-6" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-10">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-purple-500/20 border-2 border-purple-400 mb-4">
+                <span className="text-purple-300 font-black text-lg">STAGES 1-2</span>
+                <span className="text-white">•</span>
+                <span className="text-purple-200 font-medium">The Foundation of Everything</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400">
+                Input Normalization & Tokenization
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-pink-300 font-bold">Text → Tokens</span> is the most fundamental transformation.
+                <span className="text-cyan-300 ml-2">🖱️ Hover over any element for details.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-reproducibility">
+                <div className="p-5 rounded-xl bg-blue-600 border-2 border-blue-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔄</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">REPRODUCIBILITY</span>
+                  </div>
+                  <div className="text-3xl font-black text-blue-100">100%</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Same input = same tokens</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-security">
+                <div className="p-5 rounded-xl bg-red-600 border-2 border-red-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🛡️</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">SECURITY</span>
+                  </div>
+                  <div className="text-3xl font-black text-red-100">CRITICAL</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Last defense before model</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-correctness">
+                <div className="p-5 rounded-xl bg-emerald-600 border-2 border-emerald-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">✓</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">CORRECTNESS</span>
+                  </div>
+                  <div className="text-3xl font-black text-emerald-100">TOKEN CT</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Determines everything downstream</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-cost">
+                <div className="p-5 rounded-xl bg-amber-600 border-2 border-amber-400 shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💰</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">COST</span>
+                  </div>
+                  <div className="text-3xl font-black text-amber-100">$/TOKEN</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Billing unit for LLMs</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                SECTION 1: INPUT NORMALIZATION
+            ═══════════════════════════════════════════════════════════════════ */}
+            
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-pink-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">1.0 INPUT NORMALIZATION</h2>
+                  <p className="text-pink-200/80">Defensive engineering — sanitize before tokenization</p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-pink-950 to-rose-950 border-2 border-pink-400 rounded-xl p-6 shadow-lg">
+                {/* Text Normalization */}
+                <div className="mb-6">
+                  <div className="text-pink-300 font-black text-lg mb-4">📝 TEXT NORMALIZATION</div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <Hoverable id="norm-unicode">
+                      <div className="bg-black/40 border-2 border-pink-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">🔤</div>
+                        <div className="text-white font-bold mb-1">Unicode NFC</div>
+                        <div className="text-pink-200 text-xs mb-2">Canonical Composition</div>
+                        <div className="font-mono text-xs text-slate-400 bg-black/30 rounded p-2">
+                          café (composed) = café (decomposed)
+                        </div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="norm-whitespace">
+                      <div className="bg-black/40 border-2 border-pink-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">⎵</div>
+                        <div className="text-white font-bold mb-1">Whitespace</div>
+                        <div className="text-pink-200 text-xs mb-2">Standardize spaces/newlines</div>
+                        <div className="font-mono text-xs text-slate-400 bg-black/30 rounded p-2">
+                          \t → spaces, \r\n → \n
+                        </div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="norm-encoding">
+                      <div className="bg-black/40 border-2 border-pink-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">📋</div>
+                        <div className="text-white font-bold mb-1">UTF-8 Validation</div>
+                        <div className="text-pink-200 text-xs mb-2">Ensure valid encoding</div>
+                        <div className="font-mono text-xs text-slate-400 bg-black/30 rounded p-2">
+                          Invalid bytes → � or reject
+                        </div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Security Sanitization */}
+                <div className="mb-6">
+                  <div className="text-red-300 font-black text-lg mb-4">🛡️ SECURITY SANITIZATION</div>
+                  <div className="grid grid-cols-4 gap-4">
+                    <Hoverable id="norm-control">
+                      <div className="bg-black/40 border-2 border-red-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">🚫</div>
+                        <div className="text-white font-bold text-sm mb-1">Control Chars</div>
+                        <div className="text-red-200 text-xs">Strip 0x00-0x1F</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="norm-zerowidth">
+                      <div className="bg-black/40 border-2 border-red-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">👻</div>
+                        <div className="text-white font-bold text-sm mb-1">Zero-Width</div>
+                        <div className="text-red-200 text-xs">Remove U+200B etc</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="norm-homoglyph">
+                      <div className="bg-black/40 border-2 border-red-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">👁️</div>
+                        <div className="text-white font-bold text-sm mb-1">Homoglyphs</div>
+                        <div className="text-red-200 text-xs">Detect а vs a</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="norm-length">
+                      <div className="bg-black/40 border-2 border-red-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">📏</div>
+                        <div className="text-white font-bold text-sm mb-1">Length Check</div>
+                        <div className="text-red-200 text-xs">Max chars/bytes</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Tool/Code Safety */}
+                <div>
+                  <div className="text-amber-300 font-black text-lg mb-4">⚠️ TOOL ARGUMENT SAFETY</div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <Hoverable id="tool-escape">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">🔒</div>
+                        <div className="text-white font-bold mb-1">Escape Arguments</div>
+                        <div className="text-amber-200 text-xs">Shell, SQL, path traversal</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="tool-schema">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">📐</div>
+                        <div className="text-white font-bold mb-1">Schema Validation</div>
+                        <div className="text-amber-200 text-xs">Type check, enum, patterns</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="tool-sandbox">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-4">
+                        <div className="text-2xl mb-2">📦</div>
+                        <div className="text-white font-bold mb-1">Sandbox Execution</div>
+                        <div className="text-amber-200 text-xs">Isolated containers</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="flex flex-col items-center">
+                <div className="w-1 h-8 bg-gradient-to-b from-pink-400 to-purple-400 rounded-full" />
+                <div className="px-4 py-2 bg-purple-500/20 border border-purple-400 rounded-full text-purple-300 text-sm font-bold">
+                  CLEAN TEXT → TOKENIZER
+                </div>
+                <div className="w-1 h-8 bg-gradient-to-b from-purple-400 to-violet-400 rounded-full" />
+              </div>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                SECTION 2: TOKENIZATION
+            ═══════════════════════════════════════════════════════════════════ */}
+            
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-purple-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">2.0 TOKENIZATION</h2>
+                  <p className="text-purple-200/80">Text → Token IDs — the fundamental transformation</p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-6 shadow-lg">
+                {/* Tokenization Algorithms */}
+                <div className="mb-6">
+                  <div className="text-purple-300 font-black text-lg mb-4">🔧 TOKENIZATION ALGORITHMS</div>
+                  <div className="grid grid-cols-4 gap-4">
+                    <Hoverable id="tok-bpe">
+                      <div className="bg-black/40 border-2 border-purple-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">🧩</div>
+                        <div className="text-white font-bold mb-1">BPE</div>
+                        <div className="text-purple-200 text-xs mb-2">Byte Pair Encoding</div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <span className="px-2 py-0.5 bg-purple-500/30 rounded text-xs text-purple-200">GPT</span>
+                          <span className="px-2 py-0.5 bg-purple-500/30 rounded text-xs text-purple-200">Claude</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="tok-sentencepiece">
+                      <div className="bg-black/40 border-2 border-purple-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">📝</div>
+                        <div className="text-white font-bold mb-1">SentencePiece</div>
+                        <div className="text-purple-200 text-xs mb-2">▁ word boundaries</div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <span className="px-2 py-0.5 bg-purple-500/30 rounded text-xs text-purple-200">LLaMA</span>
+                          <span className="px-2 py-0.5 bg-purple-500/30 rounded text-xs text-purple-200">T5</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="tok-wordpiece">
+                      <div className="bg-black/40 border-2 border-purple-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">🔤</div>
+                        <div className="text-white font-bold mb-1">WordPiece</div>
+                        <div className="text-purple-200 text-xs mb-2">## continuations</div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <span className="px-2 py-0.5 bg-purple-500/30 rounded text-xs text-purple-200">BERT</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="tok-tiktoken">
+                      <div className="bg-black/40 border-2 border-purple-400 rounded-xl p-4 h-full">
+                        <div className="text-2xl mb-2">⚡</div>
+                        <div className="text-white font-bold mb-1">Tiktoken</div>
+                        <div className="text-purple-200 text-xs mb-2">Fast Rust BPE</div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          <span className="px-2 py-0.5 bg-green-500/30 rounded text-xs text-green-200">OpenAI</span>
+                        </div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Tokenization Process */}
+                <div className="mb-6">
+                  <div className="text-indigo-300 font-black text-lg mb-4">⚙️ TOKENIZATION PROCESS</div>
+                  <div className="flex items-center gap-2">
+                    <Hoverable id="process-pretok" className="flex-1">
+                      <div className="bg-indigo-600 border-2 border-indigo-400 rounded-xl p-4 text-center">
+                        <div className="text-white font-bold">Pre-tokenize</div>
+                        <div className="text-indigo-200 text-xs">Split on whitespace</div>
+                      </div>
+                    </Hoverable>
+                    <div className="text-indigo-400 text-2xl">→</div>
+                    <Hoverable id="process-encode" className="flex-1">
+                      <div className="bg-indigo-600 border-2 border-indigo-400 rounded-xl p-4 text-center">
+                        <div className="text-white font-bold">BPE Encode</div>
+                        <div className="text-indigo-200 text-xs">Apply merges</div>
+                      </div>
+                    </Hoverable>
+                    <div className="text-indigo-400 text-2xl">→</div>
+                    <Hoverable id="process-special" className="flex-1">
+                      <div className="bg-indigo-600 border-2 border-indigo-400 rounded-xl p-4 text-center">
+                        <div className="text-white font-bold">Add Special</div>
+                        <div className="text-indigo-200 text-xs">BOS, EOS, chat</div>
+                      </div>
+                    </Hoverable>
+                    <div className="text-indigo-400 text-2xl">→</div>
+                    <Hoverable id="process-truncate" className="flex-1">
+                      <div className="bg-indigo-600 border-2 border-indigo-400 rounded-xl p-4 text-center">
+                        <div className="text-white font-bold">Truncate</div>
+                        <div className="text-indigo-200 text-xs">Fit context window</div>
+                      </div>
+                    </Hoverable>
+                    <div className="text-indigo-400 text-2xl">→</div>
+                    <Hoverable id="process-pad" className="flex-1">
+                      <div className="bg-indigo-600 border-2 border-indigo-400 rounded-xl p-4 text-center">
+                        <div className="text-white font-bold">Pad</div>
+                        <div className="text-indigo-200 text-xs">Batch alignment</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Output Tensors */}
+                <div className="mb-6">
+                  <div className="text-cyan-300 font-black text-lg mb-4">📊 OUTPUT TENSORS</div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <Hoverable id="token-input">
+                      <div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4">
+                        <div className="text-cyan-300 font-bold mb-2">input_ids</div>
+                        <div className="font-mono text-sm text-white bg-black/50 rounded p-2">
+                          [15496, 995, 2159]
+                        </div>
+                        <div className="text-cyan-200 text-xs mt-2">Token integers → embedding lookup</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="token-attention">
+                      <div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4">
+                        <div className="text-cyan-300 font-bold mb-2">attention_mask</div>
+                        <div className="font-mono text-sm text-white bg-black/50 rounded p-2">
+                          [1, 1, 1, 0, 0]
+                        </div>
+                        <div className="text-cyan-200 text-xs mt-2">1 = real token, 0 = padding</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="token-position">
+                      <div className="bg-black/40 border-2 border-cyan-400 rounded-xl p-4">
+                        <div className="text-cyan-300 font-bold mb-2">position_ids</div>
+                        <div className="font-mono text-sm text-white bg-black/50 rounded p-2">
+                          [0, 1, 2, 3, 4]
+                        </div>
+                        <div className="text-cyan-200 text-xs mt-2">Position for RoPE/sinusoidal</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Special Tokens */}
+                <div>
+                  <div className="text-amber-300 font-black text-lg mb-4">⭐ SPECIAL TOKENS</div>
+                  <div className="grid grid-cols-4 gap-4">
+                    <Hoverable id="special-bos">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-3 text-center">
+                        <div className="font-mono text-lg text-amber-300">&lt;s&gt;</div>
+                        <div className="text-white font-bold text-sm">BOS</div>
+                        <div className="text-amber-200 text-xs">Begin sequence</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="special-eos">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-3 text-center">
+                        <div className="font-mono text-lg text-amber-300">&lt;/s&gt;</div>
+                        <div className="text-white font-bold text-sm">EOS</div>
+                        <div className="text-amber-200 text-xs">End sequence</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="special-pad">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-3 text-center">
+                        <div className="font-mono text-lg text-amber-300">&lt;pad&gt;</div>
+                        <div className="text-white font-bold text-sm">PAD</div>
+                        <div className="text-amber-200 text-xs">Batch alignment</div>
+                      </div>
+                    </Hoverable>
+                    
+                    <Hoverable id="special-chat">
+                      <div className="bg-black/40 border-2 border-amber-400 rounded-xl p-3 text-center">
+                        <div className="font-mono text-lg text-amber-300">&lt;|im_*|&gt;</div>
+                        <div className="text-white font-bold text-sm">CHAT</div>
+                        <div className="text-amber-200 text-xs">Role markers</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Live Examples */}
+            <section className="mb-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-emerald-500 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-emerald-500/50">
+                  📖
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-emerald-300">TOKENIZATION EXAMPLES</h2>
+                  <p className="text-emerald-200/80">See how different inputs become tokens</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="example-hello">
+                  <div className="bg-gradient-to-br from-emerald-950 to-green-950 border-2 border-emerald-400 rounded-xl p-5">
+                    <div className="text-emerald-300 font-bold mb-3">Simple Text</div>
+                    <div className="font-mono text-sm mb-3">
+                      <div className="text-slate-400 mb-1">Input:</div>
+                      <div className="text-white bg-black/50 rounded p-2">"Hello, how are you?"</div>
+                    </div>
+                    <div className="font-mono text-sm mb-3">
+                      <div className="text-slate-400 mb-1">Tokens:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {["Hello", ",", " how", " are", " you", "?"].map((t, i) => (
+                          <span key={i} className="px-2 py-1 bg-emerald-500/30 rounded text-emerald-200 text-xs">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-emerald-400 text-sm font-bold">6 tokens</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="example-code">
+                  <div className="bg-gradient-to-br from-blue-950 to-indigo-950 border-2 border-blue-400 rounded-xl p-5">
+                    <div className="text-blue-300 font-bold mb-3">Code</div>
+                    <div className="font-mono text-sm mb-3">
+                      <div className="text-slate-400 mb-1">Input:</div>
+                      <div className="text-white bg-black/50 rounded p-2 text-xs">def hello():\n    print("Hi")</div>
+                    </div>
+                    <div className="font-mono text-sm mb-3">
+                      <div className="text-slate-400 mb-1">Tokens:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {["def", " hello", "()", ":", "\\n", "    ", "print", "(", '"Hi"', ")"].map((t, i) => (
+                          <span key={i} className="px-2 py-1 bg-blue-500/30 rounded text-blue-200 text-xs">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-blue-400 text-sm font-bold">~10 tokens (indentation costs!)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="example-unicode">
+                  <div className="bg-gradient-to-br from-pink-950 to-rose-950 border-2 border-pink-400 rounded-xl p-5">
+                    <div className="text-pink-300 font-bold mb-3">Unicode / Emoji</div>
+                    <div className="font-mono text-sm mb-3">
+                      <div className="text-slate-400 mb-1">Input:</div>
+                      <div className="text-white bg-black/50 rounded p-2">"Hello 👋 世界"</div>
+                    </div>
+                    <div className="font-mono text-sm mb-3">
+                      <div className="text-slate-400 mb-1">Tokens:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {["Hello", " ", "👋", " ", "世", "界"].map((t, i) => (
+                          <span key={i} className="px-2 py-1 bg-pink-500/30 rounded text-pink-200 text-xs">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-pink-400 text-sm font-bold">6 tokens (emoji = 1-4 tokens)</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Output */}
+            <div className="mt-12 mb-8">
+              <div className="bg-gradient-to-r from-green-600 to-emerald-600 border-2 border-green-400 rounded-xl p-6 shadow-lg shadow-green-500/30">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="flex items-center gap-4">
+                    <span className="text-5xl">✅</span>
+                    <div>
+                      <div className="text-2xl font-black text-white">TOKEN TENSORS READY</div>
+                      <div className="text-green-200 font-medium">input_ids + attention_mask + position_ids → GPU</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-green-200 font-semibold">NEXT STAGE →</div>
+                    <div className="text-white font-black text-lg">Prompt Assembly & Prefill</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Summary Stats */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-5 text-center">
+                <div className="text-3xl mb-2">🔤</div>
+                <div className="text-2xl font-black text-white mb-1">32K-100K</div>
+                <div className="text-slate-300 text-sm">Typical vocab size</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-5 text-center">
+                <div className="text-3xl mb-2">📏</div>
+                <div className="text-2xl font-black text-white mb-1">~4 chars</div>
+                <div className="text-slate-300 text-sm">Per token (English)</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-5 text-center">
+                <div className="text-3xl mb-2">⚡</div>
+                <div className="text-2xl font-black text-white mb-1">&lt;10ms</div>
+                <div className="text-slate-300 text-sm">Tokenization time</div>
+              </div>
+              <div className="bg-slate-900 border-2 border-slate-600 rounded-xl p-5 text-center">
+                <div className="text-3xl mb-2">🧠</div>
+                <div className="text-2xl font-black text-white mb-1">CPU</div>
+                <div className="text-slate-300 text-sm">Processing (not GPU)</div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">Input Normalization & Tokenization • Stages 1-2 of Inference Lifecycle</p>
+              <p className="text-purple-400 font-bold mt-1">TEXT → TOKENS: THE FOUNDATION OF EVERYTHING</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<InputNormalizationTokenization />);
+  </script>
+</body>
+</html>

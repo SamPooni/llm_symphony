@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Router & Agent Selection Pipeline</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function RouterAgentPipeline() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+        
+        // Find if we're hovering over a tooltip-enabled element
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
+      };
+
+      useEffect(() => {
+        const handleMouseLeave = () => setTooltip(null);
+        const handleBlur = () => setTooltip(null);
+        
+        // document.documentElement is the <html> element - most reliable for detecting window exit
+        document.documentElement.addEventListener('mouseleave', handleMouseLeave);
+        window.addEventListener('blur', handleBlur);
+        
+        return () => {
+          document.documentElement.removeEventListener('mouseleave', handleMouseLeave);
+          window.removeEventListener('blur', handleBlur);
+        };
+      }, []);
+
+      const tooltips = {
+        // Overview
+        'overview-router': { title: '🎯 LLM as Router', content: 'The first LLM call DOESN\'T answer the question - it CLASSIFIES the request and ROUTES to the appropriate specialized agent. Think of it as a receptionist/dispatcher.', details: 'Router LLM responsibilities:\n1. Understand user intent\n2. Classify request type\n3. Select best agent(s)\n4. Extract relevant context\n5. Format handoff\n\nRouter is typically FAST (small model or constrained output)', example: 'User: "Help me debug this Python code and then write tests"\n\nRouter thinks:\n- Task 1: Debug code → Code Agent\n- Task 2: Write tests → Code Agent\n- Single agent can handle both\n\nRoute: Code Agent with full context' },
+
+        // Request Entry
+        'entry-request': { title: '📥 User Request', content: 'User sends a request that could require different types of expertise. The system must determine which agent(s) should handle it.', details: 'Request types:\n- Single-domain (one agent)\n- Multi-domain (multiple agents)\n- Ambiguous (needs clarification)\n- Compound (sequential agents)\n\nRouter must parse and classify', example: 'Single: "What\'s the weather?"\nMulti: "Research AI trends and make a presentation"\nAmbiguous: "Help me with my project"\nCompound: "Analyze data, then visualize, then write report"' },
+        'entry-preprocess': { title: '⚙️ Request Preprocessing', content: 'Before routing, extract metadata: language, urgency, user context, attachments. Helps router make better decisions.', details: 'Preprocessing extracts:\n- Language detection\n- Attachment types (code, image, doc)\n- User history/preferences\n- Session context\n- Urgency signals\n- Entity extraction', example: 'Request: "Urgentlich! Fix this bug [code attached]"\n\nExtracted:\n- Language: German detected\n- Urgency: High ("Urgentlich")\n- Attachment: Python code\n- Intent: Bug fix\n→ Metadata passed to router' },
+
+        // Router LLM
+        'router-llm': { title: '🧠 Router LLM', content: 'An LLM call specifically for routing. Can be the same model or a smaller/faster one. Outputs structured routing decision, NOT the answer.', details: 'Router characteristics:\n- Often smaller model (faster, cheaper)\n- Constrained output (JSON schema)\n- Sees agent descriptions\n- Makes classification decision\n- Can request clarification\n\nThis IS an LLM inference call (Stages 0-13)', example: 'Router prompt:\n"Given these agents:\n- CodeAgent: Programming tasks\n- ResearchAgent: Web research\n- WritingAgent: Content creation\n\nClassify this request: {user_message}\n\nOutput JSON: {agent, confidence, reasoning}"' },
+        'router-inference': { title: '⚡ Router Inference', content: 'The router LLM call is itself a full inference pipeline (Stages 0-13). But it\'s optimized: small model, short output, constrained format.', details: 'Router inference optimizations:\n- Smaller model (GPT-3.5, Haiku, etc.)\n- Short max_tokens (100-200)\n- JSON mode / structured output\n- No streaming needed\n- Can be cached for common patterns\n\nLatency: 100-500ms typically', example: 'Router LLM call:\n- Model: claude-3-haiku (fast)\n- Input: ~500 tokens\n- Output: ~50 tokens (JSON)\n- Latency: 200ms\n\nVs Main agent:\n- Model: claude-3-opus (smart)\n- Input: ~2000 tokens\n- Output: ~500 tokens\n- Latency: 5-15 seconds' },
+        'router-output': { title: '📋 Routing Decision', content: 'Router outputs structured decision: which agent(s), confidence scores, extracted parameters, execution strategy.', details: 'Routing decision includes:\n- selected_agents: [list]\n- confidence: 0.0-1.0\n- execution: "sequential" | "parallel"\n- parameters: extracted context\n- reasoning: why this route\n- fallback: if primary fails', example: '{\n  "selected_agents": ["code_agent"],\n  "confidence": 0.95,\n  "execution": "sequential",\n  "parameters": {\n    "language": "python",\n    "task": "debug",\n    "code": "..."\n  },\n  "reasoning": "Code debugging task with Python file",\n  "fallback": "general_agent"\n}' },
+
+        // Agent Registry
+        'registry-overview': { title: '📚 Agent Registry', content: 'Central registry of all available agents. Each agent has: name, description, capabilities, tools, model config. Router selects from this registry.', details: 'Registry contains per agent:\n- id: Unique identifier\n- name: Human-readable name\n- description: What it does (for router)\n- capabilities: List of skills\n- tools: Available tools\n- model: Which LLM to use\n- system_prompt: Agent instructions', example: 'agents = {\n  "code_agent": {\n    "name": "Code Assistant",\n    "description": "Programming, debugging, code review",\n    "capabilities": ["python", "javascript", "debugging"],\n    "tools": ["code_executor", "linter", "git"],\n    "model": "claude-3-opus"\n  },\n  "research_agent": {...},\n  "writing_agent": {...}\n}' },
+        'registry-code': { title: '💻 Code Agent', content: 'Specialized for programming tasks. Has code execution, linting, git tools. Uses capable model for complex reasoning.', details: 'Code Agent config:\n- Tools: code_executor, linter, formatter, git, file_system\n- Model: claude-3-opus (complex reasoning)\n- System prompt: Programming expert\n- Capabilities: All languages, debugging, architecture\n\nTypical tasks:\n- Write/review code\n- Debug issues\n- Explain code\n- Refactor', example: 'Code Agent handles:\n✓ "Fix this bug in my Python"\n✓ "Write a REST API in Node.js"\n✓ "Review this PR for security issues"\n✓ "Explain this algorithm"\n✗ "What\'s the news today?" (not code)' },
+        'registry-research': { title: '🔍 Research Agent', content: 'Specialized for information gathering. Has web search, document reading tools. Good at synthesis and citation.', details: 'Research Agent config:\n- Tools: web_search, web_fetch, pdf_reader, citation_manager\n- Model: claude-3-sonnet (good balance)\n- System prompt: Research analyst\n- Capabilities: Search, synthesis, fact-checking\n\nTypical tasks:\n- Find information\n- Compare options\n- Fact-check claims\n- Literature review', example: 'Research Agent handles:\n✓ "What are the latest AI trends?"\n✓ "Compare AWS vs GCP pricing"\n✓ "Find papers on transformer efficiency"\n✗ "Write me a poem" (not research)' },
+        'registry-writing': { title: '✍️ Writing Agent', content: 'Specialized for content creation. Has grammar tools, style guides, formatting. Creative and editorial capabilities.', details: 'Writing Agent config:\n- Tools: grammar_check, style_guide, markdown_formatter\n- Model: claude-3-opus (creative)\n- System prompt: Expert writer/editor\n- Capabilities: All formats, tones, styles\n\nTypical tasks:\n- Write articles/posts\n- Edit/proofread\n- Summarize content\n- Creative writing', example: 'Writing Agent handles:\n✓ "Write a blog post about AI"\n✓ "Edit this email for tone"\n✓ "Summarize this document"\n✗ "Debug my code" (not writing)' },
+        'registry-data': { title: '📊 Data Agent', content: 'Specialized for data analysis. Has SQL, pandas, visualization tools. Statistical and analytical capabilities.', details: 'Data Agent config:\n- Tools: sql_executor, pandas_runner, chart_generator, stats_calculator\n- Model: claude-3-opus (analytical)\n- System prompt: Data scientist\n- Capabilities: SQL, Python, statistics, visualization\n\nTypical tasks:\n- Query databases\n- Analyze datasets\n- Create visualizations\n- Statistical analysis', example: 'Data Agent handles:\n✓ "Analyze this CSV file"\n✓ "Write a SQL query for..."\n✓ "Create a chart showing..."\n✗ "Book me a flight" (not data)' },
+
+        // Execution Strategies
+        'exec-sequential': { title: '➡️ Sequential Execution', content: 'Agents run one after another. Output of agent N becomes input to agent N+1. For dependent tasks.', details: 'Sequential flow:\n1. Agent A runs fully\n2. Agent A output → Agent B input\n3. Agent B runs fully\n4. Continue chain...\n\nUse when:\n- Tasks depend on each other\n- Order matters\n- Need to pass artifacts', example: 'Task: "Research AI trends, then write a report"\n\nSequential:\n1. Research Agent → finds trends\n2. Writing Agent ← receives research\n3. Writing Agent → produces report\n\nTotal time: Time(A) + Time(B)' },
+        'exec-parallel': { title: '⚡ Parallel Execution', content: 'Multiple agents run simultaneously. Results aggregated at the end. For independent subtasks.', details: 'Parallel flow:\n1. Split task into subtasks\n2. Dispatch to agents concurrently\n3. Await all completions\n4. Aggregate results\n\nUse when:\n- Subtasks are independent\n- Want to minimize latency\n- Results can be merged', example: 'Task: "Check weather in NYC, LA, and Chicago"\n\nParallel:\n- Agent 1: NYC weather ─┐\n- Agent 2: LA weather  ─┼→ Aggregate\n- Agent 3: CHI weather ─┘\n\nTotal time: Max(Time(1), Time(2), Time(3))' },
+        'exec-hierarchical': { title: '🏛️ Hierarchical Execution', content: 'Supervisor agent coordinates worker agents. Supervisor plans, delegates, reviews. For complex multi-step tasks.', details: 'Hierarchy:\n- Supervisor: Plans and coordinates\n- Workers: Execute subtasks\n- Supervisor: Reviews and iterates\n\nSupervisor responsibilities:\n- Break down task\n- Assign to workers\n- Check quality\n- Handle failures\n- Synthesize final result', example: 'Task: "Build a website"\n\nSupervisor plans:\n1. Design Agent → mockups\n2. Supervisor reviews\n3. Code Agent → implementation\n4. Supervisor reviews\n5. QA Agent → testing\n6. Supervisor synthesizes' },
+        'exec-handoff': { title: '🤝 Agent Handoff', content: 'One agent explicitly transfers to another mid-task. Includes context transfer. Like being transferred to a specialist.', details: 'Handoff includes:\n- Conversation history\n- Current task state\n- Why handoff occurred\n- What\'s expected next\n- Artifacts created\n\nReceiving agent continues seamlessly', example: 'User asks complex question\n\nGeneral Agent: "This needs code expertise"\n\nHandoff to Code Agent:\n{\n  history: [...],\n  reason: "code_debugging_needed",\n  context: "Python async issue",\n  artifacts: ["error_log.txt"]\n}\n\nCode Agent continues conversation' },
+
+        // Agent Execution Detail
+        'agent-receive': { title: '📨 Agent Receives Task', content: 'Selected agent receives: user request, router context, any artifacts, execution parameters. Begins its own agentic loop.', details: 'Agent input:\n- Original user message\n- Router\'s extracted parameters\n- Relevant conversation history\n- Artifacts (files, code, etc.)\n- Execution constraints (timeout, budget)\n\nAgent initializes its own state', example: 'Code Agent receives:\n{\n  user_message: "Fix this bug",\n  parameters: {\n    language: "python",\n    code: "def foo():...",\n    error: "TypeError..."\n  },\n  constraints: {\n    max_iterations: 10,\n    timeout: 60s\n  }\n}' },
+        'agent-loop': { title: '🔄 Agent\'s Agentic Loop', content: 'Each agent runs its OWN agentic loop internally. Multiple LLM calls, tool uses, iterations. The inner loop from previous diagram.', details: 'Agent\'s internal loop:\n1. Assemble context (agent-specific)\n2. LLM inference (Stages 0-13)\n3. Parse output\n4. Tool call? Execute & loop\n5. Final? Return result\n\nThis is the INNER LOOP we discussed before!', example: 'Code Agent iteration:\n- LLM call 1: Analyze error → need to read file\n- Tool: read_file()\n- LLM call 2: Found bug → need to fix\n- Tool: write_file()\n- LLM call 3: Test fix → run code\n- Tool: execute_code()\n- LLM call 4: Success! → return result\n\n4 LLM calls within this one agent' },
+        'agent-tools': { title: '🔧 Agent-Specific Tools', content: 'Each agent has its own set of tools. Code agent has executor, Research agent has search. Tools are scoped to agent capabilities.', details: 'Tool scoping:\n- Code Agent: code_exec, git, linter\n- Research Agent: web_search, pdf_read\n- Writing Agent: grammar, format\n- Data Agent: sql, pandas, charts\n\nAgents only see their own tools\nPrevents misuse, reduces confusion', example: 'Code Agent tools:\n- execute_python(code)\n- run_tests(path)\n- git_commit(message)\n- read_file(path)\n- write_file(path, content)\n\nResearch Agent tools:\n- web_search(query)\n- fetch_url(url)\n- extract_text(pdf)\n- save_citation(...)' },
+        'agent-return': { title: '📤 Agent Returns Result', content: 'Agent completes and returns: answer, artifacts created, metadata, confidence. Goes back to orchestrator for potential further routing.', details: 'Agent output:\n- result: Final answer/output\n- artifacts: Files, code, etc.\n- metadata: Iterations, tokens, time\n- confidence: How sure agent is\n- needs_followup: Handoff needed?\n\nOrchestrator decides next step', example: 'Code Agent returns:\n{\n  result: "Fixed the bug. The issue was...",\n  artifacts: [\n    {type: "code", path: "fixed.py"}\n  ],\n  metadata: {\n    llm_calls: 4,\n    tool_calls: 3,\n    tokens: 2500\n  },\n  confidence: 0.9,\n  needs_followup: false\n}' },
+
+        // Orchestration Layer
+        'orch-overview': { title: '🎭 Orchestrator', content: 'Master controller that coordinates everything: routes requests, manages agents, handles handoffs, aggregates results. The "conductor" of the system.', details: 'Orchestrator responsibilities:\n- Receive user requests\n- Call router LLM\n- Dispatch to agents\n- Manage execution strategy\n- Handle errors/retries\n- Aggregate results\n- Track state across agents', example: 'Orchestrator flow:\n1. Receive "Research X and write report"\n2. Router: [research, writing] sequential\n3. Dispatch to Research Agent\n4. Receive research results\n5. Dispatch to Writing Agent (with research)\n6. Receive final report\n7. Return to user' },
+        'orch-state': { title: '📊 Shared State Manager', content: 'Maintains state across all agents. Conversation history, artifacts, working memory. Agents can read/write shared state.', details: 'Shared state includes:\n- conversation: Full history\n- artifacts: Files, outputs\n- working_memory: Scratchpad\n- agent_outputs: Results from each\n- metadata: Timing, costs\n\nAgents see relevant portions', example: 'Shared state:\n{\n  conversation: [...],\n  artifacts: {\n    "research.md": "...",\n    "data.csv": "..."\n  },\n  agent_outputs: {\n    "research_agent": {...},\n    "data_agent": {...}\n  }\n}' },
+        'orch-aggregate': { title: '🧩 Result Aggregation', content: 'Combine outputs from multiple agents into coherent response. May need another LLM call to synthesize.', details: 'Aggregation strategies:\n- Concatenate: Simple join\n- Merge: Combine structured data\n- Synthesize: LLM summarizes\n- Select: Pick best result\n- Vote: Multiple agents vote\n\nMay require synthesis LLM call', example: 'Parallel weather agents:\n- NYC: "72°F sunny"\n- LA: "85°F clear"\n- Chicago: "65°F cloudy"\n\nAggregated:\n"Weather summary:\n- NYC: 72°F sunny\n- LA: 85°F clear  \n- Chicago: 65°F cloudy"' },
+
+        // Full Pipeline Detail
+        'pipeline-1': { title: '1️⃣ Request Arrives', content: 'User sends request to the system. Could be simple or complex, single or multi-domain.', details: 'Entry point:\n- API endpoint\n- Chat interface\n- Programmatic call\n\nRequest includes:\n- User message\n- Attachments\n- Session context', example: 'POST /chat\n{\n  "message": "Analyze this data and create a report",\n  "attachments": ["data.csv"],\n  "session_id": "abc123"\n}' },
+        'pipeline-2': { title: '2️⃣ Router LLM Classifies', content: 'First LLM call: Router analyzes request, selects agent(s), determines execution strategy. Fast, structured output.', details: 'Router LLM call:\n- Input: User message + agent descriptions\n- Output: Routing decision (JSON)\n- Model: Fast/small (Haiku, GPT-3.5)\n- Latency: 100-300ms\n\nThis is LLM Inference #1', example: 'Router decision:\n{\n  "agents": ["data_agent", "writing_agent"],\n  "strategy": "sequential",\n  "reasoning": "Need data analysis first, then report"\n}' },
+        'pipeline-3': { title: '3️⃣ Agent(s) Execute', content: 'Selected agent(s) run their agentic loops. Each may make multiple LLM calls, use tools. This is the bulk of compute.', details: 'Agent execution:\n- Each agent has own loop\n- Multiple LLM calls per agent\n- Tool executions between calls\n- May run in parallel or sequence\n\nThis is where most time/cost goes', example: 'Data Agent runs:\n- LLM call 1: Plan analysis\n- Tool: load_csv()\n- LLM call 2: Write query\n- Tool: pandas_exec()\n- LLM call 3: Interpret results\n- Total: 3 LLM calls, 2 tools' },
+        'pipeline-4': { title: '4️⃣ Results Aggregated', content: 'Agent outputs collected, potentially synthesized. May need another LLM call to combine coherently.', details: 'Aggregation:\n- Collect all agent outputs\n- Merge artifacts\n- Synthesize if needed\n- Format for user\n\nOptional synthesis LLM call', example: 'Agent outputs:\n- Data Agent: "Analysis shows 30% growth..."\n- Writing Agent: "Executive summary..."\n\nAggregated: Combined report document' },
+        'pipeline-5': { title: '5️⃣ Response Returned', content: 'Final response sent to user. Includes answer, any artifacts created, usage metadata.', details: 'Response includes:\n- content: Final answer\n- artifacts: Files, code, etc.\n- usage: Total tokens, cost\n- trace: For debugging\n\nStreamed or complete', example: '{\n  "content": "Here\'s your analysis report...",\n  "artifacts": ["report.pdf"],\n  "usage": {\n    "total_tokens": 8500,\n    "llm_calls": 7,\n    "agents_used": ["data", "writing"]\n  }\n}' },
+
+        // LLM Calls Breakdown
+        'llm-router-call': { title: '⚡ Router LLM Call', content: 'First inference: Fast classification. Small model, structured output. 100-300ms, cheap.', details: 'Router inference:\n- Model: Small (Haiku, GPT-3.5-turbo)\n- Input: ~500 tokens\n- Output: ~100 tokens (JSON)\n- Latency: 100-300ms\n- Cost: ~$0.001\n\nFull Stages 0-13, optimized', example: 'Stages 0-13 for router:\n- Prefill: 500 tokens → fast\n- Decode: 100 tokens → very fast\n- Total: ~200ms\n\nOptimization: JSON mode, short output' },
+        'llm-agent-calls': { title: '⚡ Agent LLM Calls', content: 'Main inference: Multiple calls within each agent. Larger model, longer outputs. Bulk of time and cost.', details: 'Agent inference:\n- Model: Large (Opus, GPT-4)\n- Input: 1000-8000 tokens\n- Output: 100-2000 tokens\n- Latency: 1-30s per call\n- Cost: $0.01-0.50 per call\n\nMultiple calls per agent!', example: 'Agent with 4 LLM calls:\n- Call 1: 2000 in, 200 out → 2s\n- Call 2: 2500 in, 300 out → 3s\n- Call 3: 3000 in, 500 out → 5s\n- Call 4: 3500 in, 400 out → 4s\n\nTotal: 14s, ~$0.15 for one agent' },
+        'llm-synth-call': { title: '⚡ Synthesis LLM Call', content: 'Optional final inference: Combine multiple agent outputs into coherent response. May or may not be needed.', details: 'Synthesis inference:\n- When needed: Multi-agent parallel\n- Model: Medium (Sonnet, GPT-4)\n- Input: All agent outputs\n- Output: Combined response\n- Latency: 1-5s\n\nSkipped if single agent or simple merge', example: 'Synthesis needed:\n- Agent A output: 500 tokens\n- Agent B output: 600 tokens\n- Agent C output: 400 tokens\n\nSynthesis call:\n- Input: 1500 tokens\n- Output: 300 tokens (summary)\n- Latency: 2s' },
+
+        // Cost/Latency Analysis
+        'cost-breakdown': { title: '💰 Cost Breakdown', content: 'Total cost = Router + Σ(Agent calls) + Synthesis. Agents dominate cost. Complex tasks can be expensive.', details: 'Cost formula:\nTotal = Router + Agent1 + Agent2 + ... + Synthesis\n\nTypical breakdown:\n- Router: 1% of cost\n- Agents: 90% of cost\n- Synthesis: 5-10% of cost\n- Tools: Often free/cheap', example: 'Complex task cost:\n- Router: $0.001\n- Data Agent (4 calls): $0.15\n- Writing Agent (3 calls): $0.10\n- Synthesis: $0.02\n\nTotal: ~$0.27 for one request' },
+        'latency-breakdown': { title: '⏱️ Latency Breakdown', content: 'Total latency = Router + Agents (parallel or sequential) + Synthesis. Parallel helps, but agents dominate.', details: 'Latency formula:\nSequential: Router + Σ(Agents) + Synthesis\nParallel: Router + Max(Agents) + Synthesis\n\nTypical breakdown:\n- Router: 5% of time\n- Agents: 85% of time\n- Synthesis: 10% of time', example: 'Sequential (2 agents):\n- Router: 0.2s\n- Agent 1: 8s\n- Agent 2: 6s\n- Synthesis: 2s\nTotal: 16.2s\n\nParallel (2 agents):\n- Router: 0.2s\n- Max(8s, 6s): 8s\n- Synthesis: 2s\nTotal: 10.2s (37% faster)' },
+
+        // Routing Strategies
+        'route-semantic': { title: '🎯 Semantic Routing', content: 'Use embeddings to match request to agent descriptions. Fast, no LLM call needed. Good for clear-cut cases.', details: 'Semantic routing:\n1. Embed user request\n2. Compare to agent description embeddings\n3. Select highest similarity\n\nPros: Fast (<50ms), cheap\nCons: Less nuanced, no reasoning', example: 'User: "Debug my Python code"\n\nEmbedding similarity:\n- Code Agent: 0.92 ← highest\n- Research Agent: 0.31\n- Writing Agent: 0.28\n\nRoute to Code Agent (no LLM call!)' },
+        'route-llm': { title: '🧠 LLM Routing', content: 'Use LLM to classify and route. More flexible, can handle nuance, can decompose complex tasks.', details: 'LLM routing:\n1. Present agent options to LLM\n2. LLM reasons about best fit\n3. Can handle multi-agent cases\n4. Can decompose tasks\n\nPros: Flexible, smart\nCons: Slower, costs more', example: 'User: "Research AI trends and make slides"\n\nLLM Router reasons:\n"This needs research first, then presentation.\nI\'ll route sequentially:\n1. Research Agent\n2. Writing Agent (slides)"\n\nMore nuanced than embedding match' },
+        'route-hybrid': { title: '🔀 Hybrid Routing', content: 'Combine semantic + LLM. Use embeddings for simple cases, escalate to LLM for complex/ambiguous.', details: 'Hybrid approach:\n1. Try semantic routing first\n2. If confidence > 0.9 → route directly\n3. If confidence < 0.9 → use LLM router\n4. If ambiguous → ask user\n\nBest of both worlds', example: 'Request 1: "Fix Python bug"\n- Semantic: 0.95 confidence\n- Route directly (fast)\n\nRequest 2: "Help with my project"\n- Semantic: 0.45 confidence\n- Escalate to LLM router\n- LLM asks for clarification' },
+
+        // Special Patterns
+        'pattern-fallback': { title: '🔄 Fallback Chain', content: 'If primary agent fails or has low confidence, fall back to next agent or general-purpose agent.', details: 'Fallback strategy:\n1. Try primary agent\n2. If fails/low confidence:\n   - Try secondary agent\n   - Or use general agent\n   - Or ask for human help\n\nGraceful degradation', example: 'Route: Code Agent (primary)\n\nCode Agent fails: "I can\'t help with this hardware question"\n\nFallback chain:\n1. Hardware Agent → not available\n2. General Agent → handles it\n\nUser gets answer despite initial misroute' },
+        'pattern-confirm': { title: '✅ Human Confirmation', content: 'For high-stakes or ambiguous routing, ask human to confirm before executing. Safety valve.', details: 'Confirmation triggers:\n- Low router confidence\n- Destructive operations\n- High cost operations\n- Ambiguous requests\n- First time seeing pattern\n\nUser confirms or redirects', example: 'Router: "I\'m 60% confident this is a deletion request.\nShould I proceed with File Management Agent?\n\n[Yes] [No, use...] [Clarify first]"\n\nUser confirms before proceeding' },
+        'pattern-learning': { title: '📚 Route Learning', content: 'Track routing decisions and outcomes. Learn from mistakes. Improve routing over time.', details: 'Learning signals:\n- User corrections (re-routes)\n- Agent success/failure\n- Explicit feedback\n- Task completion metrics\n\nUse to fine-tune router or update embeddings', example: 'Logged:\n- Request: "optimize SQL query"\n- Routed to: Writing Agent (mistake)\n- User corrected to: Code Agent\n- Outcome: Success\n\nLearn: SQL optimization → Code Agent' },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        let left = mousePos.x + 15, top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 360 > window.innerHeight) top = window.innerHeight - 370;
+        return (
+          <div className="fixed z-50 w-[400px] p-4 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl pointer-events-none" style={{ left, top }}>
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-2">{t.content}</p>
+            {t.details && <div className="bg-black/50 rounded-lg p-2 mb-2"><div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div><p className="text-xs text-cyan-300 whitespace-pre-wrap">{t.details}</p></div>}
+            {t.example && <div className="bg-black/50 rounded-lg p-2"><div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div><pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre></div>}
+          </div>
+        );
+      };
+
+      const H = ({ id, children, className = '' }) => (
+        <div 
+          className={`cursor-help transition-all hover:scale-[1.02] ${className}`} 
+          data-tooltip-id={id}
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-4" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-6">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-amber-500/20 border-2 border-amber-400 mb-4">
+                <span className="text-amber-300 font-black text-lg">LLM AS ROUTER</span>
+                <span className="text-white">•</span>
+                <span className="text-amber-200 font-medium">Agent Selection & Pipelining</span>
+              </div>
+              <h1 className="text-4xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-red-400">LLM Router & Multi-Agent Pipeline</h1>
+              <p className="text-lg text-slate-200 max-w-4xl mx-auto"><span className="text-amber-300 font-bold">First LLM call routes</span>, then <span className="text-orange-300 font-bold">specialized agents execute</span>. Multiple inference pipelines chained together. <span className="text-slate-400">🖱️ Hover for details.</span></p>
+            </header>
+
+            {/* Key Insight */}
+            <H id="overview-router">
+              <div className="bg-gradient-to-r from-amber-600 to-orange-600 border-2 border-amber-400 rounded-xl p-4 mb-6 cursor-help">
+                <div className="flex items-center justify-center gap-4">
+                  <span className="text-4xl">🎯</span>
+                  <div className="text-center">
+                    <div className="text-xl font-black text-white">LLM #1 DOESN'T ANSWER — IT ROUTES</div>
+                    <div className="text-amber-200">First LLM call classifies and selects agent(s). Then selected agent(s) do the actual work.</div>
+                  </div>
+                  <span className="text-4xl">🔀</span>
+                </div>
+              </div>
+            </H>
+
+            {/* Main Pipeline */}
+            <div className="bg-slate-900/80 border-2 border-slate-700 rounded-2xl p-6 mb-6">
+              <div className="text-slate-300 font-black text-xl mb-4 text-center">📊 COMPLETE PIPELINE: LLM Router → Agent Selection → Execution</div>
+              
+              {/* Step 1: Request */}
+              <div className="flex justify-center mb-4">
+                <H id="entry-request">
+                  <div className="bg-blue-600 border-2 border-blue-400 rounded-xl px-8 py-3 text-center cursor-help">
+                    <div className="text-2xl mb-1">👤</div>
+                    <div className="text-white font-black">USER REQUEST</div>
+                    <div className="text-blue-200 text-sm">"Analyze data and write report"</div>
+                  </div>
+                </H>
+              </div>
+              
+              <div className="flex justify-center mb-4">
+                <div className="flex flex-col items-center">
+                  <div className="w-1 h-6 bg-blue-400"></div>
+                  <H id="entry-preprocess"><div className="px-3 py-1 bg-slate-700 rounded text-slate-300 text-sm cursor-help">Preprocess & Extract Metadata</div></H>
+                  <div className="w-1 h-6 bg-slate-500"></div>
+                </div>
+              </div>
+
+              {/* Step 2: Router LLM */}
+              <H id="router-llm">
+                <div className="bg-gradient-to-br from-amber-900 to-orange-900 border-4 border-amber-400 rounded-xl p-4 mb-4 cursor-help">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">🧠</span>
+                      <div>
+                        <div className="text-amber-300 font-black text-lg">ROUTER LLM</div>
+                        <div className="text-amber-200 text-sm">Classifies request, selects agent(s)</div>
+                      </div>
+                    </div>
+                    <H id="router-inference">
+                      <div className="px-3 py-2 bg-amber-700 border border-amber-400 rounded-lg cursor-help">
+                        <div className="text-amber-200 text-xs font-bold">⚡ LLM INFERENCE #1</div>
+                        <div className="text-amber-300 text-xs">Stages 0-13 (fast model)</div>
+                      </div>
+                    </H>
+                  </div>
+                  
+                  <div className="bg-black/30 rounded-lg p-3 mb-3">
+                    <div className="text-amber-300 text-sm mb-2">Router sees agent registry and decides:</div>
+                    <H id="router-output">
+                      <pre className="text-xs text-green-300 bg-black/50 rounded p-2 cursor-help">{`{
+  "selected_agents": ["data_agent", "writing_agent"],
+  "execution": "sequential",
+  "reasoning": "Need analysis first, then report"
+}`}</pre>
+                    </H>
+                  </div>
+                  
+                  <div className="flex items-center justify-center gap-2 text-amber-200 text-sm">
+                    <span>⏱️ ~200ms</span>
+                    <span>•</span>
+                    <span>💰 ~$0.001</span>
+                    <span>•</span>
+                    <span>Small model (Haiku/GPT-3.5)</span>
+                  </div>
+                </div>
+              </H>
+
+              <div className="flex justify-center mb-4">
+                <div className="w-1 h-6 bg-amber-400"></div>
+              </div>
+
+              {/* Agent Registry */}
+              <H id="registry-overview">
+                <div className="bg-slate-800 border border-slate-600 rounded-xl p-3 mb-4 cursor-help">
+                  <div className="text-slate-300 font-bold text-center mb-2">📚 AGENT REGISTRY — Router selects from these</div>
+                  <div className="flex gap-2 justify-center flex-wrap">
+                    <H id="registry-code"><div className="px-4 py-2 bg-violet-700 border border-violet-400 rounded-lg cursor-help"><span className="text-violet-200 font-bold">💻 Code Agent</span></div></H>
+                    <H id="registry-research"><div className="px-4 py-2 bg-cyan-700 border border-cyan-400 rounded-lg cursor-help"><span className="text-cyan-200 font-bold">🔍 Research Agent</span></div></H>
+                    <H id="registry-writing"><div className="px-4 py-2 bg-pink-700 border border-pink-400 rounded-lg cursor-help"><span className="text-pink-200 font-bold">✍️ Writing Agent</span></div></H>
+                    <H id="registry-data"><div className="px-4 py-2 bg-green-700 border border-green-400 rounded-lg cursor-help"><span className="text-green-200 font-bold">📊 Data Agent</span></div></H>
+                  </div>
+                </div>
+              </H>
+
+              {/* Execution Strategy */}
+              <div className="bg-orange-900/30 border border-orange-500/50 rounded-xl p-4 mb-4">
+                <div className="text-orange-300 font-bold text-center mb-3">⚡ EXECUTION STRATEGY (Router decides)</div>
+                <div className="grid grid-cols-4 gap-3">
+                  <H id="exec-sequential">
+                    <div className="bg-orange-800 border border-orange-400 rounded-lg p-3 text-center cursor-help">
+                      <div className="text-xl mb-1">➡️</div>
+                      <div className="text-white font-bold text-sm">Sequential</div>
+                      <div className="text-orange-200 text-xs">A → B → C</div>
+                    </div>
+                  </H>
+                  <H id="exec-parallel">
+                    <div className="bg-orange-800 border border-orange-400 rounded-lg p-3 text-center cursor-help">
+                      <div className="text-xl mb-1">⚡</div>
+                      <div className="text-white font-bold text-sm">Parallel</div>
+                      <div className="text-orange-200 text-xs">A | B | C</div>
+                    </div>
+                  </H>
+                  <H id="exec-hierarchical">
+                    <div className="bg-orange-800 border border-orange-400 rounded-lg p-3 text-center cursor-help">
+                      <div className="text-xl mb-1">🏛️</div>
+                      <div className="text-white font-bold text-sm">Hierarchical</div>
+                      <div className="text-orange-200 text-xs">Supervisor → Workers</div>
+                    </div>
+                  </H>
+                  <H id="exec-handoff">
+                    <div className="bg-orange-800 border border-orange-400 rounded-lg p-3 text-center cursor-help">
+                      <div className="text-xl mb-1">🤝</div>
+                      <div className="text-white font-bold text-sm">Handoff</div>
+                      <div className="text-orange-200 text-xs">A hands to B</div>
+                    </div>
+                  </H>
+                </div>
+              </div>
+
+              {/* Agent Execution */}
+              <div className="flex gap-4 mb-4">
+                {/* Agent 1 */}
+                <div className="flex-1 bg-green-900/50 border-2 border-green-500 rounded-xl p-4">
+                  <div className="text-center mb-3">
+                    <span className="text-2xl">📊</span>
+                    <div className="text-green-300 font-black">DATA AGENT</div>
+                    <div className="text-green-200 text-xs">Selected by router</div>
+                  </div>
+                  
+                  <H id="agent-receive">
+                    <div className="bg-green-800/50 rounded-lg p-2 mb-2 cursor-help">
+                      <div className="text-green-200 text-xs">📨 Receives task + context</div>
+                    </div>
+                  </H>
+                  
+                  <H id="agent-loop">
+                    <div className="bg-gradient-to-br from-cyan-900 to-blue-900 border-2 border-cyan-400 rounded-lg p-2 mb-2 cursor-help">
+                      <div className="text-cyan-300 text-xs font-bold text-center">🔄 AGENT'S OWN AGENTIC LOOP</div>
+                      <div className="text-cyan-200 text-xs text-center mt-1">
+                        LLM #2 → Tool → LLM #3 → Tool → LLM #4
+                      </div>
+                      <div className="text-cyan-400 text-xs text-center mt-1">
+                        ⚡ Multiple inference calls inside!
+                      </div>
+                    </div>
+                  </H>
+                  
+                  <H id="agent-tools">
+                    <div className="bg-green-800/50 rounded-lg p-2 mb-2 cursor-help">
+                      <div className="text-green-200 text-xs">🔧 Uses: sql, pandas, charts</div>
+                    </div>
+                  </H>
+                  
+                  <H id="agent-return">
+                    <div className="bg-green-800/50 rounded-lg p-2 cursor-help">
+                      <div className="text-green-200 text-xs">📤 Returns: Analysis results</div>
+                    </div>
+                  </H>
+                </div>
+
+                <div className="flex items-center">
+                  <div className="text-orange-400 text-2xl">→</div>
+                </div>
+
+                {/* Agent 2 */}
+                <div className="flex-1 bg-pink-900/50 border-2 border-pink-500 rounded-xl p-4">
+                  <div className="text-center mb-3">
+                    <span className="text-2xl">✍️</span>
+                    <div className="text-pink-300 font-black">WRITING AGENT</div>
+                    <div className="text-pink-200 text-xs">Receives Agent 1 output</div>
+                  </div>
+                  
+                  <div className="bg-pink-800/50 rounded-lg p-2 mb-2">
+                    <div className="text-pink-200 text-xs">📨 Receives: Analysis + task</div>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-cyan-900 to-blue-900 border-2 border-cyan-400 rounded-lg p-2 mb-2">
+                    <div className="text-cyan-300 text-xs font-bold text-center">🔄 AGENT'S OWN AGENTIC LOOP</div>
+                    <div className="text-cyan-200 text-xs text-center mt-1">
+                      LLM #5 → Tool → LLM #6 → LLM #7
+                    </div>
+                    <div className="text-cyan-400 text-xs text-center mt-1">
+                      ⚡ More inference calls!
+                    </div>
+                  </div>
+                  
+                  <div className="bg-pink-800/50 rounded-lg p-2 mb-2">
+                    <div className="text-pink-200 text-xs">🔧 Uses: grammar, formatter</div>
+                  </div>
+                  
+                  <div className="bg-pink-800/50 rounded-lg p-2">
+                    <div className="text-pink-200 text-xs">📤 Returns: Report document</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Orchestration */}
+              <H id="orch-overview">
+                <div className="bg-violet-900/30 border border-violet-500/50 rounded-xl p-3 mb-4 cursor-help">
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">🎭</span>
+                      <span className="text-violet-300 font-bold">ORCHESTRATOR</span>
+                    </div>
+                    <H id="orch-state"><div className="px-3 py-1 bg-violet-700 rounded text-violet-200 text-sm cursor-help">📊 State Manager</div></H>
+                    <H id="orch-aggregate"><div className="px-3 py-1 bg-violet-700 rounded text-violet-200 text-sm cursor-help">🧩 Aggregator</div></H>
+                  </div>
+                </div>
+              </H>
+
+              <div className="flex justify-center mb-4">
+                <div className="w-1 h-6 bg-green-400"></div>
+              </div>
+
+              {/* Final Response */}
+              <div className="flex justify-center">
+                <div className="bg-green-600 border-2 border-green-400 rounded-xl px-8 py-3 text-center">
+                  <div className="text-2xl mb-1">✅</div>
+                  <div className="text-white font-black">AGGREGATED RESPONSE</div>
+                  <div className="text-green-200 text-sm">Analysis + Report returned to user</div>
+                </div>
+              </div>
+            </div>
+
+            {/* LLM Calls Breakdown */}
+            <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-4 mb-6">
+              <div className="text-cyan-300 font-black text-lg mb-4 text-center">⚡ LLM INFERENCE CALLS — All Stages 0-13 Each Time</div>
+              
+              <div className="space-y-3">
+                <H id="llm-router-call">
+                  <div className="flex items-center gap-4 cursor-help">
+                    <div className="w-20 h-10 bg-amber-600 rounded-lg flex items-center justify-center text-white font-bold">#1</div>
+                    <div className="flex-1 bg-amber-900/30 border border-amber-500/50 rounded-lg p-2">
+                      <div className="flex items-center justify-between">
+                        <div><span className="text-amber-300 font-bold">Router LLM</span> <span className="text-amber-200 text-sm">— Classifies & routes</span></div>
+                        <div className="text-amber-400 text-sm">~200ms, ~$0.001</div>
+                      </div>
+                    </div>
+                  </div>
+                </H>
+
+                <H id="llm-agent-calls">
+                  <div className="cursor-help">
+                    <div className="flex items-center gap-4 mb-2">
+                      <div className="w-20 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white font-bold">#2-4</div>
+                      <div className="flex-1 bg-green-900/30 border border-green-500/50 rounded-lg p-2">
+                        <div className="flex items-center justify-between">
+                          <div><span className="text-green-300 font-bold">Data Agent Loop</span> <span className="text-green-200 text-sm">— 3 LLM calls + tools</span></div>
+                          <div className="text-green-400 text-sm">~8s, ~$0.12</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-10 bg-pink-600 rounded-lg flex items-center justify-center text-white font-bold">#5-7</div>
+                      <div className="flex-1 bg-pink-900/30 border border-pink-500/50 rounded-lg p-2">
+                        <div className="flex items-center justify-between">
+                          <div><span className="text-pink-300 font-bold">Writing Agent Loop</span> <span className="text-pink-200 text-sm">— 3 LLM calls + tools</span></div>
+                          <div className="text-pink-400 text-sm">~6s, ~$0.10</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </H>
+
+                <H id="llm-synth-call">
+                  <div className="flex items-center gap-4 cursor-help">
+                    <div className="w-20 h-10 bg-violet-600 rounded-lg flex items-center justify-center text-white font-bold">#8</div>
+                    <div className="flex-1 bg-violet-900/30 border border-violet-500/50 rounded-lg p-2">
+                      <div className="flex items-center justify-between">
+                        <div><span className="text-violet-300 font-bold">Synthesis LLM</span> <span className="text-violet-200 text-sm">— Combine outputs (optional)</span></div>
+                        <div className="text-violet-400 text-sm">~2s, ~$0.02</div>
+                      </div>
+                    </div>
+                  </div>
+                </H>
+
+                <div className="border-t border-slate-700 pt-3">
+                  <div className="flex justify-between items-center">
+                    <div className="text-slate-300 font-bold">TOTAL: 8 complete LLM inference pipelines</div>
+                    <div className="flex gap-4">
+                      <H id="latency-breakdown"><div className="text-cyan-400 font-bold cursor-help">⏱️ ~16 seconds</div></H>
+                      <H id="cost-breakdown"><div className="text-green-400 font-bold cursor-help">💰 ~$0.25</div></H>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Routing Strategies */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <H id="route-semantic">
+                <div className="bg-gradient-to-br from-blue-950 to-indigo-950 border-2 border-blue-400 rounded-xl p-4 cursor-help">
+                  <div className="text-2xl mb-2">🎯</div>
+                  <div className="text-blue-300 font-black">Semantic Routing</div>
+                  <div className="text-blue-200 text-sm mt-1">Embedding similarity match</div>
+                  <div className="text-blue-400 text-xs mt-2">Fast (~50ms), no LLM needed</div>
+                </div>
+              </H>
+              <H id="route-llm">
+                <div className="bg-gradient-to-br from-amber-950 to-orange-950 border-2 border-amber-400 rounded-xl p-4 cursor-help">
+                  <div className="text-2xl mb-2">🧠</div>
+                  <div className="text-amber-300 font-black">LLM Routing</div>
+                  <div className="text-amber-200 text-sm mt-1">LLM reasons about best fit</div>
+                  <div className="text-amber-400 text-xs mt-2">Smart, handles complex cases</div>
+                </div>
+              </H>
+              <H id="route-hybrid">
+                <div className="bg-gradient-to-br from-purple-950 to-violet-950 border-2 border-purple-400 rounded-xl p-4 cursor-help">
+                  <div className="text-2xl mb-2">🔀</div>
+                  <div className="text-purple-300 font-black">Hybrid Routing</div>
+                  <div className="text-purple-200 text-sm mt-1">Semantic first, LLM if unsure</div>
+                  <div className="text-purple-400 text-xs mt-2">Best of both worlds</div>
+                </div>
+              </H>
+            </div>
+
+            {/* Special Patterns */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <H id="pattern-fallback">
+                <div className="bg-slate-800 border border-slate-600 rounded-xl p-4 cursor-help">
+                  <div className="text-xl mb-2">🔄</div>
+                  <div className="text-slate-300 font-bold">Fallback Chain</div>
+                  <div className="text-slate-400 text-sm">If primary fails → try backup</div>
+                </div>
+              </H>
+              <H id="pattern-confirm">
+                <div className="bg-slate-800 border border-slate-600 rounded-xl p-4 cursor-help">
+                  <div className="text-xl mb-2">✅</div>
+                  <div className="text-slate-300 font-bold">Human Confirmation</div>
+                  <div className="text-slate-400 text-sm">Ask user before high-stakes</div>
+                </div>
+              </H>
+              <H id="pattern-learning">
+                <div className="bg-slate-800 border border-slate-600 rounded-xl p-4 cursor-help">
+                  <div className="text-xl mb-2">📚</div>
+                  <div className="text-slate-300 font-bold">Route Learning</div>
+                  <div className="text-slate-400 text-sm">Improve from corrections</div>
+                </div>
+              </H>
+            </div>
+
+            {/* Summary Diagram */}
+            <div className="bg-gradient-to-r from-amber-900 to-orange-900 border-2 border-amber-400 rounded-xl p-4 mb-6">
+              <div className="text-amber-300 font-black text-lg mb-3 text-center">📊 PIPELINE SUMMARY</div>
+              <div className="flex items-center justify-center gap-2 flex-wrap text-sm">
+                <div className="bg-blue-600 rounded px-3 py-2 text-white">👤 Request</div>
+                <div className="text-amber-400">→</div>
+                <div className="bg-amber-600 rounded px-3 py-2 text-white">🧠 Router LLM<br/><span className="text-xs">(Inference #1)</span></div>
+                <div className="text-amber-400">→</div>
+                <div className="bg-green-600 rounded px-3 py-2 text-white">📊 Agent 1<br/><span className="text-xs">(Inference #2-4)</span></div>
+                <div className="text-amber-400">→</div>
+                <div className="bg-pink-600 rounded px-3 py-2 text-white">✍️ Agent 2<br/><span className="text-xs">(Inference #5-7)</span></div>
+                <div className="text-amber-400">→</div>
+                <div className="bg-violet-600 rounded px-3 py-2 text-white">🧩 Aggregate<br/><span className="text-xs">(Inference #8)</span></div>
+                <div className="text-amber-400">→</div>
+                <div className="bg-green-600 rounded px-3 py-2 text-white">✅ Response</div>
+              </div>
+              <div className="text-center mt-3 text-amber-200 text-sm">
+                Each box with "Inference" runs full Stages 0-13. <span className="text-amber-400 font-bold">Total: 8 complete LLM pipelines for 1 request!</span>
+              </div>
+            </div>
+
+            {/* Key Insights */}
+            <div className="bg-gradient-to-r from-red-600 to-orange-600 border-2 border-red-400 rounded-xl p-4">
+              <div className="text-center">
+                <div className="text-2xl font-black text-white mb-2">🔑 KEY INSIGHT: INFERENCE PIPELINES ARE NESTED & MULTIPLIED</div>
+                <div className="text-red-200 text-sm">
+                  <div className="mb-2">1️⃣ <span className="font-bold">Router LLM</span> = 1 inference (Stages 0-13) — fast, cheap, classifies</div>
+                  <div className="mb-2">2️⃣ <span className="font-bold">Each Agent</span> = multiple inferences (its own agentic loop)</div>
+                  <div className="mb-2">3️⃣ <span className="font-bold">Each Agent LLM call</span> = full Stages 0-13</div>
+                  <div>4️⃣ <span className="font-bold">Total</span> = Router + (Agent1 calls) + (Agent2 calls) + ... + Synthesis</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-8 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">LLM Router & Multi-Agent Pipeline</p>
+              <p className="text-amber-400 font-bold mt-1">ROUTE → SELECT → EXECUTE → AGGREGATE — Each step involves LLM Inference (Stages 0-13)</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<RouterAgentPipeline />);
+  </script>
+</body>
+</html>

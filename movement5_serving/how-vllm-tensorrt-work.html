@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How vLLM & TensorRT-LLM Actually Work - Deep Dive</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: linear-gradient(135deg, #0f172a 0%, #1a1a2e 100%); min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    .glow { box-shadow: 0 0 30px rgba(59, 130, 246, 0.3); }
+    .glow-green { box-shadow: 0 0 30px rgba(34, 197, 94, 0.3); }
+    .glow-purple { box-shadow: 0 0 30px rgba(168, 85, 247, 0.3); }
+    .code-block { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; font-family: 'Consolas', 'Monaco', monospace; }
+    .gpu-box { background: linear-gradient(135deg, #065f46, #047857); }
+    .memory-block { transition: all 0.3s ease; }
+    .arrow { position: relative; }
+    .arrow::after { content: '→'; position: absolute; right: -20px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+  </style>
+</head>
+<body class="text-white p-6">
+  <div class="max-w-6xl mx-auto">
+    
+    <!-- Header -->
+    <header class="text-center mb-12">
+      <div class="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-blue-500/20 border border-blue-400/50 mb-6">
+        <span class="text-3xl">⚙️</span>
+        <span class="text-blue-300 font-bold text-xl">DEEP TECHNICAL DIVE</span>
+      </div>
+      <h1 class="text-5xl font-black mb-4 bg-gradient-to-r from-blue-400 via-cyan-400 to-green-400 bg-clip-text text-transparent">
+        How vLLM & TensorRT-LLM Actually Work
+      </h1>
+      <p class="text-xl text-slate-300 max-w-3xl mx-auto">
+        Understanding the internals: GPU memory, tensor parallelism, KV cache, batching, and optimization
+      </p>
+    </header>
+
+    <!-- ==================== SECTION 1: THE PROBLEM ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-red-600 to-orange-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">🔥 THE PROBLEM: Why Can't We Just Load the Model Normally?</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-red-600 border-t-0 rounded-b-2xl p-6">
+        
+        <div class="grid md:grid-cols-2 gap-6 mb-6">
+          <!-- Problem 1: Size -->
+          <div class="bg-slate-800/50 rounded-xl p-5">
+            <div class="text-3xl mb-3">💾</div>
+            <h3 class="text-xl font-bold text-red-400 mb-2">Problem 1: Model Size</h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between border-b border-slate-700 pb-2">
+                <span class="text-slate-400">Nemotron 253B parameters</span>
+                <span class="text-white font-mono">253,000,000,000</span>
+              </div>
+              <div class="flex justify-between border-b border-slate-700 pb-2">
+                <span class="text-slate-400">× 2 bytes (BF16)</span>
+                <span class="text-white font-mono">506 GB</span>
+              </div>
+              <div class="flex justify-between border-b border-slate-700 pb-2">
+                <span class="text-slate-400">Best single GPU (H100)</span>
+                <span class="text-white font-mono">80 GB</span>
+              </div>
+              <div class="flex justify-between pt-2">
+                <span class="text-red-400 font-bold">Gap</span>
+                <span class="text-red-400 font-bold font-mono">6.3× too big!</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Problem 2: KV Cache -->
+          <div class="bg-slate-800/50 rounded-xl p-5">
+            <div class="text-3xl mb-3">📊</div>
+            <h3 class="text-xl font-bold text-red-400 mb-2">Problem 2: KV Cache Explosion</h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between border-b border-slate-700 pb-2">
+                <span class="text-slate-400">Context length</span>
+                <span class="text-white font-mono">128,000 tokens</span>
+              </div>
+              <div class="flex justify-between border-b border-slate-700 pb-2">
+                <span class="text-slate-400">Hidden size × layers × 2</span>
+                <span class="text-white font-mono">~8GB per request</span>
+              </div>
+              <div class="flex justify-between border-b border-slate-700 pb-2">
+                <span class="text-slate-400">10 concurrent users</span>
+                <span class="text-white font-mono">80 GB just for cache!</span>
+              </div>
+              <div class="flex justify-between pt-2">
+                <span class="text-red-400 font-bold">Result</span>
+                <span class="text-red-400 font-bold">Memory fragmentation</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Visual: The Memory Problem -->
+        <div class="bg-black/50 rounded-xl p-5">
+          <div class="text-sm text-slate-400 mb-3 font-bold">VISUAL: Why Naive Loading Fails</div>
+          <div class="flex items-center justify-center gap-4 flex-wrap">
+            <div class="text-center">
+              <div class="bg-blue-600 rounded-lg p-4 w-48 h-32 flex items-center justify-center">
+                <div>
+                  <div class="text-2xl font-bold">506 GB</div>
+                  <div class="text-xs text-blue-200">Model Weights</div>
+                </div>
+              </div>
+              <div class="text-xs text-slate-400 mt-1">Nemotron 253B</div>
+            </div>
+            <div class="text-4xl text-red-400">≠</div>
+            <div class="text-center">
+              <div class="bg-green-600 rounded-lg p-4 w-24 h-32 flex items-center justify-center">
+                <div>
+                  <div class="text-xl font-bold">80 GB</div>
+                  <div class="text-xs text-green-200">VRAM</div>
+                </div>
+              </div>
+              <div class="text-xs text-slate-400 mt-1">1× H100</div>
+            </div>
+          </div>
+          <div class="text-center mt-4 text-red-400 font-bold">
+            ❌ Model doesn't fit in one GPU!
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 2: SOLUTION - TENSOR PARALLELISM ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-blue-600 to-cyan-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">🔀 SOLUTION 1: Tensor Parallelism (Splitting the Model)</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-blue-600 border-t-0 rounded-b-2xl p-6">
+        
+        <p class="text-slate-300 mb-6">
+          <strong class="text-white">Core idea:</strong> Split each layer's weight matrices across multiple GPUs horizontally. 
+          All GPUs work on the <em>same token</em> simultaneously, each computing part of the result.
+        </p>
+
+        <!-- Visual: How TP Works -->
+        <div class="bg-black/50 rounded-xl p-5 mb-6">
+          <div class="text-sm text-slate-400 mb-4 font-bold">HOW TENSOR PARALLELISM WORKS</div>
+          
+          <!-- Single Layer Split -->
+          <div class="mb-8">
+            <div class="text-center text-slate-300 mb-3">A single transformer layer's weights get SPLIT:</div>
+            <div class="flex items-center justify-center gap-2 flex-wrap">
+              <!-- Original Matrix -->
+              <div class="text-center">
+                <div class="bg-purple-600 rounded-lg p-3 w-40 h-24 flex items-center justify-center">
+                  <div class="text-sm">
+                    <div class="font-bold">Weight Matrix</div>
+                    <div class="text-xs text-purple-200">[16384 × 16384]</div>
+                    <div class="text-xs text-purple-200">~1 GB</div>
+                  </div>
+                </div>
+                <div class="text-xs text-slate-400 mt-1">Original</div>
+              </div>
+              
+              <div class="text-2xl text-slate-400">→</div>
+              
+              <!-- Split across 8 GPUs -->
+              <div class="flex gap-1">
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>0</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>1</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>2</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>3</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>4</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>5</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>6</div>
+                  </div>
+                </div>
+                <div class="bg-green-600 rounded p-2 w-12 h-24 flex items-center justify-center text-xs">
+                  <div class="text-center">
+                    <div>GPU</div>
+                    <div>7</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="text-center text-sm text-slate-400 mt-2">
+              Each GPU holds [16384 × 2048] = ~125 MB of this layer
+            </div>
+          </div>
+
+          <!-- Computation Flow -->
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="text-sm text-cyan-400 font-bold mb-3">COMPUTATION FLOW (for one token):</div>
+            <div class="flex items-center gap-3 flex-wrap justify-center">
+              <div class="bg-blue-900 rounded px-3 py-2 text-sm">
+                <div class="font-bold">Input X</div>
+                <div class="text-xs text-blue-300">Broadcast to all GPUs</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="bg-green-900 rounded px-3 py-2 text-sm">
+                <div class="font-bold">Parallel MatMul</div>
+                <div class="text-xs text-green-300">Each GPU: X × W_chunk</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="bg-yellow-900 rounded px-3 py-2 text-sm">
+                <div class="font-bold">All-Reduce</div>
+                <div class="text-xs text-yellow-300">Combine partial results</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="bg-purple-900 rounded px-3 py-2 text-sm">
+                <div class="font-bold">Output Y</div>
+                <div class="text-xs text-purple-300">Full result on all GPUs</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- NVLink Importance -->
+        <div class="bg-amber-900/30 border border-amber-500/50 rounded-xl p-5">
+          <div class="flex items-start gap-3">
+            <span class="text-3xl">⚡</span>
+            <div>
+              <h4 class="font-bold text-amber-300 mb-2">Why NVLink Matters</h4>
+              <p class="text-sm text-slate-300 mb-3">
+                Tensor parallelism requires GPUs to communicate <strong>on every layer, for every token</strong>. 
+                This is the "All-Reduce" step where partial results are combined.
+              </p>
+              <div class="grid md:grid-cols-2 gap-4 text-sm">
+                <div class="bg-green-900/30 rounded p-3">
+                  <div class="text-green-400 font-bold">✓ NVLink (H100)</div>
+                  <div class="text-slate-300">900 GB/s bandwidth</div>
+                  <div class="text-slate-400 text-xs">Fast enough for TP=8</div>
+                </div>
+                <div class="bg-red-900/30 rounded p-3">
+                  <div class="text-red-400 font-bold">✗ PCIe 4.0</div>
+                  <div class="text-slate-300">~32 GB/s bandwidth</div>
+                  <div class="text-slate-400 text-xs">28× slower → TP becomes bottleneck</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Code -->
+        <div class="mt-6">
+          <div class="text-sm text-slate-400 mb-2">vLLM tensor parallelism in action:</div>
+          <div class="code-block p-4">
+            <pre class="text-sm"><code class="text-slate-300"><span class="text-slate-500"># This single line tells vLLM to split across 8 GPUs</span>
+llm = LLM(
+    model=<span class="text-green-400">"nvidia/Llama-3_1-Nemotron-Ultra-253B-v1"</span>,
+    <span class="text-cyan-400">tensor_parallel_size=8</span>,  <span class="text-slate-500"># ← Split every layer across 8 GPUs</span>
+)
+
+<span class="text-slate-500"># Under the hood, vLLM:</span>
+<span class="text-slate-500"># 1. Loads 1/8 of each weight matrix to each GPU</span>
+<span class="text-slate-500"># 2. Sets up NCCL for All-Reduce communication</span>
+<span class="text-slate-500"># 3. Coordinates computation across all GPUs</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 3: VLLM's PAGED ATTENTION ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-green-600 to-emerald-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">📄 SOLUTION 2: PagedAttention (vLLM's Secret Sauce)</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-green-600 border-t-0 rounded-b-2xl p-6">
+        
+        <p class="text-slate-300 mb-6">
+          <strong class="text-white">The KV Cache problem:</strong> During generation, we store Key and Value vectors for all previous tokens.
+          Traditional systems pre-allocate memory for max sequence length, wasting huge amounts of memory.
+        </p>
+
+        <!-- Before/After Comparison -->
+        <div class="grid md:grid-cols-2 gap-6 mb-6">
+          <!-- Before: Traditional -->
+          <div class="bg-red-900/20 border border-red-500/50 rounded-xl p-5">
+            <h4 class="text-lg font-bold text-red-400 mb-3">❌ Traditional KV Cache</h4>
+            <div class="bg-black/50 rounded-lg p-4 mb-3">
+              <div class="text-xs text-slate-400 mb-2">Memory allocation for 3 requests:</div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-slate-400 w-16">Req 1:</span>
+                  <div class="flex-1 h-6 bg-blue-600 rounded relative">
+                    <div class="absolute inset-0 flex items-center px-2">
+                      <div class="bg-blue-400 h-4 rounded" style="width: 30%"></div>
+                    </div>
+                  </div>
+                  <span class="text-xs text-slate-400">30% used</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-slate-400 w-16">Req 2:</span>
+                  <div class="flex-1 h-6 bg-purple-600 rounded relative">
+                    <div class="absolute inset-0 flex items-center px-2">
+                      <div class="bg-purple-400 h-4 rounded" style="width: 10%"></div>
+                    </div>
+                  </div>
+                  <span class="text-xs text-slate-400">10% used</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-slate-400 w-16">Req 3:</span>
+                  <div class="flex-1 h-6 bg-green-600 rounded relative">
+                    <div class="absolute inset-0 flex items-center px-2">
+                      <div class="bg-green-400 h-4 rounded" style="width: 50%"></div>
+                    </div>
+                  </div>
+                  <span class="text-xs text-slate-400">50% used</span>
+                </div>
+              </div>
+            </div>
+            <div class="text-sm text-red-300">
+              <div>• Pre-allocates max_seq_len for each request</div>
+              <div>• ~70% of allocated memory is WASTED</div>
+              <div>• Can only serve 3 requests at once</div>
+            </div>
+          </div>
+
+          <!-- After: PagedAttention -->
+          <div class="bg-green-900/20 border border-green-500/50 rounded-xl p-5">
+            <h4 class="text-lg font-bold text-green-400 mb-3">✓ vLLM PagedAttention</h4>
+            <div class="bg-black/50 rounded-lg p-4 mb-3">
+              <div class="text-xs text-slate-400 mb-2">Memory with paging (same 3 requests):</div>
+              <div class="flex flex-wrap gap-1">
+                <!-- Blocks colored by request -->
+                <div class="w-6 h-6 bg-blue-500 rounded text-xs flex items-center justify-center">1</div>
+                <div class="w-6 h-6 bg-blue-500 rounded text-xs flex items-center justify-center">1</div>
+                <div class="w-6 h-6 bg-blue-500 rounded text-xs flex items-center justify-center">1</div>
+                <div class="w-6 h-6 bg-purple-500 rounded text-xs flex items-center justify-center">2</div>
+                <div class="w-6 h-6 bg-green-500 rounded text-xs flex items-center justify-center">3</div>
+                <div class="w-6 h-6 bg-green-500 rounded text-xs flex items-center justify-center">3</div>
+                <div class="w-6 h-6 bg-green-500 rounded text-xs flex items-center justify-center">3</div>
+                <div class="w-6 h-6 bg-green-500 rounded text-xs flex items-center justify-center">3</div>
+                <div class="w-6 h-6 bg-green-500 rounded text-xs flex items-center justify-center">3</div>
+                <div class="w-6 h-6 bg-slate-700 rounded text-xs flex items-center justify-center text-slate-500">-</div>
+                <div class="w-6 h-6 bg-slate-700 rounded text-xs flex items-center justify-center text-slate-500">-</div>
+                <div class="w-6 h-6 bg-slate-700 rounded text-xs flex items-center justify-center text-slate-500">-</div>
+              </div>
+              <div class="text-xs text-slate-400 mt-2">
+                Blue=Req1, Purple=Req2, Green=Req3, Gray=Free
+              </div>
+            </div>
+            <div class="text-sm text-green-300">
+              <div>• Allocates fixed-size blocks on demand</div>
+              <div>• Only ~25% memory overhead</div>
+              <div>• Can serve 10+ requests with same memory!</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- How Paging Works -->
+        <div class="bg-black/50 rounded-xl p-5 mb-6">
+          <div class="text-sm text-slate-400 mb-4 font-bold">HOW PAGEDATTENTION WORKS</div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <div class="bg-slate-800/50 rounded-lg p-4">
+              <div class="text-2xl mb-2">1️⃣</div>
+              <div class="font-bold text-white mb-1">Block Table</div>
+              <div class="text-sm text-slate-300">
+                Each request has a "block table" that maps logical positions to physical memory blocks.
+                Like a page table in OS virtual memory!
+              </div>
+            </div>
+            <div class="bg-slate-800/50 rounded-lg p-4">
+              <div class="text-2xl mb-2">2️⃣</div>
+              <div class="font-bold text-white mb-1">Dynamic Allocation</div>
+              <div class="text-sm text-slate-300">
+                When a request generates more tokens, vLLM allocates new blocks from a free list.
+                No pre-allocation waste.
+              </div>
+            </div>
+            <div class="bg-slate-800/50 rounded-lg p-4">
+              <div class="text-2xl mb-2">3️⃣</div>
+              <div class="font-bold text-white mb-1">Copy-on-Write</div>
+              <div class="text-sm text-slate-300">
+                For beam search or parallel sampling, blocks can be shared until modified.
+                Huge memory savings!
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memory Comparison -->
+        <div class="bg-cyan-900/30 border border-cyan-500/50 rounded-xl p-5">
+          <h4 class="font-bold text-cyan-300 mb-3">📊 Real Impact: Memory Efficiency</h4>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-slate-400 border-b border-slate-700">
+                  <th class="pb-2">System</th>
+                  <th class="pb-2">Memory Waste</th>
+                  <th class="pb-2">Concurrent Requests</th>
+                  <th class="pb-2">Throughput</th>
+                </tr>
+              </thead>
+              <tbody class="text-slate-300">
+                <tr class="border-b border-slate-800">
+                  <td class="py-2">HuggingFace (naive)</td>
+                  <td class="text-red-400">60-80%</td>
+                  <td>1-4</td>
+                  <td>1× (baseline)</td>
+                </tr>
+                <tr class="border-b border-slate-800">
+                  <td class="py-2">Text-Generation-Inference</td>
+                  <td class="text-yellow-400">30-40%</td>
+                  <td>8-16</td>
+                  <td>2-3×</td>
+                </tr>
+                <tr>
+                  <td class="py-2 font-bold text-green-400">vLLM (PagedAttention)</td>
+                  <td class="text-green-400">&lt;4%</td>
+                  <td>24+</td>
+                  <td class="text-green-400 font-bold">8-24×</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 4: CONTINUOUS BATCHING ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-purple-600 to-pink-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">🔄 SOLUTION 3: Continuous Batching</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-purple-600 border-t-0 rounded-b-2xl p-6">
+        
+        <p class="text-slate-300 mb-6">
+          <strong class="text-white">The batching problem:</strong> LLM requests have variable lengths. 
+          Static batching waits for all requests to finish before starting new ones. Continuous batching is smarter.
+        </p>
+
+        <!-- Static vs Continuous -->
+        <div class="grid md:grid-cols-2 gap-6 mb-6">
+          <!-- Static Batching -->
+          <div class="bg-red-900/20 border border-red-500/50 rounded-xl p-5">
+            <h4 class="text-lg font-bold text-red-400 mb-3">❌ Static Batching</h4>
+            <div class="bg-black/50 rounded-lg p-4 mb-3">
+              <div class="text-xs text-slate-400 mb-2">Timeline (GPU utilization):</div>
+              <!-- Timeline visualization -->
+              <div class="space-y-1">
+                <div class="flex items-center gap-1">
+                  <span class="text-xs w-12 text-slate-400">Batch 1</span>
+                  <div class="flex-1 flex">
+                    <div class="bg-blue-500 h-4 rounded-l" style="width: 20%"></div>
+                    <div class="bg-purple-500 h-4" style="width: 60%"></div>
+                    <div class="bg-green-500 h-4 rounded-r" style="width: 20%"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="text-xs w-12 text-slate-400">GPU</span>
+                  <div class="flex-1 flex">
+                    <div class="bg-green-600 h-4 rounded-l" style="width: 20%"></div>
+                    <div class="bg-green-600 h-4" style="width: 20%"></div>
+                    <div class="bg-yellow-600 h-4" style="width: 20%"></div>
+                    <div class="bg-red-600 h-4 rounded-r" style="width: 40%"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 text-xs text-slate-500">
+                  <span class="w-12"></span>
+                  <span class="flex-1 text-center">← Short req done, GPU waits for long req →</span>
+                </div>
+              </div>
+            </div>
+            <div class="text-sm text-red-300">
+              <div>• Waits for LONGEST request in batch</div>
+              <div>• Short requests block on long ones</div>
+              <div>• GPU sits idle 40%+ of time</div>
+            </div>
+          </div>
+
+          <!-- Continuous Batching -->
+          <div class="bg-green-900/20 border border-green-500/50 rounded-xl p-5">
+            <h4 class="text-lg font-bold text-green-400 mb-3">✓ Continuous Batching</h4>
+            <div class="bg-black/50 rounded-lg p-4 mb-3">
+              <div class="text-xs text-slate-400 mb-2">Timeline (GPU utilization):</div>
+              <!-- Timeline visualization -->
+              <div class="space-y-1">
+                <div class="flex items-center gap-1">
+                  <span class="text-xs w-12 text-slate-400">Reqs</span>
+                  <div class="flex-1 flex">
+                    <div class="bg-blue-500 h-4 rounded" style="width: 15%"></div>
+                    <div class="bg-purple-500 h-4 rounded ml-1" style="width: 40%"></div>
+                    <div class="bg-green-500 h-4 rounded ml-1" style="width: 10%"></div>
+                    <div class="bg-yellow-500 h-4 rounded ml-1" style="width: 20%"></div>
+                    <div class="bg-pink-500 h-4 rounded ml-1" style="width: 12%"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="text-xs w-12 text-slate-400">GPU</span>
+                  <div class="flex-1 flex">
+                    <div class="bg-green-600 h-4 rounded" style="width: 100%"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 text-xs text-slate-500">
+                  <span class="w-12"></span>
+                  <span class="flex-1 text-center">New requests join immediately when slots free</span>
+                </div>
+              </div>
+            </div>
+            <div class="text-sm text-green-300">
+              <div>• New requests join mid-batch</div>
+              <div>• Completed requests exit immediately</div>
+              <div>• GPU stays ~95% utilized</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="bg-black/50 rounded-xl p-5">
+          <div class="text-sm text-slate-400 mb-4 font-bold">CONTINUOUS BATCHING ITERATION</div>
+          <div class="flex items-center gap-3 flex-wrap justify-center text-sm">
+            <div class="bg-slate-800 rounded-lg p-3 text-center">
+              <div class="text-purple-400 font-bold">Step 1</div>
+              <div class="text-slate-300">Check for finished</div>
+              <div class="text-xs text-slate-500">Remove completed requests</div>
+            </div>
+            <div class="text-slate-400">→</div>
+            <div class="bg-slate-800 rounded-lg p-3 text-center">
+              <div class="text-purple-400 font-bold">Step 2</div>
+              <div class="text-slate-300">Add new requests</div>
+              <div class="text-xs text-slate-500">Fill empty slots</div>
+            </div>
+            <div class="text-slate-400">→</div>
+            <div class="bg-slate-800 rounded-lg p-3 text-center">
+              <div class="text-purple-400 font-bold">Step 3</div>
+              <div class="text-slate-300">Run one forward pass</div>
+              <div class="text-xs text-slate-500">Generate 1 token per request</div>
+            </div>
+            <div class="text-slate-400">→</div>
+            <div class="bg-slate-800 rounded-lg p-3 text-center">
+              <div class="text-purple-400 font-bold">Step 4</div>
+              <div class="text-slate-300">Repeat</div>
+              <div class="text-xs text-slate-500">Loop forever</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 5: TENSORRT-LLM ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-lime-600 to-green-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">🚀 TensorRT-LLM: NVIDIA's Optimized Engine</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-lime-600 border-t-0 rounded-b-2xl p-6">
+        
+        <p class="text-slate-300 mb-6">
+          <strong class="text-white">TensorRT-LLM</strong> goes further than vLLM by compiling the model into an optimized "engine" 
+          specifically for your GPU architecture. It's like compiling C++ vs interpreting Python.
+        </p>
+
+        <!-- Optimization Stack -->
+        <div class="bg-black/50 rounded-xl p-5 mb-6">
+          <div class="text-sm text-slate-400 mb-4 font-bold">TENSORRT-LLM OPTIMIZATION LAYERS</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3">
+              <div class="bg-blue-600 rounded-lg px-4 py-2 w-48 text-center font-bold">Model Weights</div>
+              <div class="text-slate-400 text-sm flex-1">Original PyTorch/HuggingFace checkpoint</div>
+            </div>
+            <div class="text-center text-slate-500">↓ Quantization (FP16 → INT8 → FP8 → INT4)</div>
+            <div class="flex items-center gap-3">
+              <div class="bg-purple-600 rounded-lg px-4 py-2 w-48 text-center font-bold">Quantized Weights</div>
+              <div class="text-slate-400 text-sm flex-1">Compressed, faster math operations</div>
+            </div>
+            <div class="text-center text-slate-500">↓ Graph Optimization (layer fusion, kernel selection)</div>
+            <div class="flex items-center gap-3">
+              <div class="bg-pink-600 rounded-lg px-4 py-2 w-48 text-center font-bold">Optimized Graph</div>
+              <div class="text-slate-400 text-sm flex-1">Operations merged, memory access patterns optimized</div>
+            </div>
+            <div class="text-center text-slate-500">↓ TensorRT Compilation (hardware-specific)</div>
+            <div class="flex items-center gap-3">
+              <div class="bg-green-600 rounded-lg px-4 py-2 w-48 text-center font-bold">TRT Engine</div>
+              <div class="text-slate-400 text-sm flex-1">Binary optimized for YOUR exact GPU (H100, A100, etc.)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Key Optimizations -->
+        <div class="grid md:grid-cols-2 gap-4 mb-6">
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="text-xl mb-2">⚡</div>
+            <h4 class="font-bold text-lime-400 mb-2">Kernel Fusion</h4>
+            <div class="text-sm text-slate-300 mb-2">
+              Combines multiple operations into single GPU kernel calls:
+            </div>
+            <div class="code-block p-2 text-xs">
+              <div class="text-red-400">Before: MatMul → Add → GELU → MatMul</div>
+              <div class="text-slate-500">(4 kernel launches, 4 memory round-trips)</div>
+              <div class="text-green-400 mt-1">After: FusedMLP</div>
+              <div class="text-slate-500">(1 kernel launch, 1 memory round-trip)</div>
+            </div>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="text-xl mb-2">🎯</div>
+            <h4 class="font-bold text-lime-400 mb-2">Flash Attention</h4>
+            <div class="text-sm text-slate-300 mb-2">
+              Optimized attention that never materializes the full attention matrix:
+            </div>
+            <div class="code-block p-2 text-xs">
+              <div class="text-red-400">Standard: O(n²) memory for seq_len n</div>
+              <div class="text-slate-500">(128K context = 65GB just for attention!)</div>
+              <div class="text-green-400 mt-1">Flash: O(n) memory</div>
+              <div class="text-slate-500">(128K context = 500MB)</div>
+            </div>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="text-xl mb-2">📊</div>
+            <h4 class="font-bold text-lime-400 mb-2">In-Flight Batching</h4>
+            <div class="text-sm text-slate-300">
+              TensorRT-LLM's version of continuous batching, deeply integrated with the compiled engine 
+              for even lower overhead.
+            </div>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="text-xl mb-2">🔢</div>
+            <h4 class="font-bold text-lime-400 mb-2">FP8 Quantization</h4>
+            <div class="text-sm text-slate-300">
+              H100-specific: 8-bit floating point with hardware acceleration.
+              2× throughput vs FP16 with minimal quality loss.
+            </div>
+          </div>
+        </div>
+
+        <!-- Build Process -->
+        <div class="bg-lime-900/30 border border-lime-500/50 rounded-xl p-5">
+          <h4 class="font-bold text-lime-300 mb-3">🔧 TensorRT-LLM Build Process</h4>
+          <div class="code-block p-4 overflow-x-auto">
+            <pre class="text-sm"><code class="text-slate-300"><span class="text-slate-500"># Step 1: Convert HuggingFace checkpoint to TRT-LLM format</span>
+python convert_checkpoint.py \
+    --model_dir nvidia/Llama-3_1-Nemotron-Ultra-253B-v1 \
+    --output_dir ./nemotron_checkpoint \
+    --dtype float16 \
+    --tp_size 8  <span class="text-slate-500"># tensor parallelism</span>
+
+<span class="text-slate-500"># Step 2: Build the optimized TensorRT engine</span>
+trtllm-build \
+    --checkpoint_dir ./nemotron_checkpoint \
+    --output_dir ./nemotron_engine \
+    --gemm_plugin float16 \
+    --max_batch_size 64 \
+    --max_input_len 4096 \
+    --max_output_len 2048 \
+    --use_fused_mlp \
+    --use_flash_attention
+
+<span class="text-slate-500"># Step 3: Run inference with the engine</span>
+python run.py --engine_dir ./nemotron_engine --input_text "Hello"</code></pre>
+          </div>
+          <div class="mt-3 text-sm text-slate-400">
+            ⏱️ Build time: 30-60 minutes for 253B model. But inference is 2-5× faster than vLLM!
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 6: QUANTIZATION ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-orange-600 to-amber-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">🗜️ Quantization: Making Models Smaller</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-orange-600 border-t-0 rounded-b-2xl p-6">
+        
+        <p class="text-slate-300 mb-6">
+          <strong class="text-white">Quantization</strong> reduces the precision of model weights from 16/32 bits to 8/4/2 bits.
+          Less memory, faster math, but some quality loss.
+        </p>
+
+        <!-- Precision Comparison -->
+        <div class="bg-black/50 rounded-xl p-5 mb-6">
+          <div class="text-sm text-slate-400 mb-4 font-bold">PRECISION FORMATS</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-slate-400 border-b border-slate-700">
+                  <th class="pb-2">Format</th>
+                  <th class="pb-2">Bits</th>
+                  <th class="pb-2">253B Model Size</th>
+                  <th class="pb-2">Quality</th>
+                  <th class="pb-2">Speed</th>
+                </tr>
+              </thead>
+              <tbody class="text-slate-300">
+                <tr class="border-b border-slate-800">
+                  <td class="py-2 font-mono text-blue-400">FP32</td>
+                  <td>32</td>
+                  <td>~1012 GB</td>
+                  <td>Baseline</td>
+                  <td>1×</td>
+                </tr>
+                <tr class="border-b border-slate-800">
+                  <td class="py-2 font-mono text-green-400">BF16/FP16</td>
+                  <td>16</td>
+                  <td>~506 GB</td>
+                  <td>≈ Baseline</td>
+                  <td>2×</td>
+                </tr>
+                <tr class="border-b border-slate-800">
+                  <td class="py-2 font-mono text-yellow-400">FP8 (H100)</td>
+                  <td>8</td>
+                  <td>~253 GB</td>
+                  <td>99%</td>
+                  <td>4×</td>
+                </tr>
+                <tr class="border-b border-slate-800">
+                  <td class="py-2 font-mono text-orange-400">INT8</td>
+                  <td>8</td>
+                  <td>~253 GB</td>
+                  <td>97-99%</td>
+                  <td>3-4×</td>
+                </tr>
+                <tr class="border-b border-slate-800">
+                  <td class="py-2 font-mono text-red-400">INT4 (Q4_K_M)</td>
+                  <td>4</td>
+                  <td>~140 GB</td>
+                  <td>93-97%</td>
+                  <td>5-6×</td>
+                </tr>
+                <tr>
+                  <td class="py-2 font-mono text-pink-400">INT2 (Q2_K)</td>
+                  <td>2</td>
+                  <td>~90 GB</td>
+                  <td>85-93%</td>
+                  <td>7-8×</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- How Quantization Works -->
+        <div class="grid md:grid-cols-2 gap-6">
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <h4 class="font-bold text-orange-400 mb-3">How INT4 Works</h4>
+            <div class="text-sm text-slate-300 space-y-2">
+              <p>Instead of storing each weight as a 16-bit float:</p>
+              <div class="code-block p-2 text-xs">
+                <div class="text-blue-400">FP16: 0.7832, -0.2341, 0.1234, ...</div>
+                <div class="text-slate-500">(16 bits each = 2 bytes)</div>
+              </div>
+              <p>Map weights to 16 discrete values (0-15):</p>
+              <div class="code-block p-2 text-xs">
+                <div class="text-orange-400">INT4: 12, 4, 7, ...</div>
+                <div class="text-slate-500">(4 bits each = 0.5 bytes)</div>
+                <div class="text-green-400 mt-1">+ scale factor per block</div>
+              </div>
+            </div>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <h4 class="font-bold text-orange-400 mb-3">GGUF Quantization Variants</h4>
+            <div class="text-sm text-slate-300 space-y-1">
+              <div class="flex justify-between">
+                <span class="font-mono text-green-400">Q4_K_M</span>
+                <span>Best quality/size balance</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="font-mono text-yellow-400">Q4_K_S</span>
+                <span>Slightly smaller, similar quality</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="font-mono text-orange-400">Q3_K_M</span>
+                <span>More compression, some quality loss</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="font-mono text-red-400">Q2_K</span>
+                <span>Maximum compression, noticeable loss</span>
+              </div>
+              <div class="mt-2 text-xs text-slate-500">
+                K = k-quants (block-wise quantization)<br>
+                M = medium size, S = small, L = large
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SECTION 7: FULL PICTURE ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-violet-600 to-purple-600 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">🎯 THE FULL PICTURE: Request Lifecycle</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-violet-600 border-t-0 rounded-b-2xl p-6">
+        
+        <div class="bg-black/50 rounded-xl p-5">
+          <div class="text-sm text-slate-400 mb-4 font-bold">COMPLETE INFERENCE PIPELINE</div>
+          
+          <!-- Full Pipeline Diagram -->
+          <div class="space-y-4">
+            <!-- User Request -->
+            <div class="flex items-center gap-3">
+              <div class="bg-blue-600 rounded-lg px-4 py-3 w-48 text-center">
+                <div class="font-bold">User Request</div>
+                <div class="text-xs text-blue-200">"Explain quantum computing"</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="text-sm text-slate-300 flex-1">HTTP request to vLLM/TRT-LLM server</div>
+            </div>
+
+            <!-- Tokenization -->
+            <div class="flex items-center gap-3">
+              <div class="bg-purple-600 rounded-lg px-4 py-3 w-48 text-center">
+                <div class="font-bold">Tokenizer</div>
+                <div class="text-xs text-purple-200">[1234, 5678, 91011, ...]</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="text-sm text-slate-300 flex-1">Convert text to token IDs (CPU)</div>
+            </div>
+
+            <!-- Scheduler -->
+            <div class="flex items-center gap-3">
+              <div class="bg-pink-600 rounded-lg px-4 py-3 w-48 text-center">
+                <div class="font-bold">Scheduler</div>
+                <div class="text-xs text-pink-200">Batch: [req1, req2, req3]</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="text-sm text-slate-300 flex-1">Add to batch, allocate KV cache blocks (PagedAttention)</div>
+            </div>
+
+            <!-- Prefill -->
+            <div class="flex items-center gap-3">
+              <div class="bg-orange-600 rounded-lg px-4 py-3 w-48 text-center">
+                <div class="font-bold">Prefill Phase</div>
+                <div class="text-xs text-orange-200">Process all input tokens</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="text-sm text-slate-300 flex-1">
+                One forward pass for ALL input tokens (parallelized).<br>
+                Builds initial KV cache. Compute-bound.
+              </div>
+            </div>
+
+            <!-- Decode Loop -->
+            <div class="flex items-center gap-3">
+              <div class="bg-green-600 rounded-lg px-4 py-3 w-48 text-center">
+                <div class="font-bold">Decode Loop</div>
+                <div class="text-xs text-green-200">Token by token</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="text-sm text-slate-300 flex-1">
+                Generate ONE token at a time.<br>
+                Memory-bound (loading weights from VRAM).<br>
+                This is where continuous batching helps!
+              </div>
+            </div>
+
+            <!-- Inside One Decode Step -->
+            <div class="ml-8 border-l-2 border-green-600 pl-4 space-y-2">
+              <div class="text-xs text-slate-400 font-bold">INSIDE ONE DECODE STEP:</div>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <div class="bg-slate-700 rounded px-2 py-1">1. Load weights from VRAM</div>
+                <div class="text-slate-500">→</div>
+                <div class="bg-slate-700 rounded px-2 py-1">2. Attention (with KV cache)</div>
+                <div class="text-slate-500">→</div>
+                <div class="bg-slate-700 rounded px-2 py-1">3. FFN layers</div>
+                <div class="text-slate-500">→</div>
+                <div class="bg-slate-700 rounded px-2 py-1">4. Logits → Sample token</div>
+                <div class="text-slate-500">→</div>
+                <div class="bg-slate-700 rounded px-2 py-1">5. Update KV cache</div>
+                <div class="text-slate-500">→</div>
+                <div class="bg-slate-700 rounded px-2 py-1">6. Check stop condition</div>
+              </div>
+              <div class="text-xs text-slate-500">
+                For 253B model with TP=8: Each GPU processes 1/8 of each layer, All-Reduce combines results
+              </div>
+            </div>
+
+            <!-- Output -->
+            <div class="flex items-center gap-3">
+              <div class="bg-cyan-600 rounded-lg px-4 py-3 w-48 text-center">
+                <div class="font-bold">Detokenize</div>
+                <div class="text-xs text-cyan-200">Tokens → Text</div>
+              </div>
+              <div class="text-slate-400">→</div>
+              <div class="text-sm text-slate-300 flex-1">Convert token IDs back to text, stream to user</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timing Breakdown -->
+        <div class="mt-6 bg-violet-900/30 border border-violet-500/50 rounded-xl p-5">
+          <h4 class="font-bold text-violet-300 mb-3">⏱️ Where Time Goes (253B model, 8× H100)</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex items-center gap-3">
+              <div class="w-24 text-slate-400">Prefill</div>
+              <div class="flex-1 h-6 bg-slate-700 rounded overflow-hidden">
+                <div class="bg-orange-500 h-full" style="width: 15%"></div>
+              </div>
+              <div class="w-32 text-right text-slate-300">~500ms (1K tokens)</div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="w-24 text-slate-400">Decode</div>
+              <div class="flex-1 h-6 bg-slate-700 rounded overflow-hidden">
+                <div class="bg-green-500 h-full" style="width: 80%"></div>
+              </div>
+              <div class="w-32 text-right text-slate-300">~50ms/token × 100</div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="w-24 text-slate-400">Overhead</div>
+              <div class="flex-1 h-6 bg-slate-700 rounded overflow-hidden">
+                <div class="bg-blue-500 h-full" style="width: 5%"></div>
+              </div>
+              <div class="w-32 text-right text-slate-300">~100ms total</div>
+            </div>
+          </div>
+          <div class="mt-3 text-xs text-slate-400">
+            Total for 1K input + 100 output tokens: ~6 seconds
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== COMPARISON TABLE ==================== -->
+    <section class="mb-12">
+      <div class="bg-gradient-to-r from-slate-600 to-slate-700 rounded-t-2xl p-4">
+        <h2 class="text-2xl font-black text-white">📊 Framework Comparison</h2>
+      </div>
+      <div class="bg-slate-900 border-2 border-slate-600 border-t-0 rounded-b-2xl p-6">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-slate-400 border-b border-slate-700">
+                <th class="pb-3">Framework</th>
+                <th class="pb-3">Best For</th>
+                <th class="pb-3">Key Feature</th>
+                <th class="pb-3">Throughput</th>
+                <th class="pb-3">Setup</th>
+              </tr>
+            </thead>
+            <tbody class="text-slate-300">
+              <tr class="border-b border-slate-800">
+                <td class="py-3 font-bold text-blue-400">HuggingFace</td>
+                <td>Experimentation</td>
+                <td>Easy to use, flexible</td>
+                <td>1× (baseline)</td>
+                <td class="text-green-400">Easy</td>
+              </tr>
+              <tr class="border-b border-slate-800">
+                <td class="py-3 font-bold text-green-400">vLLM</td>
+                <td>Production serving</td>
+                <td>PagedAttention, continuous batching</td>
+                <td class="text-green-400">8-24×</td>
+                <td class="text-green-400">Easy</td>
+              </tr>
+              <tr class="border-b border-slate-800">
+                <td class="py-3 font-bold text-lime-400">TensorRT-LLM</td>
+                <td>Max performance</td>
+                <td>Compiled engine, FP8, kernel fusion</td>
+                <td class="text-lime-400">15-30×</td>
+                <td class="text-yellow-400">Medium</td>
+              </tr>
+              <tr class="border-b border-slate-800">
+                <td class="py-3 font-bold text-purple-400">llama.cpp</td>
+                <td>Consumer GPUs</td>
+                <td>GGUF quantization, CPU+GPU</td>
+                <td>Varies (quantized)</td>
+                <td class="text-green-400">Easy</td>
+              </tr>
+              <tr>
+                <td class="py-3 font-bold text-orange-400">DeepSpeed</td>
+                <td>Training + inference</td>
+                <td>ZeRO, model parallelism</td>
+                <td>5-10×</td>
+                <td class="text-red-400">Complex</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="bg-gradient-to-r from-blue-600 to-violet-600 rounded-2xl p-6 mb-8">
+      <h2 class="text-2xl font-bold text-white mb-4 text-center">🧠 Key Takeaways</h2>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-lg font-bold text-white mb-2">Tensor Parallelism</div>
+          <div class="text-blue-100 text-sm">Splits model across GPUs so it fits in memory. Requires fast interconnect (NVLink).</div>
+        </div>
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-lg font-bold text-white mb-2">PagedAttention</div>
+          <div class="text-blue-100 text-sm">Manages KV cache like virtual memory. Eliminates waste, enables more concurrent requests.</div>
+        </div>
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-lg font-bold text-white mb-2">Continuous Batching</div>
+          <div class="text-blue-100 text-sm">Dynamically adds/removes requests from batch. Keeps GPU ~95% utilized.</div>
+        </div>
+        <div class="bg-white/10 rounded-xl p-4">
+          <div class="text-lg font-bold text-white mb-2">Quantization</div>
+          <div class="text-blue-100 text-sm">Compresses weights from 16 bits to 4-8 bits. Trade quality for size/speed.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+      <p>How vLLM & TensorRT-LLM Work - Deep Technical Dive</p>
+      <p class="text-violet-400 mt-1">Understanding LLM Inference Infrastructure • CS²B Technologies</p>
+    </footer>
+
+  </div>
+</body>
+</html>

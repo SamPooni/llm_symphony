@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 3: Loss Computation - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function LossComputationStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-objective': {
+          title: '🎯 TRAINING OBJECTIVE',
+          content: 'The loss function IS the training objective. Everything else (forward, backward, optimizer) serves to minimize this single number.',
+          principle: 'Loss ↓ = Model improves\nGradient = ∂Loss/∂params\nOptimizer moves params to reduce loss',
+          goal: 'Minimize cross-entropy loss\n= Maximize P(correct next token)'
+        },
+        'metric-scale': {
+          title: '📊 LOSS SCALE',
+          content: 'Typical cross-entropy loss values during training. Starts high, decreases as model learns.',
+          progression: 'Random init: ~10-11 (ln(vocab_size))\nEarly training: 5-8\nConverged: 1.5-3.0\nOverfit: <1.0',
+          example: 'LLaMA-70B final loss: ~1.8\nGPT-4: likely ~1.5-2.0'
+        },
+        'metric-perplexity': {
+          title: '📈 PERPLEXITY',
+          content: 'Perplexity = exp(loss). More interpretable: "effective vocabulary size" the model is confused between.',
+          formula: 'PPL = e^(cross_entropy_loss)\nPPL = 2 means "choosing between 2 options"\nPPL = 10 means "choosing between 10"',
+          values: 'Random: ~vocab_size (32K)\nTrained: 5-20 typical\nState-of-art: <10'
+        },
+        'metric-tokens': {
+          title: '🔢 TOKENS PROCESSED',
+          content: 'Loss computed over all tokens in batch. Total training tokens determines final quality (scaling laws).',
+          formula: 'Tokens per step = batch_size × seq_len\nTotal tokens = steps × tokens_per_step',
+          scale: 'LLaMA-70B: 2T tokens\nGPT-4: ~13T tokens (estimated)\nChinchilla optimal: 20× params'
+        },
+
+        // Cross-Entropy Loss
+        'ce-logits': {
+          title: '📊 Input Logits',
+          content: 'Raw output from LM head. Unnormalized scores for each vocabulary token.',
+          shape: '[batch, seq_len, vocab_size]\nLLaMA-70B: [B, S, 32000]',
+          values: 'Range: typically -10 to +10\nHigher = model more confident\nWill be softmaxed to probabilities'
+        },
+        'ce-targets': {
+          title: '🎯 Target Labels',
+          content: 'Ground truth next tokens. Shifted by 1 from input (predict position i+1 from position i).',
+          shape: '[batch, seq_len] of int64\nEach value in [0, vocab_size)',
+          shift: 'Input: [A, B, C, D]\nTarget: [B, C, D, E]\nPredict next token at each position'
+        },
+        'ce-softmax': {
+          title: '📈 Softmax (LogSoftmax)',
+          content: 'Convert logits to log-probabilities. Numerically stable via log-sum-exp trick.',
+          formula: 'log_probs = logits - logsumexp(logits)\nprobs = softmax(logits) = exp(log_probs)',
+          numerical: 'Subtract max for stability\nlog(sum(exp(x - max))) + max\nAvoids overflow/underflow'
+        },
+        'ce-nll': {
+          title: '📉 Negative Log-Likelihood',
+          content: 'Extract log-probability of correct token, negate it. This is what we minimize.',
+          formula: 'NLL = -log_probs[target]\nFor each position: -log P(correct token)',
+          intuition: 'High prob (0.9) → low loss (-log(0.9) = 0.1)\nLow prob (0.1) → high loss (-log(0.1) = 2.3)'
+        },
+        'ce-reduction': {
+          title: '➗ Mean Reduction',
+          content: 'Average loss over all tokens. Typical choice for language modeling.',
+          formula: 'loss = mean(NLL over all tokens)\n= sum(NLL) / num_tokens',
+          alternatives: 'sum: Scale with batch size\nmean: Invariant to batch size (preferred)\nnone: Return per-token losses'
+        },
+        'ce-fused': {
+          title: '⚡ Fused Cross-Entropy',
+          content: 'Compute cross-entropy without materializing full [B, S, V] probability tensor. Massive memory savings.',
+          mechanism: 'Compute softmax + NLL in one kernel\nNever store full vocab-size tensor\nOnly store scalar loss per token',
+          memory: 'Naive: [B, S, V] = huge\nFused: [B, S] = tiny\nCritical for large vocab (100K+)'
+        },
+        'ce-ignore': {
+          title: '🚫 Ignore Index',
+          content: 'Skip loss computation for certain tokens (padding, special tokens). Use ignore_index=-100 convention.',
+          usage: 'Padding tokens: ignore\nPrompt tokens: sometimes ignore\nCompletion tokens: always compute',
+          implementation: 'mask = (targets != ignore_index)\nloss = mean(NLL[mask])'
+        },
+
+        // Label Smoothing
+        'smooth-concept': {
+          title: '🔄 Label Smoothing',
+          content: 'Instead of hard targets (1 for correct, 0 for rest), use soft targets. Regularization technique.',
+          formula: 'soft_target = (1 - ε) × one_hot + ε / vocab_size\nε = smoothing factor (0.1 typical)',
+          effect: 'Prevents overconfidence\nImproves generalization\nSlightly higher training loss'
+        },
+        'smooth-kl': {
+          title: '📊 KL Divergence View',
+          content: 'Label smoothing is equivalent to KL divergence between predictions and smoothed targets.',
+          formula: 'loss = (1-ε) × CE + ε × H(uniform)\nH(uniform) = log(vocab_size)',
+          intuition: 'Pull predictions slightly toward uniform\nPenalize extreme confidence'
+        },
+
+        // Auxiliary Losses (MoE)
+        'aux-load': {
+          title: '⚖️ Load Balancing Loss',
+          content: 'For MoE: Encourage even distribution of tokens across experts. Prevents expert collapse.',
+          problem: 'Without aux loss: 1-2 experts get all tokens\nOther experts never train\nWasted parameters',
+          formula: 'L_load = α × Σ(f_i × P_i)\nf_i = fraction of tokens to expert i\nP_i = mean routing prob to expert i',
+          weight: 'α = 0.01 typical\nToo high: hurts main loss\nToo low: experts collapse'
+        },
+        'aux-router-z': {
+          title: '📊 Router Z-Loss',
+          content: 'Penalize large router logits. Stabilizes routing decisions and training.',
+          formula: 'L_z = β × mean(logsumexp(router_logits)²)\nPenalizes extreme routing scores',
+          benefit: 'Prevents router saturation\nMore stable training\nβ = 0.001 typical'
+        },
+        'aux-combine': {
+          title: '➕ Combined Loss',
+          content: 'Total loss = main loss + weighted auxiliary losses.',
+          formula: 'L_total = L_CE + α × L_load + β × L_z\nBackprop through all components',
+          tuning: 'Balance: main task vs regularization\nMonitor each component separately\nAdjust weights if needed'
+        },
+
+        // Loss Scaling (Mixed Precision)
+        'scale-why': {
+          title: '❓ Why Loss Scaling?',
+          content: 'FP16 has limited range. Small gradients underflow to zero. Scaling preserves gradient information.',
+          problem: 'FP16 min positive: ~6e-8\nGradients often 1e-8 to 1e-4\nSmall gradients → zero → no learning',
+          solution: 'Scale loss up before backward\nGradients also scaled up\nUnscale after backward'
+        },
+        'scale-static': {
+          title: '📊 Static Scaling',
+          content: 'Fixed scale factor throughout training. Simple but may not adapt to training dynamics.',
+          usage: 'scale = 2^16 = 65536 typical\nscaled_loss = loss × scale\nscaled_grads = grads × scale',
+          tradeoff: 'Too low: underflow persists\nToo high: overflow (NaN/Inf)\nManual tuning needed'
+        },
+        'scale-dynamic': {
+          title: '📈 Dynamic Scaling',
+          content: 'Automatically adjust scale based on gradient overflow detection. PyTorch GradScaler default.',
+          mechanism: 'Start with high scale (65536)\nIf overflow: halve scale, skip step\nIf no overflow for N steps: double scale',
+          params: 'init_scale: 65536\ngrowth_factor: 2.0\nbackoff_factor: 0.5\ngrowth_interval: 2000 steps'
+        },
+        'scale-bf16': {
+          title: '✅ BF16: No Scaling Needed',
+          content: 'BF16 has same exponent range as FP32. No underflow issues. Preferred over FP16.',
+          comparison: 'FP16: 5 exp bits, range ±65504\nBF16: 8 exp bits, range ±3.4e38\nFP32: 8 exp bits, range ±3.4e38',
+          recommendation: 'Use BF16 if hardware supports\nH100, A100, TPU all support BF16\nNo loss scaling complexity'
+        },
+
+        // Gradient Flow
+        'grad-backward': {
+          title: '⬅️ Backward Trigger',
+          content: 'loss.backward() initiates backpropagation. Gradients flow from loss through entire computation graph.',
+          mechanism: 'PyTorch autograd traverses graph\nChain rule computes ∂L/∂param\nGradients accumulated in .grad',
+          prerequisite: 'Forward must complete first\nComputation graph built during forward\nActivations stored (or checkpointed)'
+        },
+        'grad-accumulation': {
+          title: '📦 Gradient Accumulation Start',
+          content: 'For gradient accumulation: divide loss by accumulation steps before backward.',
+          formula: 'If accumulating over K micro-batches:\nloss = loss / K\nEffective: mean over K batches',
+          why: 'Without division: gradients K× too large\nWith division: correct effective batch size\nEquivalent to larger batch'
+        },
+
+        // Numerical Stability
+        'num-overflow': {
+          title: '💥 Overflow Detection',
+          content: 'Check for Inf/NaN in loss or gradients. Skip optimizer step if detected.',
+          detection: 'torch.isinf(loss) or torch.isnan(loss)\nAlso check gradients after backward',
+          response: 'Log warning\nSkip optimizer step\nReduce loss scale (if dynamic)\nContinue training'
+        },
+        'num-clipping': {
+          title: '✂️ Gradient Clipping (Preview)',
+          content: 'Clip gradients to prevent explosions. Applied after backward, before optimizer. (Detailed in Stage 6)',
+          preview: 'max_norm = 1.0 typical\nClip if ||grad|| > max_norm\nStabilizes training'
+        },
+
+        // Loss Monitoring
+        'monitor-smooth': {
+          title: '📊 Smoothed Loss',
+          content: 'Raw loss is noisy. Use exponential moving average for monitoring.',
+          formula: 'smoothed = α × current + (1-α) × smoothed\nα = 0.01 typical (slow smoothing)',
+          usage: 'Plot smoothed loss for trends\nRaw loss for spike detection\nBoth useful'
+        },
+        'monitor-spike': {
+          title: '⚠️ Loss Spike Detection',
+          content: 'Sudden loss increases may indicate training instability. May need intervention.',
+          causes: 'Bad data batch\nLearning rate too high\nNumerical instability\nData corruption',
+          response: 'Log and investigate\nMay auto-recover\nMay need checkpoint rollback\nAdjust hyperparameters'
+        },
+        'monitor-divergence': {
+          title: '💀 Divergence',
+          content: 'Loss increasing continuously or exploding to NaN. Training has failed.',
+          signs: 'Loss → Inf or NaN\nLoss increasing for many steps\nGradients exploding',
+          response: 'Stop training\nRollback to earlier checkpoint\nReduce LR, fix data, check config\nRestart'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.problem && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PROBLEM</div>
+                <pre className="text-xs text-red-300 font-mono whitespace-pre-wrap">{t.problem}</pre>
+              </div>
+            )}
+            {t.solution && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SOLUTION</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.solution}</pre>
+              </div>
+            )}
+            {t.values && (
+              <div className="text-xs text-purple-400 mb-2">
+                <span className="font-bold">📊 </span>{t.values}
+              </div>
+            )}
+            {t.recommendation && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.recommendation}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-red-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-orange-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-yellow-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-red-600/30 border border-red-400 rounded-full mb-6">
+                <span className="text-red-300 font-bold">STAGE 3</span>
+                <span className="text-white">•</span>
+                <span className="text-red-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-orange-400 to-yellow-400">
+                Loss Computation
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                The <span className="text-red-300 font-bold">training objective</span>: minimize cross-entropy loss.
+                <span className="text-orange-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-objective">
+                <div className="p-5 rounded-xl bg-red-600/90 border-2 border-red-400 shadow-lg shadow-red-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🎯</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">OBJECTIVE</span>
+                  </div>
+                  <div className="text-2xl font-black text-red-100">min Loss</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Everything serves this</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-scale">
+                <div className="p-5 rounded-xl bg-orange-600/90 border-2 border-orange-400 shadow-lg shadow-orange-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📊</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">LOSS VALUE</span>
+                  </div>
+                  <div className="text-2xl font-black text-orange-100">~1.8</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Converged LLaMA-70B</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-perplexity">
+                <div className="p-5 rounded-xl bg-yellow-600/90 border-2 border-yellow-400 shadow-lg shadow-yellow-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📈</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">PERPLEXITY</span>
+                  </div>
+                  <div className="text-2xl font-black text-yellow-100">e^loss</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">~6 for loss=1.8</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-tokens">
+                <div className="p-5 rounded-xl bg-amber-600/90 border-2 border-amber-400 shadow-lg shadow-amber-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔢</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">TOKENS</span>
+                  </div>
+                  <div className="text-2xl font-black text-amber-100">2T+</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Training data scale</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: CROSS-ENTROPY LOSS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">3.1 CROSS-ENTROPY LOSS</h2>
+                  <p className="text-red-200/80">The primary training objective: predict the next token</p>
+                </div>
+              </div>
+
+              {/* Main Cross-Entropy Flow */}
+              <div className="bg-slate-900/80 border-2 border-red-500/50 rounded-xl p-6 mb-6">
+                <div className="flex items-center justify-between gap-4">
+                  {/* Logits */}
+                  <Hoverable id="ce-logits">
+                    <div className="bg-purple-900/50 border-2 border-purple-400 rounded-xl p-4 text-center">
+                      <div className="text-purple-200 font-bold">📊 Logits</div>
+                      <div className="text-purple-300 font-mono text-sm">[B, S, V]</div>
+                      <div className="text-purple-100/60 text-xs mt-1">V = 32,000</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-red-400 text-2xl">+</div>
+
+                  {/* Targets */}
+                  <Hoverable id="ce-targets">
+                    <div className="bg-green-900/50 border-2 border-green-400 rounded-xl p-4 text-center">
+                      <div className="text-green-200 font-bold">🎯 Targets</div>
+                      <div className="text-green-300 font-mono text-sm">[B, S]</div>
+                      <div className="text-green-100/60 text-xs mt-1">Shifted +1</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-red-400 text-2xl">→</div>
+
+                  {/* Cross-Entropy Steps */}
+                  <div className="flex-1 bg-red-900/30 border border-red-500/50 rounded-xl p-4">
+                    <div className="grid grid-cols-4 gap-2">
+                      <Hoverable id="ce-softmax">
+                        <div className="bg-red-900/50 border border-red-400 rounded p-2 text-center">
+                          <div className="text-red-200 font-bold text-xs">LogSoftmax</div>
+                          <div className="text-red-100/50 text-xs">log probs</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="ce-nll">
+                        <div className="bg-orange-900/50 border border-orange-400 rounded p-2 text-center">
+                          <div className="text-orange-200 font-bold text-xs">NLL</div>
+                          <div className="text-orange-100/50 text-xs">-log p(y)</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="ce-ignore">
+                        <div className="bg-slate-800/50 border border-slate-500 rounded p-2 text-center">
+                          <div className="text-slate-300 font-bold text-xs">Mask</div>
+                          <div className="text-slate-400 text-xs">ignore pad</div>
+                        </div>
+                      </Hoverable>
+                      <Hoverable id="ce-reduction">
+                        <div className="bg-yellow-900/50 border border-yellow-400 rounded p-2 text-center">
+                          <div className="text-yellow-200 font-bold text-xs">Mean</div>
+                          <div className="text-yellow-100/50 text-xs">reduce</div>
+                        </div>
+                      </Hoverable>
+                    </div>
+                  </div>
+
+                  <div className="text-red-400 text-2xl">→</div>
+
+                  {/* Loss Output */}
+                  <div className="bg-gradient-to-br from-red-700 to-rose-700 border-2 border-red-400 rounded-xl p-4 text-center">
+                    <div className="text-red-100 font-bold">📉 Loss</div>
+                    <div className="text-3xl font-black text-white">L</div>
+                    <div className="text-red-200/60 text-xs">scalar</div>
+                  </div>
+                </div>
+
+                {/* Formula */}
+                <div className="mt-4 bg-black/50 rounded-lg p-4 font-mono text-sm">
+                  <div className="text-slate-400">// Cross-Entropy Loss</div>
+                  <div className="text-cyan-300">L = -1/N × Σ log(softmax(logits)[target])</div>
+                  <div className="text-slate-400 mt-2">// Equivalent to</div>
+                  <div className="text-cyan-300">L = mean(NLLLoss(LogSoftmax(logits), targets))</div>
+                </div>
+              </div>
+
+              {/* Fused Cross-Entropy */}
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="ce-fused">
+                  <div className="bg-yellow-900/40 border-2 border-yellow-500 rounded-xl p-5">
+                    <div className="text-xl font-black text-yellow-200 mb-2">⚡ Fused Cross-Entropy</div>
+                    <div className="text-yellow-100/80 text-sm">Never materialize [B, S, vocab] tensor</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">Memory: O(B×S) instead of O(B×S×V)</div>
+                    <div className="text-green-400 text-xs mt-1">Critical for large vocabulary (100K+)</div>
+                  </div>
+                </Hoverable>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Hoverable id="smooth-concept">
+                    <div className="bg-purple-900/40 border border-purple-500 rounded-xl p-4">
+                      <div className="text-purple-200 font-bold">🔄 Label Smoothing</div>
+                      <div className="text-purple-100/60 text-xs mt-1">Soft targets (1-ε, ε/V)</div>
+                      <div className="text-purple-100/60 text-xs">Regularization</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="smooth-kl">
+                    <div className="bg-indigo-900/40 border border-indigo-500 rounded-xl p-4">
+                      <div className="text-indigo-200 font-bold">📊 KL View</div>
+                      <div className="text-indigo-100/60 text-xs mt-1">CE + ε×H(uniform)</div>
+                      <div className="text-indigo-100/60 text-xs">Prevents overconfidence</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-red-400 to-pink-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: AUXILIARY LOSSES (MoE) */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">3.2 AUXILIARY LOSSES (MoE)</h2>
+                  <p className="text-pink-200/80">Additional losses for Mixture of Experts training stability</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border-2 border-pink-500/30 rounded-xl p-6">
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <Hoverable id="aux-load">
+                    <div className="bg-pink-900/50 border-2 border-pink-400 rounded-xl p-4">
+                      <div className="text-xl font-black text-pink-200 mb-2">⚖️ Load Balancing</div>
+                      <div className="text-pink-100/80 text-sm">Even token distribution</div>
+                      <div className="text-pink-100/60 text-xs mt-2">α × Σ(f_i × P_i)</div>
+                      <div className="text-yellow-300 text-xs mt-1">α = 0.01 typical</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="aux-router-z">
+                    <div className="bg-purple-900/50 border-2 border-purple-400 rounded-xl p-4">
+                      <div className="text-xl font-black text-purple-200 mb-2">📊 Router Z-Loss</div>
+                      <div className="text-purple-100/80 text-sm">Stabilize routing</div>
+                      <div className="text-purple-100/60 text-xs mt-2">β × mean(logsumexp²)</div>
+                      <div className="text-yellow-300 text-xs mt-1">β = 0.001 typical</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="aux-combine">
+                    <div className="bg-violet-900/50 border-2 border-violet-400 rounded-xl p-4">
+                      <div className="text-xl font-black text-violet-200 mb-2">➕ Combined</div>
+                      <div className="text-violet-100/80 text-sm">Total training loss</div>
+                      <div className="text-violet-100/60 text-xs mt-2">L_CE + L_load + L_z</div>
+                      <div className="text-green-300 text-xs mt-1">All gradients backprop</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                <div className="text-pink-200/60 text-sm text-center">
+                  For dense transformers (non-MoE), only cross-entropy loss is used.
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-pink-400 to-orange-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: LOSS SCALING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">3.3 LOSS SCALING (Mixed Precision)</h2>
+                  <p className="text-orange-200/80">Scale loss for FP16 training to prevent gradient underflow</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Why Loss Scaling */}
+                <Hoverable id="scale-why">
+                  <div className="bg-red-900/40 border-2 border-red-500 rounded-xl p-5">
+                    <div className="text-xl font-black text-red-200 mb-3">❓ Why Scale?</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="text-red-100/80">FP16 min positive: ~6×10⁻⁸</div>
+                      <div className="text-red-100/80">Gradients often: 10⁻⁸ to 10⁻⁴</div>
+                      <div className="text-red-100/80">Small gradients → underflow → zero</div>
+                      <div className="text-yellow-300">Solution: Scale up, then unscale</div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                {/* Scaling Methods */}
+                <div className="space-y-4">
+                  <Hoverable id="scale-static">
+                    <div className="bg-orange-900/40 border border-orange-500 rounded-xl p-4">
+                      <div className="text-orange-200 font-bold">📊 Static Scaling</div>
+                      <div className="text-orange-100/60 text-xs mt-1">Fixed scale = 65536</div>
+                      <div className="text-orange-100/60 text-xs">Simple but less adaptive</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="scale-dynamic">
+                    <div className="bg-yellow-900/40 border border-yellow-500 rounded-xl p-4">
+                      <div className="text-yellow-200 font-bold">📈 Dynamic Scaling</div>
+                      <div className="text-yellow-100/60 text-xs mt-1">Auto-adjust on overflow</div>
+                      <div className="text-yellow-100/60 text-xs">PyTorch GradScaler default</div>
+                    </div>
+                  </Hoverable>
+
+                  <Hoverable id="scale-bf16">
+                    <div className="bg-green-900/40 border-2 border-green-500 rounded-xl p-4">
+                      <div className="text-green-200 font-bold">✅ BF16: No Scaling!</div>
+                      <div className="text-green-100/60 text-xs mt-1">Same range as FP32</div>
+                      <div className="text-green-100/60 text-xs">Preferred for modern training</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+
+              {/* Scaling Flow */}
+              <div className="mt-6 bg-slate-900/80 border border-orange-500/30 rounded-xl p-4">
+                <div className="flex items-center justify-between gap-4 text-sm">
+                  <div className="bg-slate-800 rounded-lg px-4 py-2">
+                    <div className="text-slate-400">Loss</div>
+                    <div className="text-orange-300 font-mono">L</div>
+                  </div>
+                  <div className="text-orange-400">× scale →</div>
+                  <div className="bg-slate-800 rounded-lg px-4 py-2">
+                    <div className="text-slate-400">Scaled Loss</div>
+                    <div className="text-orange-300 font-mono">L × 65536</div>
+                  </div>
+                  <div className="text-orange-400">→ backward →</div>
+                  <div className="bg-slate-800 rounded-lg px-4 py-2">
+                    <div className="text-slate-400">Scaled Grads</div>
+                    <div className="text-orange-300 font-mono">∇ × 65536</div>
+                  </div>
+                  <div className="text-orange-400">÷ scale →</div>
+                  <div className="bg-slate-800 rounded-lg px-4 py-2">
+                    <div className="text-slate-400">True Grads</div>
+                    <div className="text-green-300 font-mono">∇</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-orange-400 to-cyan-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: MONITORING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">3.4 LOSS MONITORING</h2>
+                  <p className="text-cyan-200/80">Track loss to detect problems and measure progress</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="monitor-smooth">
+                  <div className="bg-cyan-900/50 border-2 border-cyan-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-cyan-200 mb-2">📊 Smoothed Loss</div>
+                    <div className="text-cyan-100/80 text-sm">EMA for trend tracking</div>
+                    <div className="text-cyan-100/60 text-xs mt-2">α × current + (1-α) × prev</div>
+                    <div className="text-cyan-100/60 text-xs">α = 0.01 (slow smoothing)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="monitor-spike">
+                  <div className="bg-yellow-900/50 border-2 border-yellow-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-yellow-200 mb-2">⚠️ Spike Detection</div>
+                    <div className="text-yellow-100/80 text-sm">Sudden loss increase</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">May indicate bad batch</div>
+                    <div className="text-yellow-100/60 text-xs">Or training instability</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="monitor-divergence">
+                  <div className="bg-red-900/50 border-2 border-red-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-red-200 mb-2">💀 Divergence</div>
+                    <div className="text-red-100/80 text-sm">Loss → NaN or ∞</div>
+                    <div className="text-red-100/60 text-xs mt-2">Training has failed</div>
+                    <div className="text-red-100/60 text-xs">Rollback to checkpoint</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Typical Loss Curve */}
+              <div className="mt-6 bg-slate-900/80 border border-cyan-500/30 rounded-xl p-4">
+                <div className="text-cyan-300 font-bold mb-3">📈 Typical Loss Progression</div>
+                <div className="flex items-end justify-between h-24 px-4">
+                  <div className="flex flex-col items-center">
+                    <div className="bg-red-500 w-4" style={{height: '90px'}}></div>
+                    <div className="text-xs text-slate-400 mt-1">Init</div>
+                    <div className="text-xs text-red-400">~10</div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="bg-orange-500 w-4" style={{height: '70px'}}></div>
+                    <div className="text-xs text-slate-400 mt-1">Early</div>
+                    <div className="text-xs text-orange-400">~7</div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="bg-yellow-500 w-4" style={{height: '45px'}}></div>
+                    <div className="text-xs text-slate-400 mt-1">Mid</div>
+                    <div className="text-xs text-yellow-400">~4</div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="bg-green-500 w-4" style={{height: '25px'}}></div>
+                    <div className="text-xs text-slate-400 mt-1">Late</div>
+                    <div className="text-xs text-green-400">~2.5</div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="bg-cyan-500 w-4" style={{height: '18px'}}></div>
+                    <div className="text-xs text-slate-400 mt-1">Final</div>
+                    <div className="text-xs text-cyan-400">~1.8</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Gradient Flow Preview */}
+            <section className="mb-10">
+              <div className="bg-slate-900/60 border border-purple-500/30 rounded-xl p-6">
+                <div className="text-lg font-black text-purple-300 mb-4">⬅️ BACKWARD TRIGGER (Preview of Stage 4)</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Hoverable id="grad-backward">
+                    <div className="bg-purple-900/40 border border-purple-400 rounded-lg p-4">
+                      <div className="text-purple-200 font-bold">loss.backward()</div>
+                      <div className="text-purple-100/60 text-xs mt-1">Triggers autograd</div>
+                      <div className="text-purple-100/60 text-xs">Computes all gradients</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="grad-accumulation">
+                    <div className="bg-violet-900/40 border border-violet-400 rounded-lg p-4">
+                      <div className="text-violet-200 font-bold">loss = loss / K</div>
+                      <div className="text-violet-100/60 text-xs mt-1">For gradient accumulation</div>
+                      <div className="text-violet-100/60 text-xs">Divide before backward</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* Summary Box */}
+            <div className="bg-gradient-to-r from-red-900/50 to-orange-900/50 border-2 border-red-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                Stage 3 Complete → Loss Ready for Backward Pass
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto">
+                Cross-entropy loss computed (+ auxiliary losses for MoE). Loss scaled for mixed precision.
+                Next: <span className="text-orange-300 font-bold">Stage 4: Backward Pass</span> — gradients flow from loss to parameters.
+              </div>
+              <div className="mt-4 flex justify-center gap-8 text-sm">
+                <div className="text-red-300">
+                  <span className="font-bold">L = 1.8</span> typical converged
+                </div>
+                <div className="text-orange-300">
+                  <span className="font-bold">PPL = 6</span> perplexity
+                </div>
+                <div className="text-yellow-300">
+                  <span className="font-bold">× 65536</span> FP16 scale
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 3: Loss Computation • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">Logits + Targets → Cross-Entropy → Scale → Backward</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<LossComputationStage />);
+  </script>
+</body>
+</html>

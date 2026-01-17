@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>End-to-End Inference Lifecycle - Interactive Diagram</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f172a; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function InferenceLifecycleDiagram() {
+      const [activeStep, setActiveStep] = useState(null);
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      // Comprehensive tooltips for all items
+      const tooltips = {
+        // Main Steps
+        'step-0': {
+          title: '🌐 Request Intake & Routing',
+          content: 'The most underrated step. Everything here happens BEFORE the model runs, yet it dictates cost, latency, security, and correctness. This is where you authenticate, rate limit, route to the right model, and enforce context limits.',
+          details: 'Components: API Gateway (Envoy/Kong/NGINX), Authentication (API keys, OAuth, mTLS), Rate Limiting (per key/tenant/IP), Model Router (SLA-based selection), Hard Guards (size limits)',
+          metric: 'Target: <50ms total | Cost: $0 (CPU only) | Critical for: Security & Cost Control'
+        },
+        'step-1': {
+          title: '🛡️ Input Normalization',
+          content: 'Defensive engineering. Validate JSON schema, normalize Unicode (NFC/NFKC), strip zero-width or control characters, escape or sandbox tool arguments. Prevents tokenizer divergence and mitigates prompt injection.',
+          details: 'Normalizations: Unicode NFC, strip \\u200b (zero-width), remove control chars (\\x00-\\x1f), validate UTF-8 encoding, sanitize tool arguments',
+          metric: 'Ensures reproducibility | Prevents injection attacks | CPU-bound, fast'
+        },
+        'step-2': {
+          title: '🔤 Tokenization',
+          content: 'Text → token IDs. Uses BPE (GPT-style), SentencePiece, or WordPiece. Outputs input_ids, attention_mask, and position_ids. Token count directly impacts prefill cost, KV cache size, and latency.',
+          details: 'Algorithms: BPE (OpenAI), SentencePiece (Google), WordPiece (BERT). Vocab sizes: 32K-100K+. Special tokens: <|im_start|>, <|endoftext|>, [PAD], [CLS]',
+          metric: 'Tokens are the real currency | 1 token ≈ 4 chars (English) | CPU-bound'
+        },
+        'step-3': {
+          title: '📝 Prompt Assembly',
+          content: 'Order matters! Context is constructed from: (1) System prompt, (2) Developer instructions, (3) Conversation history, (4) Retrieved context (RAG), (5) Tool schemas, (6) User message. Overflow handled via truncation or summarization.',
+          details: 'Order affects behavior. Context window enforced. Strategies for overflow: truncate oldest, hierarchical summarization, selective retrieval, sliding window',
+          metric: 'Garbage context = garbage output | Careful ordering is critical'
+        },
+        'step-4': {
+          title: '⚡ Prefill (Context Encoding)',
+          content: 'The entire prompt is processed ONCE with full self-attention over all tokens. Heavy GEMM operations (QKV projections). Scales O(n²) with context length. This is where long prompts hurt.',
+          details: 'Operations: Q/K/V projections, multi-head attention, layer normalization, MLP/FFN. Creates KV cache for all layers. Compute-bound on GPU.',
+          metric: 'O(n²) attention | Compute-heavy | Long prompts = high cost'
+        },
+        'step-5': {
+          title: '💾 KV Cache',
+          content: 'Persistent memory of attention states (keys and values per layer). Enables fast autoregressive decoding by avoiding recomputation. Lives in GPU HBM. Usually the #1 memory consumer.',
+          details: 'Size: 2 × num_layers × num_heads × head_dim × seq_len × dtype_size. Optimizations: PagedAttention (vLLM), FP8/INT8 quantization, cache reuse across turns',
+          metric: '#1 memory consumer | 70B model @ 8K ctx ≈ 16GB KV cache'
+        },
+        'step-6': {
+          title: '🔄 Decode Loop',
+          content: 'Runs ONCE per output token. Each iteration: (1) Attention over KV cache, (2) MLP/FFN computation, (3) Logits calculation. Memory-bandwidth bound, not compute bound.',
+          details: 'Per-token cost: O(n) attention (query vs all K/V), O(1) MLP. Bottleneck: loading weights from HBM. Tensor cores often underutilized.',
+          metric: 'Memory-bandwidth bound | ~10-50 tokens/sec per batch | Critical path'
+        },
+        'step-7': {
+          title: '🎲 Sampling (Logits Processing)',
+          content: 'Applied every token to control output. Temperature scaling adjusts randomness, top-k/top-p filters low-probability tokens, repetition penalties prevent loops, grammar masks enforce structure (JSON/tools).',
+          details: 'Temperature: 0=deterministic, 1+=creative. Top-p (nucleus): cumulative probability threshold. Top-k: keep k highest. Frequency/presence penalties.',
+          metric: 'Light compute | Controls diversity vs determinism'
+        },
+        'step-8': {
+          title: '✨ Token Selection',
+          content: 'Choose the next token from processed logits. Methods: Greedy (argmax - always pick highest), Sampling (probabilistic based on distribution), Beam search (rare for chat, keeps multiple hypotheses).',
+          details: 'Greedy: fast, deterministic, can be repetitive. Sampling: more diverse, controlled by temperature. Beam search: better for translation, slow.',
+          metric: 'Selected token appended to sequence → loop continues'
+        },
+        'step-9': {
+          title: '🛑 Stop Condition Check',
+          content: 'Checked after EACH token. Conditions: EOS token generated, max_tokens reached, stop sequence matched (e.g., "```"), tool invocation triggered. If any true → exit decode loop.',
+          details: 'EOS tokens vary by model: <|endoftext|>, </s>, <|im_end|>. Stop sequences configurable. Tool calls detected by special token patterns.',
+          metric: 'Exit conditions end generation | Critical for cost control'
+        },
+        'step-10': {
+          title: '📡 Streaming Output',
+          content: 'Tokens sent incrementally as generated, often after partial detokenization. Massively improves perceived latency and UX. Uses SSE (Server-Sent Events) or WebSocket.',
+          details: 'Implementation: chunk tokens, detokenize partially, send via SSE/WebSocket. Buffer handling for partial UTF-8 sequences. Backpressure management.',
+          metric: 'Product feature, not just infra | Hides decode latency'
+        },
+        'step-11': {
+          title: '📄 Detokenization',
+          content: 'Tokens → UTF-8 text. Merges subword tokens (▁word → word), fixes spacing artifacts, handles special characters. Done on CPU, relatively fast.',
+          details: 'Challenges: partial tokens mid-stream, emoji/unicode handling, whitespace normalization. SentencePiece uses ▁ for word boundaries.',
+          metric: 'CPU-bound | Fast | Final text reconstruction'
+        },
+        'step-12': {
+          title: '🔧 Post-Processing',
+          content: 'Final transforms before delivery. Validate JSON schema (if structured output), redact sensitive data (PII), attach citations (RAG), apply safety filters (content moderation).',
+          details: 'JSON validation: check schema compliance. Redaction: PII patterns. Citations: link to source docs. Safety: toxicity/harm classifiers.',
+          metric: 'Quality & safety gates | May reject/retry generation'
+        },
+        'step-13': {
+          title: '✅ Response Delivery',
+          content: 'Final chunk sent, stream closed, HTTP connection finalized. The inference journey ends here. Request marked complete for billing and logging.',
+          details: 'Stream termination: send final chunk, close SSE/WebSocket, return HTTP 200. Cleanup: release GPU memory, update quotas.',
+          metric: 'Journey complete | Triggers billing finalization'
+        },
+        'step-14': {
+          title: '📊 Telemetry & Logging',
+          content: 'Out-of-band collection. Metrics: tokens in/out, prefill vs decode latency, GPU memory usage, errors/retries. Used for billing, capacity planning, SLA enforcement, model tuning.',
+          details: 'Key metrics: TTFT (time to first token), TPS (tokens per second), p50/p95/p99 latency, GPU utilization, cache hit rate, error rate.',
+          metric: 'If you dont measure this, you cant scale'
+        },
+
+        // Decode Loop substeps
+        'decode-attention': {
+          title: '👁️ KV Attention',
+          content: 'New token attends to ALL past tokens via cached keys/values. Cost grows linearly with sequence length. Memory-bandwidth bound.',
+          details: 'Q (new token) × K^T (all past) → attention weights → weighted sum of V. Uses FlashAttention for memory efficiency.',
+          metric: 'O(n) per token | Bottleneck for long sequences'
+        },
+        'decode-mlp': {
+          title: '🧮 MLP/FFN',
+          content: 'Feed-forward network after attention. Large matrix multiplications. Tensor core dominated but often memory-bandwidth bound loading weights.',
+          details: 'Typical: 4× hidden dim expansion. GeLU/SiLU activation. Up-proj → activation → down-proj. ~2/3 of model parameters.',
+          metric: 'Tensor core GEMMs | Weight loading is bottleneck'
+        },
+        'decode-logits': {
+          title: '📊 Logits Computation',
+          content: 'Final projection to vocabulary size (30K-100K+). Output is logits vector, softmax applied for probabilities.',
+          details: 'Hidden state → vocab projection → logits. Large matrix: hidden_dim × vocab_size. Softmax for probability distribution.',
+          metric: 'Vocab size = output dimension | Softmax follows'
+        },
+        'decode-sample': {
+          title: '🎯 Sample & Check',
+          content: 'Apply sampling strategy (temperature, top-k/p), select next token, check stop conditions. If stop → exit loop, else → continue.',
+          details: 'Sampling pipeline: logits → temperature → top-k → top-p → sample → check EOS/stop → append or exit.',
+          metric: 'Decision point each iteration | May exit or continue'
+        },
+
+        // Bottlenecks
+        'bottleneck-tokenization': {
+          title: 'Tokenization Bottleneck',
+          content: 'CPU-bound operation. BPE encoding is sequential and can be slow for very long inputs. Usually not the bottleneck in practice.',
+          metric: 'CPU | ~1-10ms for typical prompts'
+        },
+        'bottleneck-prefill': {
+          title: 'Prefill Bottleneck',
+          content: 'GPU compute + memory bound. O(n²) attention dominates. Long contexts hurt here. Benefits from tensor cores.',
+          metric: 'GPU Compute + Memory | O(n²) | Long prompts hurt'
+        },
+        'bottleneck-decode': {
+          title: 'Decode Bottleneck',
+          content: 'Memory bandwidth + KV cache. Loading weights from HBM is the bottleneck, not compute. Batching helps amortize.',
+          metric: 'Memory Bandwidth + KV | Weight loading dominates'
+        },
+        'bottleneck-sampling': {
+          title: 'Sampling Bottleneck',
+          content: 'Light compute. Just applying transforms to logits vector. Not a practical bottleneck.',
+          metric: 'Light | <1ms typically'
+        },
+        'bottleneck-streaming': {
+          title: 'Streaming Bottleneck',
+          content: 'Network bound. Sending tokens over HTTP/WebSocket. Can be bottleneck for very fast generation.',
+          metric: 'Network | Usually not limiting'
+        },
+
+        // Engines
+        'engine-vllm': {
+          title: 'vLLM',
+          content: 'High-throughput LLM serving. PagedAttention for efficient KV cache, continuous batching, prefix caching for repeated prompts, speculative decoding.',
+          details: 'PagedAttention: virtual memory for KV cache. Continuous batching: add/remove requests dynamically. Prefix caching: reuse KV for shared prefixes.',
+          metric: '10-24x higher throughput | Open source | Python'
+        },
+        'engine-tensorrt': {
+          title: 'TensorRT-LLM',
+          content: 'NVIDIA optimized inference. Kernel fusion, INT8/FP8 quantization, in-flight batching, multi-GPU tensor parallelism.',
+          details: 'Kernel fusion: combine operations. Quantization: reduced precision. In-flight batching: dynamic batch management. TP/PP for multi-GPU.',
+          metric: 'NVIDIA optimized | Best for NVIDIA GPUs | C++'
+        },
+        'engine-tgi': {
+          title: 'Text Generation Inference (TGI)',
+          content: 'HuggingFace serving solution. Flash Attention, token streaming, watermarking for detection, Safetensors loading.',
+          details: 'Flash Attention: memory-efficient attention. Watermarking: embed detectable patterns. Safetensors: safe model loading.',
+          metric: 'HuggingFace ecosystem | Easy deployment | Rust'
+        },
+      };
+
+      const steps = [
+        { id: 0, title: "Request Intake & Routing", subtitle: "Pre-Model", color: "#F59E0B", colorEnd: "#EF4444", icon: "🌐", description: "Authentication, rate limiting, tenant isolation, model selection, and context guards.", substeps: ["Client Request", "API Gateway", "Tenant QoS", "Model Routing", "Hard Guards"] },
+        { id: 1, title: "Input Normalization", subtitle: "Validation", color: "#EC4899", colorEnd: "#F43F5E", icon: "🛡️", description: "Validate JSON schema, normalize Unicode, strip control characters, escape tool arguments.", substeps: ["Schema Validation", "Unicode NFC", "Strip Control Chars", "Sandbox Tools"] },
+        { id: 2, title: "Tokenization", subtitle: "Text → Tokens", color: "#8B5CF6", colorEnd: "#A855F7", icon: "🔤", description: "Convert text to token IDs using BPE/SentencePiece. Tokens are the real currency.", substeps: ["BPE Encoding", "input_ids", "attention_mask", "position_ids"] },
+        { id: 3, title: "Prompt Assembly", subtitle: "Context Construction", color: "#6366F1", colorEnd: "#818CF8", icon: "📝", description: "Order matters: system prompt → developer instructions → history → RAG → tools → user message.", substeps: ["System Prompt", "Instructions", "History", "RAG Context", "Tool Schemas", "User Message"] },
+        { id: 4, title: "Prefill", subtitle: "Context Encoding", color: "#06B6D4", colorEnd: "#22D3EE", icon: "⚡", description: "Full self-attention over all tokens. Heavy GEMMs. Scales with context length².", substeps: ["Full Attention", "QKV Projections", "KV Cache Init", "Initial Logits"] },
+        { id: 5, title: "KV Cache", subtitle: "Memory Management", color: "#10B981", colorEnd: "#34D399", icon: "💾", description: "Persistent attention states for fast decoding. Lives in GPU HBM. #1 memory consumer.", substeps: ["PagedAttention", "FP8 Quantization", "Cache Reuse", "Memory Paging"] },
+        { id: 6, title: "Decode Loop", subtitle: "Autoregressive", color: "#76B900", colorEnd: "#A3E635", icon: "🔄", description: "Runs once per output token. Attention over KV cache + MLP/FFN. Memory-bandwidth bound.", substeps: ["KV Attention", "MLP/FFN", "Logits Compute", "Loop Continue"] },
+        { id: 7, title: "Sampling", subtitle: "Logits Processing", color: "#FBBF24", colorEnd: "#FCD34D", icon: "🎲", description: "Temperature scaling, top-k/top-p, repetition penalties, grammar masks.", substeps: ["Temperature", "Top-k/Top-p", "Rep. Penalty", "Grammar Mask"] },
+        { id: 8, title: "Token Selection", subtitle: "Next Token", color: "#F97316", colorEnd: "#FB923C", icon: "✨", description: "Choose next token: greedy (argmax), sampling (probabilistic), or beam search.", substeps: ["Greedy/Sample", "Beam Search", "Append Token"] },
+        { id: 9, title: "Stop Check", subtitle: "Exit Conditions", color: "#EF4444", colorEnd: "#F87171", icon: "🛑", description: "Check EOS token, max tokens, stop sequences, tool invocation.", substeps: ["EOS Token?", "Max Tokens?", "Stop Seq?", "Tool Call?"] },
+        { id: 10, title: "Streaming", subtitle: "Incremental Output", color: "#14B8A6", colorEnd: "#2DD4BF", icon: "📡", description: "Tokens sent incrementally. Reduces perceived latency. Product feature.", substeps: ["Partial Detok", "SSE/WebSocket", "Chunk Send"] },
+        { id: 11, title: "Detokenization", subtitle: "Tokens → Text", color: "#0EA5E9", colorEnd: "#38BDF8", icon: "📄", description: "Convert tokens back to UTF-8 text. Merge subwords, fix spacing.", substeps: ["Token Decode", "Merge Subwords", "Fix Spacing"] },
+        { id: 12, title: "Post-Processing", subtitle: "Final Transforms", color: "#8B5CF6", colorEnd: "#A78BFA", icon: "🔧", description: "Validate JSON schema, redact sensitive data, attach citations, safety filters.", substeps: ["JSON Validate", "Redaction", "Citations", "Safety Filter"] },
+        { id: 13, title: "Response Delivery", subtitle: "Final Output", color: "#10B981", colorEnd: "#6EE7B7", icon: "✅", description: "Final chunk sent, stream closed, request finalized.", substeps: ["Final Chunk", "Close Stream", "Finalize"] },
+        { id: 14, title: "Telemetry", subtitle: "Observability", color: "#64748B", colorEnd: "#94A3B8", icon: "📊", description: "Tokens in/out, latency breakdown, GPU memory, errors.", substeps: ["Token Count", "Latency", "GPU Stats", "Billing"] }
+      ];
+
+      const bottlenecks = [
+        { phase: "Tokenization", bottleneck: "CPU", color: "#3B82F6", id: "bottleneck-tokenization" },
+        { phase: "Prefill", bottleneck: "GPU Compute + Memory", color: "#EF4444", id: "bottleneck-prefill" },
+        { phase: "Decode", bottleneck: "Memory Bandwidth + KV", color: "#F59E0B", id: "bottleneck-decode" },
+        { phase: "Sampling", bottleneck: "Light", color: "#10B981", id: "bottleneck-sampling" },
+        { phase: "Streaming", bottleneck: "Network", color: "#8B5CF6", id: "bottleneck-streaming" },
+      ];
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 250 > window.innerHeight) top = window.innerHeight - 260;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.details && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div>
+                <p className="text-xs text-cyan-300">{t.details}</p>
+              </div>
+            )}
+            {t.metric && (
+              <div className="text-xs text-amber-400">
+                <span className="font-bold">📊 </span>{t.metric}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div
+          className={`cursor-help ${className}`}
+          onMouseEnter={() => setTooltip(id)}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 md:p-10" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Animated background */}
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] -top-40 -left-40 bg-purple-500/10 rounded-full blur-3xl animate-pulse" />
+            <div className="absolute w-[500px] h-[500px] top-1/2 -right-40 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+            <div className="absolute w-[400px] h-[400px] -bottom-20 left-1/3 bg-green-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+          </div>
+          
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-6">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-sm text-slate-400 font-medium">🖱️ Hover over any item for detailed tooltips</span>
+              </div>
+              <h1 className="text-4xl md:text-6xl font-black mb-4 bg-gradient-to-r from-orange-400 via-pink-500 to-purple-500 bg-clip-text text-transparent">
+                End-to-End Inference Lifecycle
+              </h1>
+              <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                The complete path from request arrival to tokens streaming back — where cost, latency, security, and correctness are determined.
+              </p>
+            </header>
+
+            {/* Main Timeline */}
+            <div className="relative">
+              <div className="absolute left-8 md:left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-orange-500 via-cyan-500 to-green-500 rounded-full opacity-30" />
+              
+              <div className="space-y-6">
+                {steps.map((step, index) => {
+                  const isLeft = index % 2 === 0;
+                  const isActive = activeStep === step.id;
+                  
+                  return (
+                    <Hoverable key={step.id} id={`step-${step.id}`}>
+                      <div 
+                        className={`relative flex items-center ${isLeft ? 'md:flex-row' : 'md:flex-row-reverse'} flex-row gap-4 md:gap-8`}
+                        onClick={() => setActiveStep(isActive ? null : step.id)}
+                      >
+                        <div className="absolute left-8 md:left-1/2 -translate-x-1/2 z-10">
+                          <div 
+                            className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl cursor-pointer transition-all duration-300 ${
+                              isActive ? 'scale-125 shadow-2xl' : 'hover:scale-110'
+                            }`}
+                            style={{ 
+                              background: `linear-gradient(135deg, ${step.color}, ${step.colorEnd})`,
+                              boxShadow: isActive ? `0 0 30px ${step.color}50` : 'none'
+                            }}
+                          >
+                            {step.icon}
+                          </div>
+                          <div 
+                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                            style={{ background: step.color }}
+                          >
+                            {step.id}
+                          </div>
+                        </div>
+                        
+                        <div className={`w-full md:w-[calc(50%-4rem)] ${isLeft ? 'md:pr-8 pl-20 md:pl-0' : 'md:pl-8 pl-20'}`}>
+                          <div 
+                            className={`relative p-6 rounded-2xl border transition-all duration-300 cursor-pointer ${
+                              isActive 
+                                ? 'bg-white/10 border-white/20' 
+                                : 'bg-white/5 border-white/10 hover:bg-white/8'
+                            }`}
+                            style={{ boxShadow: isActive ? `0 0 40px ${step.color}20` : 'none' }}
+                          >
+                            <div 
+                              className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
+                              style={{ background: `linear-gradient(90deg, ${step.color}, ${step.colorEnd})` }}
+                            />
+                            
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <h3 
+                                  className="text-xl font-bold bg-clip-text text-transparent"
+                                  style={{ backgroundImage: `linear-gradient(135deg, ${step.color}, ${step.colorEnd})` }}
+                                >
+                                  {step.title}
+                                </h3>
+                                <p className="text-sm text-slate-500">{step.subtitle}</p>
+                              </div>
+                              <div className="text-2xl opacity-50">{step.icon}</div>
+                            </div>
+                            
+                            <p className="text-sm text-slate-400 leading-relaxed mb-4">{step.description}</p>
+                            
+                            <div className="flex flex-wrap gap-2">
+                              {step.substeps.map((sub, i) => (
+                                <span 
+                                  key={i}
+                                  className="px-3 py-1 rounded-full text-xs font-medium"
+                                  style={{ 
+                                    background: `${step.color}15`,
+                                    color: step.color,
+                                    border: `1px solid ${step.color}30`
+                                  }}
+                                >
+                                  {sub}
+                                </span>
+                              ))}
+                            </div>
+                            
+                            {isActive && (
+                              <div className="mt-4 pt-4 border-t border-white/10">
+                                <div className="grid grid-cols-2 gap-4 text-xs">
+                                  <div className="p-3 rounded-lg bg-black/20">
+                                    <div className="text-slate-500 mb-1">Phase Type</div>
+                                    <div className="text-white font-medium">
+                                      {step.id <= 3 ? 'Pre-Processing' : step.id <= 9 ? 'Model Execution' : 'Post-Processing'}
+                                    </div>
+                                  </div>
+                                  <div className="p-3 rounded-lg bg-black/20">
+                                    <div className="text-slate-500 mb-1">Critical For</div>
+                                    <div className="text-white font-medium">
+                                      {step.id === 0 ? 'Cost & Security' : step.id <= 3 ? 'Correctness' : step.id <= 9 ? 'Latency' : 'UX & Ops'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="hidden md:block md:w-[calc(50%-4rem)]" />
+                      </div>
+                    </Hoverable>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Decode Loop Detail */}
+            <section className="mt-20 p-8 rounded-3xl bg-gradient-to-br from-green-500/10 to-cyan-500/10 border border-green-500/20">
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-cyan-500 flex items-center justify-center">🔄</span>
+                The Decode Loop (Steps 6-9)
+              </h2>
+              
+              <div className="grid md:grid-cols-4 gap-4">
+                {[
+                  { step: "6.1", title: "KV Attention", desc: "New token attends to all past tokens via cached keys/values", icon: "👁️", color: "#76B900", id: "decode-attention" },
+                  { step: "6.2", title: "MLP/FFN", desc: "Large matrix multiplications, tensor core dominated", icon: "🧮", color: "#10B981", id: "decode-mlp" },
+                  { step: "6.3", title: "Logits", desc: "Output vector size = vocab (30k-100k)", icon: "📊", color: "#06B6D4", id: "decode-logits" },
+                  { step: "7-9", title: "Sample & Check", desc: "Apply sampling, select token, check stop conditions", icon: "🎯", color: "#8B5CF6", id: "decode-sample" },
+                ].map((item, i) => (
+                  <Hoverable key={i} id={item.id}>
+                    <div className="p-5 rounded-xl bg-black/30 border border-white/10 hover:border-white/20 transition-all cursor-help">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div 
+                          className="w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+                          style={{ background: `${item.color}30` }}
+                        >
+                          {item.icon}
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500">Step {item.step}</div>
+                          <div className="font-bold text-white">{item.title}</div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-400">{item.desc}</p>
+                    </div>
+                  </Hoverable>
+                ))}
+              </div>
+              
+              <div className="flex justify-center mt-6">
+                <div className="flex items-center gap-4 px-6 py-3 rounded-full bg-amber-500/10 border border-amber-500/30">
+                  <span className="text-amber-400">↩️</span>
+                  <span className="text-sm text-amber-400 font-medium">Repeat until stop condition met</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Performance Bottlenecks */}
+            <section className="mt-12 p-8 rounded-3xl bg-gradient-to-br from-red-500/10 to-orange-500/10 border border-red-500/20">
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center">⚡</span>
+                Performance Bottlenecks
+              </h2>
+              
+              <div className="grid md:grid-cols-5 gap-4">
+                {bottlenecks.map((item, i) => (
+                  <Hoverable key={i} id={item.id}>
+                    <div className="p-4 rounded-xl bg-black/30 border border-white/10 text-center cursor-help hover:border-white/20">
+                      <div 
+                        className="w-full h-2 rounded-full mb-3"
+                        style={{ background: `linear-gradient(90deg, ${item.color}, ${item.color}80)` }}
+                      />
+                      <div className="font-bold text-white text-sm mb-1">{item.phase}</div>
+                      <div className="text-xs px-2 py-1 rounded-full bg-white/5" style={{ color: item.color }}>
+                        {item.bottleneck}
+                      </div>
+                    </div>
+                  </Hoverable>
+                ))}
+              </div>
+            </section>
+
+            {/* Optimized Engines */}
+            <section className="mt-12 p-8 rounded-3xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/20">
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">🚀</span>
+                How Optimized Engines Improve This
+              </h2>
+              
+              <div className="grid md:grid-cols-3 gap-6">
+                {[
+                  { name: "vLLM", color: "#8B5CF6", features: ["PagedAttention", "Continuous Batching", "Prefix Caching", "Speculative Decode"], id: "engine-vllm" },
+                  { name: "TensorRT-LLM", color: "#76B900", features: ["Kernel Fusion", "Quantization", "In-flight Batching", "Multi-GPU"], id: "engine-tensorrt" },
+                  { name: "TGI", color: "#FFD21E", features: ["Flash Attention", "Token Streaming", "Watermark", "Safetensors"], id: "engine-tgi" },
+                ].map((engine, i) => (
+                  <Hoverable key={i} id={engine.id}>
+                    <div className="p-5 rounded-xl bg-black/30 border border-white/10 cursor-help hover:border-white/20">
+                      <div className="text-xl font-bold mb-4" style={{ color: engine.color }}>
+                        {engine.name}
+                      </div>
+                      <div className="space-y-2">
+                        {engine.features.map((f, j) => (
+                          <div key={j} className="flex items-center gap-2 text-sm text-slate-400">
+                            <span style={{ color: engine.color }}>✓</span>
+                            {f}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </Hoverable>
+                ))}
+              </div>
+              
+              <div className="mt-6 p-4 rounded-xl bg-black/20 border border-white/10">
+                <p className="text-sm text-slate-400 text-center">
+                  <span className="text-white font-medium">Same steps — radically better utilization.</span> These engines optimize batching, memory, and scheduling to maximize GPU throughput.
+                </p>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <section className="mt-12 p-8 rounded-3xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+              <h2 className="text-2xl font-bold text-white mb-4">📋 Production Summary</h2>
+              <p className="text-slate-300 leading-relaxed">
+                Inference begins with <span className="text-orange-400 font-medium">authenticated request intake</span> and 
+                <span className="text-orange-400 font-medium"> intelligent routing</span>, followed by 
+                <span className="text-pink-400 font-medium"> input normalization</span>, 
+                <span className="text-purple-400 font-medium"> tokenization</span>, and 
+                <span className="text-indigo-400 font-medium"> prompt assembly</span>. A 
+                <span className="text-cyan-400 font-medium"> prefill pass</span> encodes the full context and constructs the 
+                <span className="text-green-400 font-medium"> KV cache</span>, after which an 
+                <span className="text-lime-400 font-medium"> autoregressive decode loop</span> generates tokens by attending over cached context, 
+                applying <span className="text-yellow-400 font-medium">sampling constraints</span>, and 
+                <span className="text-teal-400 font-medium"> streaming output</span> to the client.
+              </p>
+            </section>
+
+            {/* Footer */}
+            <footer className="mt-16 text-center text-slate-500 text-sm">
+              <p>End-to-End Inference Lifecycle • Production Systems Tutorial • Interactive Diagram with Tooltips</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<InferenceLifecycleDiagram />);
+  </script>
+</body>
+</html>

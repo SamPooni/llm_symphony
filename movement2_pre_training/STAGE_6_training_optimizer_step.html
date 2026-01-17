@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stage 6: Optimizer Step - Training Lifecycle</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function OptimizerStepStage() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Key Metrics
+        'metric-lr': {
+          title: '📈 LEARNING RATE',
+          content: 'The most important hyperparameter. Controls step size. Too high: diverge. Too low: slow convergence.',
+          typical: 'LLMs: 1e-4 to 6e-4 peak\nWarmup from 0 to peak\nCosine decay to ~10% of peak',
+          scaling: 'LR scales with √batch_size\nLarger batch → larger LR OK\nBut diminishing returns'
+        },
+        'metric-memory': {
+          title: '💾 OPTIMIZER MEMORY',
+          content: 'Adam stores m (momentum) and v (variance) per parameter. 2× model size for FP32 states.',
+          breakdown: 'Adam m: 4 bytes/param (FP32)\nAdam v: 4 bytes/param (FP32)\nTotal: 8 bytes/param',
+          example: '70B model:\nm: 280GB\nv: 280GB\nTotal: 560GB optimizer states'
+        },
+        'metric-update': {
+          title: '🔄 UPDATE SIZE',
+          content: 'How much weights change per step. Should be small relative to weight magnitude.',
+          typical: 'Update/weight ratio: ~0.001\nToo large: instability\nToo small: slow progress',
+          monitoring: 'Track ||update|| / ||weight||\nAlert if ratio explodes\nDiagnostic for training health'
+        },
+        'metric-steps': {
+          title: '🔢 TOTAL STEPS',
+          content: 'Total optimizer steps in training. Determines tokens seen and compute budget.',
+          formula: 'steps = total_tokens / batch_size\n2T tokens, 4M batch = 500K steps',
+          duration: 'LLaMA-70B: ~500K steps\nEach step: forward + backward + sync + update\nWeeks to months of training'
+        },
+
+        // Unscaling
+        'unscale-why': {
+          title: '❓ Why Unscale?',
+          content: 'If using FP16 loss scaling, gradients are scaled up. Must unscale before optimizer.',
+          flow: 'Loss scaled by 65536\nGradients also scaled\nUnscale: divide by 65536\nNow gradients are true values',
+          bf16: 'BF16: No scaling needed\nGradients already correct\nSkip unscale step'
+        },
+        'unscale-check': {
+          title: '🔍 Inf/NaN Check',
+          content: 'After unscaling, check for invalid values. Skip step if overflow detected.',
+          mechanism: 'scaler.unscale_(optimizer)\nCheck all gradients for inf/nan\nIf found: skip step, reduce scale',
+          recovery: 'Don\'t update weights\nHalve loss scale\nTry again next step'
+        },
+        'unscale-scaler': {
+          title: '📊 GradScaler',
+          content: 'PyTorch\'s automatic loss scaling manager. Handles scale, unscale, and dynamic adjustment.',
+          api: 'scaler = GradScaler()\nscaler.scale(loss).backward()\nscaler.unscale_(optimizer)\nscaler.step(optimizer)\nscaler.update()',
+          dynamic: 'Auto-increase scale if stable\nAuto-decrease on overflow\nHands-off management'
+        },
+
+        // Gradient Clipping
+        'clip-why': {
+          title: '❓ Why Clip?',
+          content: 'Prevent gradient explosion from causing huge weight updates. Safety mechanism.',
+          problem: 'Bad batch → huge gradient\nHuge gradient → huge update\nHuge update → model diverges',
+          solution: 'Limit gradient magnitude\nCap the maximum change\nStabilize training'
+        },
+        'clip-global': {
+          title: '🌐 Global Norm Clipping',
+          content: 'Compute norm of all gradients concatenated. Scale down if exceeds threshold.',
+          formula: 'global_norm = √(Σ ||g_i||²)\nif global_norm > max_norm:\n  g_i = g_i × (max_norm / global_norm)',
+          typical: 'max_norm = 1.0 (common)\nPreserves gradient direction\nJust scales magnitude'
+        },
+        'clip-value': {
+          title: '✂️ Value Clipping',
+          content: 'Clip each gradient element to [-max, max]. Simpler but changes direction.',
+          formula: 'g = clamp(g, -max_value, max_value)',
+          comparison: 'Less common than norm clipping\nChanges gradient direction\nNorm clipping preferred'
+        },
+        'clip-monitor': {
+          title: '📊 Clip Monitoring',
+          content: 'Track how often clipping activates. Frequent clipping may indicate problems.',
+          metrics: 'grad_norm: Pre-clip gradient norm\nclip_ratio: % of steps clipped\nIf always clipping: LR too high?',
+          healthy: 'Occasional clipping: Normal\nConstant clipping: Investigate\nNever clipping: Can increase LR?'
+        },
+
+        // AdamW Optimizer
+        'adam-momentum': {
+          title: '📈 Momentum (m)',
+          content: 'Exponential moving average of gradients. Smooths updates, builds momentum in consistent directions.',
+          formula: 'm_t = β₁ × m_{t-1} + (1 - β₁) × g_t\nβ₁ = 0.9 typical\nm accumulates gradient direction',
+          effect: 'Smooths noisy gradients\nAccelerates in consistent direction\nReduces oscillation'
+        },
+        'adam-variance': {
+          title: '📊 Variance (v)',
+          content: 'Exponential moving average of squared gradients. Adapts learning rate per-parameter.',
+          formula: 'v_t = β₂ × v_{t-1} + (1 - β₂) × g_t²\nβ₂ = 0.95-0.999\nv tracks gradient magnitude',
+          effect: 'Large v → smaller effective LR\nSmall v → larger effective LR\nAuto-adaptation per param'
+        },
+        'adam-bias': {
+          title: '🔧 Bias Correction',
+          content: 'Correct for initialization bias in early steps. m and v start at 0, need correction.',
+          formula: 'm̂_t = m_t / (1 - β₁^t)\nv̂_t = v_t / (1 - β₂^t)\nCorrection decreases over time',
+          why: 'Step 1: m_t is only 0.1×g (biased low)\nCorrection: m̂ = m_t / 0.1 = g\nFixes early training'
+        },
+        'adam-update': {
+          title: '⬆️ Update Rule',
+          content: 'The actual weight update. Gradient divided by sqrt(variance), scaled by LR.',
+          formula: 'θ_t = θ_{t-1} - lr × m̂_t / (√v̂_t + ε)\nε = 1e-8 (numerical stability)',
+          intuition: 'Large v (noisy): smaller step\nSmall v (consistent): larger step\nAdaptive per-parameter'
+        },
+        'adam-decay': {
+          title: '⚖️ Weight Decay',
+          content: 'AdamW decouples weight decay from gradient. Directly shrinks weights toward zero.',
+          formula: 'θ_t = θ_{t-1} × (1 - lr × λ) - lr × adam_update\nλ = 0.1 typical',
+          decoupled: 'Adam: decay in gradient (bad)\nAdamW: decay separate (good)\nAdamW preferred for LLMs'
+        },
+
+        // Other Optimizers
+        'opt-sgd': {
+          title: '📉 SGD + Momentum',
+          content: 'Simple stochastic gradient descent with momentum. Less memory than Adam.',
+          formula: 'v_t = μ × v_{t-1} + g_t\nθ_t = θ_{t-1} - lr × v_t\nμ = 0.9 typical',
+          comparison: 'Less memory (no v states)\nHarder to tune\nRarely used for LLMs'
+        },
+        'opt-lamb': {
+          title: '🐑 LAMB/LARS',
+          content: 'Layer-wise adaptive learning rates. Useful for very large batch training.',
+          mechanism: 'Scale LR by ||weight|| / ||update||\nPer-layer scaling\nEnables larger batches',
+          usage: 'BERT large-batch training\nLess common for LLMs\nSpecialized use case'
+        },
+        'opt-8bit': {
+          title: '💾 8-bit Adam',
+          content: 'Quantize optimizer states to 8-bit. Saves memory with minimal quality loss.',
+          mechanism: 'm, v stored in INT8\nDynamic range per tensor\nbitsandbytes library',
+          savings: '4× less optimizer memory\nMinimal accuracy loss\nGood for memory-limited training'
+        },
+
+        // Learning Rate Schedule
+        'lr-warmup': {
+          title: '🔥 Warmup',
+          content: 'Gradually increase LR from 0 to peak. Stabilizes early training when gradients are large.',
+          formula: 'lr = peak_lr × (step / warmup_steps)\nLinear increase from 0',
+          typical: 'warmup_steps = 2000\n0.5-2% of total steps\nPrevents early divergence'
+        },
+        'lr-cosine': {
+          title: '📉 Cosine Decay',
+          content: 'Smooth decay from peak to minimum using cosine curve. Most common for LLMs.',
+          formula: 'lr = min_lr + (peak_lr - min_lr) × (1 + cos(π × t)) / 2\nt = progress from 0 to 1',
+          typical: 'min_lr = 0.1 × peak_lr\nSmooth decrease\nNo sudden drops'
+        },
+        'lr-linear': {
+          title: '📉 Linear Decay',
+          content: 'Linearly decrease LR from peak to minimum. Simpler than cosine.',
+          formula: 'lr = peak_lr - (peak_lr - min_lr) × t\nt = progress from 0 to 1',
+          usage: 'Some prefer linear\nSimilar results to cosine\nEasier to reason about'
+        },
+        'lr-constant': {
+          title: '➡️ Constant (After Warmup)',
+          content: 'Keep LR constant after warmup. Used for some fine-tuning scenarios.',
+          usage: 'Fine-tuning: often constant\nPretraining: usually decay\nSimplest schedule'
+        },
+
+        // Zero Grad
+        'zero-why': {
+          title: '❓ Why Zero Grad?',
+          content: 'PyTorch accumulates gradients by default. Must zero before next forward-backward.',
+          problem: 'Without zeroing: gradients accumulate\nStep 2 has grad from step 1+2\nWrong update!',
+          timing: 'After optimizer.step()\nBefore next forward\nOr at start of step'
+        },
+        'zero-set': {
+          title: '⚡ set_to_none=True',
+          content: 'Instead of zeroing, set gradients to None. Faster and saves memory temporarily.',
+          comparison: 'zero_grad(): sets to 0 tensor\nzero_grad(set_to_none=True): sets to None\nNone is faster, less memory',
+          usage: 'Recommended default\nGradient allocated on next backward\nMinor optimization'
+        },
+
+        // Distributed Optimizer
+        'dist-opt-sharded': {
+          title: '🔀 Sharded Optimizer',
+          content: 'FSDP/ZeRO: optimizer states sharded across ranks. Each rank updates its shard.',
+          mechanism: 'Rank 0: optimizer states for shard 0\nRank 1: optimizer states for shard 1\n...\nNo redundancy',
+          benefit: '1/N optimizer memory per rank\nEnables larger models\nAllGather params after update'
+        },
+        'dist-opt-update': {
+          title: '⬆️ Distributed Update',
+          content: 'Each rank updates its owned parameters. Then AllGather to share updated weights.',
+          flow: 'Local optimizer.step() on shard\nAllGather updated parameters\nAll ranks have full model',
+          fsdp: 'FSDP handles automatically\nOptimizer only sees shards\nTransparent to user'
+        },
+
+        // Step Summary
+        'step-complete': {
+          title: '✅ Step Complete',
+          content: 'One training step finished. Model weights updated. Ready for next batch.',
+          checklist: '✓ Gradients unscaled\n✓ Gradients clipped\n✓ Weights updated\n✓ LR stepped\n✓ Gradients zeroed',
+          metrics: 'Log: loss, grad_norm, lr\nTrack: step time, throughput\nMonitor: memory usage'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.typical && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TYPICAL VALUES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.typical}</pre>
+              </div>
+            )}
+            {t.flow && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FLOW</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.flow}</pre>
+              </div>
+            )}
+            {t.effect && (
+              <div className="text-xs text-blue-400 mb-2">
+                <span className="font-bold">📊 Effect: </span>{t.effect}
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-green-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-emerald-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-teal-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-green-600/30 border border-green-400 rounded-full mb-6">
+                <span className="text-green-300 font-bold">STAGE 6</span>
+                <span className="text-white">•</span>
+                <span className="text-green-200 font-medium">Hover over any item for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400">
+                Optimizer Step
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-green-300 font-bold">Unscale → Clip → Update → Schedule</span> — weights finally change.
+                <span className="text-emerald-300 ml-2">🖱️ Hover for detailed tooltips.</span>
+              </p>
+            </header>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-4 gap-4 mb-12">
+              <Hoverable id="metric-lr">
+                <div className="p-5 rounded-xl bg-green-600/90 border-2 border-green-400 shadow-lg shadow-green-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">📈</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">LEARNING RATE</span>
+                  </div>
+                  <div className="text-3xl font-black text-green-100">3e-4</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Typical peak LR</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-memory">
+                <div className="p-5 rounded-xl bg-emerald-600/90 border-2 border-emerald-400 shadow-lg shadow-emerald-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">💾</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">OPTIMIZER MEM</span>
+                  </div>
+                  <div className="text-3xl font-black text-emerald-100">560GB</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">Adam for 70B</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-update">
+                <div className="p-5 rounded-xl bg-teal-600/90 border-2 border-teal-400 shadow-lg shadow-teal-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔄</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">UPDATE RATIO</span>
+                  </div>
+                  <div className="text-3xl font-black text-teal-100">~0.1%</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">|Δw| / |w|</div>
+                </div>
+              </Hoverable>
+              
+              <Hoverable id="metric-steps">
+                <div className="p-5 rounded-xl bg-cyan-600/90 border-2 border-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-3xl">🔢</span>
+                    <span className="text-sm font-black text-white/90 tracking-wider">TOTAL STEPS</span>
+                  </div>
+                  <div className="text-3xl font-black text-cyan-100">500K</div>
+                  <div className="text-sm text-white/80 font-medium mt-1">LLaMA-70B training</div>
+                </div>
+              </Hoverable>
+            </div>
+
+            {/* SECTION 1: UNSCALE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">6.1 UNSCALE GRADIENTS</h2>
+                  <p className="text-yellow-200/80">Reverse loss scaling for FP16 training (skip for BF16)</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="unscale-why">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">❓ Why Unscale?</div>
+                    <div className="text-yellow-100/80 text-sm">Gradients scaled during backward</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">÷ scale to get true values</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="unscale-check">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">🔍 Inf/NaN Check</div>
+                    <div className="text-orange-100/80 text-sm">Check for overflow</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Skip step if invalid</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="unscale-scaler">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">📊 GradScaler</div>
+                    <div className="text-amber-100/80 text-sm">Auto scaling manager</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Dynamic adjustment</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-yellow-400 to-red-400 rounded-full" />
+            </div>
+
+            {/* SECTION 2: GRADIENT CLIPPING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-red-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-red-300">6.2 GRADIENT CLIPPING</h2>
+                  <p className="text-red-200/80">Prevent gradient explosion with norm clipping</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <Hoverable id="clip-why">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">❓ Why Clip?</div>
+                    <div className="text-red-100/80 text-sm">Prevent huge updates</div>
+                    <div className="text-red-100/60 text-xs mt-2">Stabilize training</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clip-global">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-xl font-black text-rose-200 mb-2">🌐 Global Norm</div>
+                    <div className="text-rose-100/80 text-sm">max_norm = 1.0</div>
+                    <div className="text-rose-100/60 text-xs mt-2">Scale if exceeds</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clip-value">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">✂️ Value Clip</div>
+                    <div className="text-pink-100/80 text-sm">Per-element clamp</div>
+                    <div className="text-pink-100/60 text-xs mt-2">Less common</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="clip-monitor">
+                  <div className="p-4 rounded-xl bg-fuchsia-900/50 border-2 border-fuchsia-400">
+                    <div className="text-xl font-black text-fuchsia-200 mb-2">📊 Monitor</div>
+                    <div className="text-fuchsia-100/80 text-sm">Track clip frequency</div>
+                    <div className="text-fuchsia-100/60 text-xs mt-2">Diagnostic metric</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Clipping Visualization */}
+              <div className="bg-slate-900/80 border border-red-500/30 rounded-xl p-4">
+                <div className="text-red-300 font-bold mb-3">✂️ Global Norm Clipping</div>
+                <div className="font-mono text-sm">
+                  <div className="text-cyan-300">global_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0)</div>
+                  <div className="text-slate-400 mt-2"># If global_norm > 1.0: all gradients scaled by (1.0 / global_norm)</div>
+                  <div className="text-slate-400"># Direction preserved, magnitude capped</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-red-400 to-green-400 rounded-full" />
+            </div>
+
+            {/* SECTION 3: ADAMW UPDATE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">6.3 ADAMW UPDATE</h2>
+                  <p className="text-green-200/80">The actual weight update — momentum + adaptive learning</p>
+                </div>
+              </div>
+
+              {/* Adam Components */}
+              <div className="grid grid-cols-5 gap-3 mb-6">
+                <Hoverable id="adam-momentum">
+                  <div className="p-3 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-1">📈 Momentum (m)</div>
+                    <div className="text-green-100/70 text-xs">EMA of gradients</div>
+                    <div className="text-green-100/50 text-xs mt-1">β₁ = 0.9</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="adam-variance">
+                  <div className="p-3 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-1">📊 Variance (v)</div>
+                    <div className="text-emerald-100/70 text-xs">EMA of grad²</div>
+                    <div className="text-emerald-100/50 text-xs mt-1">β₂ = 0.95</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="adam-bias">
+                  <div className="p-3 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-1">🔧 Bias Correct</div>
+                    <div className="text-teal-100/70 text-xs">Fix early steps</div>
+                    <div className="text-teal-100/50 text-xs mt-1">m̂, v̂</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="adam-update">
+                  <div className="p-3 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-1">⬆️ Update</div>
+                    <div className="text-cyan-100/70 text-xs">m̂ / √v̂</div>
+                    <div className="text-cyan-100/50 text-xs mt-1">Adaptive step</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="adam-decay">
+                  <div className="p-3 rounded-xl bg-sky-900/50 border-2 border-sky-400">
+                    <div className="text-lg font-black text-sky-200 mb-1">⚖️ Weight Decay</div>
+                    <div className="text-sky-100/70 text-xs">Decoupled λ</div>
+                    <div className="text-sky-100/50 text-xs mt-1">λ = 0.1</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* AdamW Formula */}
+              <div className="bg-slate-900/80 border-2 border-green-500/50 rounded-xl p-6">
+                <div className="text-lg font-black text-green-300 mb-4">📐 AdamW Update Rule</div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="bg-black/50 rounded-lg p-4 font-mono text-sm">
+                    <div className="text-slate-400"># Momentum update</div>
+                    <div className="text-green-300">m = β₁ × m + (1 - β₁) × g</div>
+                    <div className="text-slate-400 mt-2"># Variance update</div>
+                    <div className="text-emerald-300">v = β₂ × v + (1 - β₂) × g²</div>
+                    <div className="text-slate-400 mt-2"># Bias correction</div>
+                    <div className="text-teal-300">m̂ = m / (1 - β₁ᵗ)</div>
+                    <div className="text-teal-300">v̂ = v / (1 - β₂ᵗ)</div>
+                  </div>
+                  <div className="bg-black/50 rounded-lg p-4 font-mono text-sm">
+                    <div className="text-slate-400"># Weight decay (decoupled)</div>
+                    <div className="text-cyan-300">θ = θ × (1 - lr × λ)</div>
+                    <div className="text-slate-400 mt-2"># Adam update</div>
+                    <div className="text-yellow-300">θ = θ - lr × m̂ / (√v̂ + ε)</div>
+                    <div className="text-slate-400 mt-4"># Typical values:</div>
+                    <div className="text-slate-500">β₁=0.9, β₂=0.95, λ=0.1, ε=1e-8</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Other Optimizers */}
+              <div className="mt-4 grid grid-cols-3 gap-4">
+                <Hoverable id="opt-sgd">
+                  <div className="bg-slate-800/50 border border-slate-500 rounded-lg p-3">
+                    <div className="text-slate-300 font-bold text-sm">📉 SGD + Momentum</div>
+                    <div className="text-slate-400 text-xs">Less memory, harder tuning</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="opt-lamb">
+                  <div className="bg-slate-800/50 border border-slate-500 rounded-lg p-3">
+                    <div className="text-slate-300 font-bold text-sm">🐑 LAMB/LARS</div>
+                    <div className="text-slate-400 text-xs">Large batch training</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="opt-8bit">
+                  <div className="bg-slate-800/50 border border-slate-500 rounded-lg p-3">
+                    <div className="text-slate-300 font-bold text-sm">💾 8-bit Adam</div>
+                    <div className="text-slate-400 text-xs">4× less memory</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-green-400 to-blue-400 rounded-full" />
+            </div>
+
+            {/* SECTION 4: LEARNING RATE SCHEDULE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">6.4 LEARNING RATE SCHEDULE</h2>
+                  <p className="text-blue-200/80">Warmup → Peak → Decay throughout training</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <Hoverable id="lr-warmup">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">🔥 Warmup</div>
+                    <div className="text-orange-100/80 text-sm">0 → peak LR</div>
+                    <div className="text-orange-100/60 text-xs mt-2">~2000 steps</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="lr-cosine">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">📉 Cosine Decay</div>
+                    <div className="text-blue-100/80 text-sm">peak → min LR</div>
+                    <div className="text-blue-100/60 text-xs mt-2">Smooth curve</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="lr-linear">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-xl font-black text-indigo-200 mb-2">📉 Linear Decay</div>
+                    <div className="text-indigo-100/80 text-sm">Straight line</div>
+                    <div className="text-indigo-100/60 text-xs mt-2">Alternative</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="lr-constant">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">➡️ Constant</div>
+                    <div className="text-purple-100/80 text-sm">No decay</div>
+                    <div className="text-purple-100/60 text-xs mt-2">Fine-tuning</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* LR Schedule Visualization */}
+              <div className="bg-slate-900/80 border border-blue-500/30 rounded-xl p-4">
+                <div className="text-blue-300 font-bold mb-3">📈 Typical LR Schedule (Warmup + Cosine)</div>
+                <div className="flex items-end justify-between h-20 px-4">
+                  {/* Warmup */}
+                  <div className="flex items-end gap-1">
+                    {[10, 30, 50, 70, 90].map((h, i) => (
+                      <div key={i} className="bg-orange-500 w-3" style={{height: `${h}%`}}></div>
+                    ))}
+                  </div>
+                  {/* Peak */}
+                  <div className="bg-green-500 w-4 h-full"></div>
+                  {/* Cosine decay */}
+                  {[95, 88, 78, 65, 50, 38, 28, 20, 15, 12, 10].map((h, i) => (
+                    <div key={i} className="bg-blue-500 w-3" style={{height: `${h}%`}}></div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs text-slate-400 mt-2 px-4">
+                  <span>Warmup (2K steps)</span>
+                  <span>Peak (3e-4)</span>
+                  <span>Cosine Decay → Min (3e-5)</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Flow Arrow */}
+            <div className="flex justify-center my-6">
+              <div className="w-1 h-10 bg-gradient-to-b from-blue-400 to-purple-400 rounded-full" />
+            </div>
+
+            {/* SECTION 5: ZERO GRAD & DISTRIBUTED */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">6.5 FINALIZE STEP</h2>
+                  <p className="text-purple-200/80">Zero gradients and handle distributed updates</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Zero Grad */}
+                <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-purple-300 mb-4">🗑️ Zero Gradients</div>
+                  <div className="space-y-3">
+                    <Hoverable id="zero-why">
+                      <div className="bg-purple-900/40 border border-purple-400 rounded-lg p-3">
+                        <div className="text-purple-200 font-bold text-sm">❓ Why Zero?</div>
+                        <div className="text-purple-100/60 text-xs">PyTorch accumulates by default</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="zero-set">
+                      <div className="bg-violet-900/40 border border-violet-400 rounded-lg p-3">
+                        <div className="text-violet-200 font-bold text-sm">⚡ set_to_none=True</div>
+                        <div className="text-violet-100/60 text-xs">Faster than zeroing</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+
+                {/* Distributed */}
+                <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-5">
+                  <div className="text-lg font-black text-purple-300 mb-4">🔀 Distributed Optimizer</div>
+                  <div className="space-y-3">
+                    <Hoverable id="dist-opt-sharded">
+                      <div className="bg-indigo-900/40 border border-indigo-400 rounded-lg p-3">
+                        <div className="text-indigo-200 font-bold text-sm">🔀 Sharded States</div>
+                        <div className="text-indigo-100/60 text-xs">Each rank: 1/N optimizer states</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="dist-opt-update">
+                      <div className="bg-blue-900/40 border border-blue-400 rounded-lg p-3">
+                        <div className="text-blue-200 font-bold text-sm">⬆️ Local Update + AllGather</div>
+                        <div className="text-blue-100/60 text-xs">Update shard, share results</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Step Complete */}
+            <Hoverable id="step-complete">
+              <div className="bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-2 border-green-400/50 rounded-xl p-8 text-center">
+                <div className="text-2xl font-black text-white mb-4">
+                  ✅ Stage 6 Complete → Weights Updated!
+                </div>
+                <div className="text-slate-300 max-w-3xl mx-auto">
+                  One training step finished. Model is slightly better. Next: <span className="text-sky-300 font-bold">Stage 7: Checkpointing & Monitoring</span> — save progress and track metrics.
+                </div>
+                <div className="mt-4 flex justify-center gap-8 text-sm">
+                  <div className="text-green-300">
+                    <span className="font-bold">✓ Unscaled</span>
+                  </div>
+                  <div className="text-emerald-300">
+                    <span className="font-bold">✓ Clipped</span>
+                  </div>
+                  <div className="text-teal-300">
+                    <span className="font-bold">✓ Updated</span>
+                  </div>
+                  <div className="text-cyan-300">
+                    <span className="font-bold">✓ Scheduled</span>
+                  </div>
+                  <div className="text-sky-300">
+                    <span className="font-bold">✓ Zeroed</span>
+                  </div>
+                </div>
+              </div>
+            </Hoverable>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Stage 6: Optimizer Step • End-to-End Training Lifecycle</p>
+              <p className="text-xs mt-1 text-slate-600">Unscale → Clip → Adam Update → LR Schedule → Zero Grad</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<OptimizerStepStage />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Pipeline - Full Architecture with LLM Inference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .pulse { animation: pulse 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+    function AgentPipeline() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+
+      const tooltips = {
+        // Overview
+        'overview-key': { title: '🔑 KEY INSIGHT', content: 'The LLM Inference Pipeline (Stages 0-13) runs MULTIPLE TIMES within a single agent request. Each "Think" step in the agentic loop triggers a full LLM inference.', details: 'Single user request might trigger:\n- 1st LLM call: Decide to search\n- 2nd LLM call: Process search results\n- 3rd LLM call: Decide to calculate\n- 4th LLM call: Generate final answer\n\n4 complete inference pipelines for 1 user question!', example: 'User: "What\'s the weather in NYC and convert to Celsius?"\n\nLLM Call 1: → tool_call(get_weather)\nLLM Call 2: → tool_call(convert_temp)\nLLM Call 3: → final_answer\n\n3 × full inference pipeline' },
+        
+        // Agent Layer
+        'agent-orchestrator': { title: '🎭 Agent Orchestrator', content: 'The "brain" that manages the agentic loop. Decides when to call LLM, when to execute tools, when to stop. NOT the LLM itself - it\'s the code wrapping the LLM.', details: 'Responsibilities:\n- Manage conversation state\n- Route to LLM or tools\n- Handle errors and retries\n- Enforce stopping conditions\n- Track token/cost budgets\n\nImplementations: LangChain Agent, AutoGen, custom code', example: 'while not done:\n    llm_response = call_llm(context)\n    if llm_response.has_tool_call:\n        result = execute_tool(llm_response.tool)\n        context.add(result)\n    elif llm_response.is_final:\n        return llm_response.content\n    else:\n        context.add(llm_response)' },
+        'agent-state': { title: '📊 Agent State Manager', content: 'Tracks all state across the agentic loop: conversation history, tool results, working memory, iteration count, token usage.', details: 'State includes:\n- messages: Full conversation history\n- tool_results: Results from tool calls\n- iteration: Current loop iteration\n- tokens_used: Running token count\n- memory: Working scratchpad\n- metadata: Timing, costs, etc.', example: '{\n  "messages": [...],\n  "tool_calls": [\n    {"name": "search", "result": "..."},\n    {"name": "calc", "result": "42"}\n  ],\n  "iteration": 3,\n  "tokens_used": 4521,\n  "start_time": "2024-01-15T10:30:00Z"\n}' },
+        'agent-memory': { title: '🧠 Memory Systems', content: 'Multiple memory types feed into each LLM call. Short-term (conversation), working (current task), long-term (vector DB), episodic (past experiences).', details: 'Memory hierarchy:\n1. Immediate: Current turn context\n2. Short-term: Recent conversation (~10 turns)\n3. Working: Current task scratchpad\n4. Long-term: Vector DB, persistent facts\n5. Episodic: Past task successes/failures\n\nAll assembled into context before LLM call', example: 'Context assembly:\n- System prompt (from long-term)\n- User preferences (from long-term)\n- Recent conversation (short-term)\n- Current task state (working)\n- Similar past tasks (episodic)\n→ Combined into single prompt' },
+
+        // Context Assembly
+        'ctx-system': { title: '📋 System Prompt', content: 'Base instructions for the agent. Defines role, capabilities, constraints. Loaded from config or memory. Same across iterations.', details: 'Contains:\n- Agent role and persona\n- Behavioral guidelines\n- Output format instructions\n- Safety constraints\n- Available tools summary\n\nTypically 500-2000 tokens, cached', example: 'You are a helpful research assistant.\n\nYou have access to:\n- web_search: Search the internet\n- calculator: Do math\n- code_executor: Run Python code\n\nAlways cite sources. Be concise.\nIf unsure, say so.' },
+        'ctx-tools': { title: '🔧 Tool Definitions', content: 'JSON schemas for available tools. Injected into every LLM call. LLM learns to call tools from these descriptions.', details: 'Per tool:\n- name: Unique identifier\n- description: When/how to use (crucial!)\n- parameters: JSON schema\n- required: Which params needed\n\nTokens: 100-500 per tool\n10 tools = 1000-5000 tokens!', example: '{\n  "name": "web_search",\n  "description": "Search the web for current information. Use for facts, news, or data you don\'t know.",\n  "parameters": {\n    "type": "object",\n    "properties": {\n      "query": {\n        "type": "string",\n        "description": "Search query"\n      }\n    },\n    "required": ["query"]\n  }\n}' },
+        'ctx-history': { title: '💬 Conversation History', content: 'All previous messages in this session: user messages, assistant responses, tool calls, tool results. Grows each iteration!', details: 'Message types:\n- user: Human input\n- assistant: LLM output (text or tool_call)\n- tool: Tool execution result\n\nGrowth: Each iteration adds 2-4 messages\n10 iterations = 20-40 messages\nMay need summarization/truncation', example: '[\n  {"role": "user", "content": "Weather in NYC?"},\n  {"role": "assistant", "tool_calls": [...]},\n  {"role": "tool", "content": "72°F sunny"},\n  {"role": "assistant", "content": "It\'s 72°F..."},\n  {"role": "user", "content": "Convert to Celsius"},\n  ...\n]' },
+        'ctx-results': { title: '📥 Tool Results', content: 'Results from previous tool executions in this loop. Formatted and injected as tool messages. Provides grounding data.', details: 'Formatting considerations:\n- Truncate long results (max tokens)\n- Preserve structure (JSON/tables)\n- Include metadata (source, timestamp)\n- Handle errors gracefully\n\nBecomes "observation" in ReAct pattern', example: 'Tool: web_search("NYC weather")\nRaw result: 5KB JSON from API\n\nFormatted for LLM:\n"Weather in New York City:\n- Temperature: 72°F (22°C)\n- Conditions: Sunny\n- Humidity: 45%\n- Wind: 5 mph NW\nSource: weather.gov, updated 5 min ago"' },
+        'ctx-working': { title: '📝 Working Memory', content: 'Scratchpad for current task. Intermediate results, partial plans, notes. Persists across loop iterations but not across tasks.', details: 'Contents:\n- Current plan/steps\n- Intermediate calculations\n- Extracted entities\n- Hypotheses being tested\n- Notes from previous iterations\n\nCleared when task completes', example: 'Working memory:\n- Task: Find and compare weather\n- Step 1: ✓ Got NYC weather (72°F)\n- Step 2: ✓ Got LA weather (85°F)\n- Step 3: In progress - comparing\n- Note: User prefers Celsius' },
+
+        // LLM Inference Box
+        'llm-box': { title: '⚡ LLM INFERENCE PIPELINE', content: 'This is where our previous Stages 0-13 happen! The entire inference pipeline runs EACH TIME the agent needs to "think". Multiple times per user request.', details: 'Full pipeline per call:\n0. Pre-model (auth, routing)\n1-2. Normalization & tokenization\n3-4. Prompt assembly & prefill (O(n²)!)\n5-6. KV cache & decode loop\n7-9. Sampling & stop conditions\n10-13. Streaming & post-processing\n\nLatency: 500ms - 30s per call\nCost: $0.01 - $0.50 per call', example: 'Agent iteration 1:\n  → Full LLM pipeline (2 seconds)\n  → Output: tool_call(search)\n\nAgent iteration 2:\n  → Full LLM pipeline (3 seconds)\n  → Context now larger (search results)\n  → Output: final_answer\n\nTotal: 2 full inference pipelines' },
+        'llm-stages-0': { title: 'Stage 0: Pre-Model', content: 'Authentication, rate limiting, routing, request validation. Happens before any GPU work.', details: 'Steps:\n- API key validation\n- Rate limit check\n- Request validation\n- Router selection\n- Hard guardrails check', example: 'Latency: 5-50ms\nCan reject before GPU cost' },
+        'llm-stages-12': { title: 'Stages 1-2: Tokenization', content: 'Normalize text, convert to tokens. Input normalization and BPE tokenization.', details: 'Steps:\n- Unicode normalization\n- Security sanitization\n- BPE encoding\n- Special tokens\n- Position IDs', example: '"Hello world" → [15496, 995]\nLatency: 1-10ms' },
+        'llm-stages-34': { title: 'Stages 3-4: Prefill', content: 'Prompt assembly, full attention over all tokens. O(n²) - expensive for long contexts!', details: 'Steps:\n- Assemble context window\n- Embedding lookup\n- Full self-attention (O(n²))\n- Create KV cache\n\nDominates latency for long prompts', example: '8K tokens → 64M attention ops\nLatency: 500ms - 5s' },
+        'llm-stages-56': { title: 'Stages 5-6: Decode', content: 'Generate tokens one at a time. Memory-bound, sequential. KV cache enables O(n) per token.', details: 'Steps per token:\n- Attend over KV cache\n- Update KV cache\n- MLP forward pass\n- Project to logits\n\nLatency: 20-100ms per token', example: '100 tokens output\n= 100 decode iterations\n= 2-10 seconds' },
+        'llm-stages-79': { title: 'Stages 7-9: Sampling', content: 'Temperature, top-k/p, penalties, stop conditions. Select next token or stop.', details: 'Steps:\n- Temperature scaling\n- Top-k/p filtering\n- Repetition penalty\n- Sample token\n- Check stop conditions', example: 'Stop on:\n- EOS token\n- max_tokens reached\n- Tool call detected\n- Stop sequence found' },
+        'llm-stages-1013': { title: 'Stages 10-13: Output', content: 'Streaming, detokenization, safety filters, response delivery.', details: 'Steps:\n- Stream tokens to client\n- Detokenize incrementally\n- Safety classifiers\n- Format response\n- Add metadata', example: 'Output:\n- text: "Let me search..."\n- tool_calls: [{...}]\n- usage: {tokens: 150}' },
+
+        // Output Router
+        'router-detect': { title: '🔀 Output Router', content: 'Examines LLM output to determine next action: tool call, final answer, or continue thinking. Critical decision point.', details: 'Detection logic:\n1. Check finish_reason\n2. Parse for tool_calls\n3. Check for stop sequences\n4. Validate output format\n\nRoutes to:\n- Tool executor\n- Response formatter\n- Error handler', example: 'LLM output has tool_calls?\n  → Route to tool executor\n\nLLM output is text only?\n  → Check if final answer\n  → If yes: return to user\n  → If no: continue loop' },
+        'router-tool': { title: '🔧 Tool Call Detected', content: 'LLM output contains structured tool call. Parse it, validate against schema, route to tool executor.', details: 'Tool call structure:\n{\n  "id": "call_abc123",\n  "name": "web_search",\n  "arguments": {"query": "..."}\n}\n\nValidation:\n- Tool exists?\n- Args match schema?\n- Permissions OK?', example: 'LLM outputs:\n"I\'ll search for that."\n+ tool_calls: [{\n    name: "web_search",\n    args: {query: "NYC weather"}\n  }]\n\n→ Route to tool executor' },
+        'router-final': { title: '✅ Final Answer', content: 'LLM indicates task is complete. No tool calls, EOS or stop condition met. Return response to user.', details: 'Indicators of final answer:\n- finish_reason: "stop"\n- No tool_calls in output\n- Explicit "Final Answer:" prefix\n- Stop sequence matched\n\n→ Exit loop, return to user', example: 'LLM outputs:\n"The weather in NYC is 72°F (22°C), sunny with low humidity."\nfinish_reason: "stop"\nNo tool_calls\n\n→ Final answer, return to user' },
+        'router-continue': { title: '🔄 Continue Loop', content: 'LLM needs to keep thinking but no tool call. Rare - usually means incomplete generation or multi-step reasoning.', details: 'Scenarios:\n- Max tokens hit mid-thought\n- Multi-step reasoning needed\n- Clarification required\n\nAction: Add response to history, loop again', example: 'LLM outputs:\n"Let me think about this step by step..."\nfinish_reason: "length"\n\n→ Continue loop with extended context' },
+
+        // Tool Execution
+        'tool-parse': { title: '📋 Parse Tool Call', content: 'Extract tool name and arguments from LLM output. Handle JSON parsing, validate structure.', details: 'Parsing steps:\n1. Extract tool_calls from response\n2. Parse arguments JSON string\n3. Validate against tool schema\n4. Check required fields\n5. Type coercion if needed', example: 'Raw: {"name":"search","arguments":"{\\"q\\":\\"test\\"}"}\n\nParsed:\n- tool: "search"\n- args: {q: "test"}\n\nValidated: ✓ matches schema' },
+        'tool-permission': { title: '🔐 Permission Check', content: 'Verify agent has permission to call this tool with these arguments. Enforce least privilege.', details: 'Checks:\n- Tool in allowed list?\n- User has permission?\n- Args within limits?\n- Rate limit OK?\n- Requires human approval?\n\nReject if any check fails', example: 'Tool: send_email\nArgs: {to: "ceo@company.com"}\n\nPermission check:\n- send_email allowed? ✓\n- External email? → Requires approval\n\n→ Pause for human confirmation' },
+        'tool-execute': { title: '⚡ Execute Tool', content: 'Actually run the tool. May be API call, code execution, database query, etc. Sandboxed with timeout.', details: 'Execution environment:\n- Timeout: 30-60 seconds\n- Sandboxed (for code)\n- Error handling\n- Retry logic (for transient failures)\n- Audit logging', example: 'Tool: web_search("NYC weather")\n\nExecution:\n1. Call search API\n2. Wait for response (2s)\n3. Parse results\n4. Handle errors if any\n5. Return result' },
+        'tool-format': { title: '📤 Format Result', content: 'Convert raw tool output into LLM-friendly format. Truncate, structure, add metadata.', details: 'Formatting:\n- Truncate if too long (max tokens)\n- Extract relevant fields\n- Add source/timestamp\n- Format errors clearly\n- Convert to string if needed', example: 'Raw API response: 50KB JSON\n\nFormatted:\n"Search results for \'NYC weather\':\n1. Current: 72°F, sunny\n2. Forecast: Clear all week\nSource: weather.gov"' },
+        'tool-inject': { title: '💉 Inject to Context', content: 'Add formatted tool result to conversation history. Becomes part of context for next LLM call.', details: 'Injection format:\n{\n  "role": "tool",\n  "tool_call_id": "call_abc123",\n  "content": "Weather: 72°F sunny"\n}\n\nAdded to messages array\nWill be in next LLM context', example: 'Before: 5 messages in history\n\nAfter tool execution:\n6 messages (added tool result)\n\nNext LLM call sees:\n- Original conversation\n- Tool call request\n- Tool result ← NEW' },
+
+        // Loop Control
+        'loop-check': { title: '🔍 Loop Continuation Check', content: 'After each iteration, check if we should continue. Multiple stopping conditions.', details: 'Stop conditions:\n1. Got final answer\n2. Max iterations reached\n3. Token budget exhausted\n4. Time limit exceeded\n5. Error threshold hit\n6. User cancelled', example: 'Iteration 5:\n- Final answer? No\n- Max iterations (10)? No\n- Token budget (8000)? Used 6000, OK\n- Time limit (60s)? At 35s, OK\n\n→ Continue to iteration 6' },
+        'loop-iterate': { title: '🔄 Next Iteration', content: 'Loop back to context assembly with updated state. Tool results now in history. Iteration counter incremented.', details: 'State updates:\n- messages += tool_result\n- iteration += 1\n- tokens_used += last_call_tokens\n- working_memory updated\n\n→ Back to context assembly', example: 'End of iteration 3:\nState: {\n  iteration: 3 → 4,\n  messages: [..., tool_result],\n  tokens: 3000 → 4200\n}\n\n→ Assemble new context\n→ Call LLM again' },
+        'loop-max': { title: '⚠️ Max Iterations', content: 'Safety limit on loop iterations. Prevents infinite loops, runaway costs. Typically 5-20 iterations.', details: 'Typical limits:\n- Simple tasks: 5 iterations\n- Complex tasks: 10-15 iterations\n- Research tasks: 20+ iterations\n\nExceeding: Return partial result or error', example: 'Max iterations: 10\nCurrent: 10\n\n→ Force stop\n→ Return: "I couldn\'t complete the task in the allowed steps. Here\'s what I found so far..."' },
+
+        // Response
+        'response-format': { title: '📦 Format Response', content: 'Take final LLM output, format for client. Add metadata, usage stats, structured data.', details: 'Response includes:\n- content: Final answer text\n- tool_calls: If ending with tool call\n- usage: Total tokens used\n- metadata: Timing, iterations, costs\n- artifacts: Generated files, code, etc.', example: '{\n  "content": "The weather in NYC is 72°F...",\n  "usage": {\n    "prompt_tokens": 4521,\n    "completion_tokens": 89,\n    "total_iterations": 3\n  },\n  "metadata": {\n    "tools_called": ["web_search"],\n    "latency_ms": 4520\n  }\n}' },
+        'response-stream': { title: '📡 Stream to Client', content: 'For the final answer, stream tokens to client in real-time. Better UX than waiting for complete response.', details: 'Streaming:\n- SSE or WebSocket\n- Token by token\n- Include tool call events\n- Final [DONE] signal\n\nClient renders progressively', example: 'data: {"delta": "The "}\ndata: {"delta": "weather "}\ndata: {"delta": "in NYC "}\n...\ndata: {"delta": "."}\ndata: [DONE]' },
+        'response-log': { title: '📊 Logging & Telemetry', content: 'Log complete interaction for debugging, analytics, billing. Trace ID links all iterations.', details: 'Logged data:\n- Request/response\n- All LLM calls\n- Tool executions\n- Errors\n- Latencies\n- Token counts\n- Costs', example: '{\n  "trace_id": "agent_xyz789",\n  "llm_calls": 3,\n  "tool_calls": 2,\n  "total_tokens": 5210,\n  "total_latency_ms": 8340,\n  "estimated_cost": "$0.08"\n}' },
+
+        // Key Insights
+        'insight-multiple': { title: '🔁 MULTIPLE LLM CALLS', content: 'Key insight: One user request = multiple complete LLM inference pipelines. The agent loop wraps multiple LLM calls.', details: 'Example flow:\n1. User: "Research topic X"\n2. LLM call 1: Decide to search (2s)\n3. LLM call 2: Analyze results (3s)\n4. LLM call 3: Need more info (2s)\n5. LLM call 4: Synthesize (4s)\n\nTotal: 4 LLM calls, 11s for 1 request', example: 'Simple question: 1 LLM call\nTool use question: 2-3 LLM calls\nComplex research: 5-10 LLM calls\nAutonomous coding: 20+ LLM calls\n\nEach call = full Stages 0-13!' },
+        'insight-context': { title: '📈 GROWING CONTEXT', content: 'Each iteration, context grows. Tool results added to history. Later iterations have longer prefill (O(n²) cost!).', details: 'Context growth:\n- Iter 1: 2000 tokens\n- Iter 2: 2500 tokens (+tool result)\n- Iter 3: 3200 tokens (+another result)\n- Iter 4: 4000 tokens\n\nPrefill cost grows quadratically!', example: 'Iteration 1: 2K tokens, 200ms prefill\nIteration 5: 6K tokens, 1.8s prefill\nIteration 10: 10K tokens, 5s prefill\n\nLater iterations MUCH slower' },
+        'insight-cost': { title: '💰 COST MULTIPLIER', content: 'Agent costs = sum of all LLM calls + tool costs. A 5-iteration agent costs ~5x a single completion. Budget accordingly!', details: 'Cost calculation:\n- Each LLM call: $X based on tokens\n- Tool calls: Often free or cheap\n- Total: Sum of all LLM calls\n\nAgent vs chatbot:\n- Chatbot: 1 call = $0.02\n- Agent: 5 calls = $0.10', example: 'Research agent task:\n- 8 LLM calls\n- 15K input tokens, 2K output\n- Cost: ~$0.25\n\nSame question to chatbot:\n- 1 LLM call\n- 500 input, 200 output\n- Cost: ~$0.01\n\n25x cost for better answer' },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        let left = mousePos.x + 15, top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 340 > window.innerHeight) top = window.innerHeight - 350;
+        return (
+          <div className="fixed z-50 w-[400px] p-4 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl" style={{ left, top }}>
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-2">{t.content}</p>
+            {t.details && <div className="bg-black/50 rounded-lg p-2 mb-2"><div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div><p className="text-xs text-cyan-300 whitespace-pre-wrap">{t.details}</p></div>}
+            {t.example && <div className="bg-black/50 rounded-lg p-2"><div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div><pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.example}</pre></div>}
+          </div>
+        );
+      };
+
+      const H = ({ id, children, className = '' }) => (
+        <div className={`cursor-help transition-all hover:scale-[1.02] ${className}`} onMouseEnter={() => setTooltip(id)} onMouseLeave={() => setTooltip(null)}>{children}</div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black p-4" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-8">
+              <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-fuchsia-500/20 border-2 border-fuchsia-400 mb-4">
+                <span className="text-fuchsia-300 font-black text-lg">COMPLETE AGENT PIPELINE</span>
+                <span className="text-white">•</span>
+                <span className="text-fuchsia-200 font-medium">LLM Inference in Context</span>
+              </div>
+              <h1 className="text-4xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 via-violet-400 to-cyan-400">Agent Pipeline: Where LLM Inference Fits</h1>
+              <p className="text-lg text-slate-200 max-w-4xl mx-auto">The <span className="text-cyan-300 font-bold">LLM Inference Pipeline (Stages 0-13)</span> runs <span className="text-fuchsia-300 font-bold">MULTIPLE TIMES</span> within a single agent request. <span className="text-slate-400">🖱️ Hover for details.</span></p>
+            </header>
+
+            {/* Key Insight Banner */}
+            <H id="overview-key">
+              <div className="bg-gradient-to-r from-fuchsia-600 to-violet-600 border-2 border-fuchsia-400 rounded-xl p-4 mb-6 cursor-help">
+                <div className="flex items-center justify-center gap-4">
+                  <span className="text-4xl">🔑</span>
+                  <div className="text-center">
+                    <div className="text-xl font-black text-white">ONE USER REQUEST → MULTIPLE LLM INFERENCE PIPELINES</div>
+                    <div className="text-fuchsia-200">Each "Think" step triggers a complete Stages 0-13 inference. An agent might call the LLM 3-10+ times per request!</div>
+                  </div>
+                  <span className="text-4xl">🔄</span>
+                </div>
+              </div>
+            </H>
+
+            {/* Main Pipeline Visualization */}
+            <div className="relative">
+              {/* User Request */}
+              <div className="flex justify-center mb-4">
+                <div className="bg-blue-600 border-2 border-blue-400 rounded-xl px-8 py-4 text-center">
+                  <div className="text-2xl mb-1">👤</div>
+                  <div className="text-white font-black">USER REQUEST</div>
+                  <div className="text-blue-200 text-sm">"What's the weather in NYC?"</div>
+                </div>
+              </div>
+              <div className="flex justify-center mb-4">
+                <div className="w-1 h-8 bg-blue-400"></div>
+              </div>
+
+              {/* Agent Orchestrator */}
+              <div className="bg-gradient-to-br from-violet-950 to-purple-950 border-2 border-violet-400 rounded-xl p-4 mb-4">
+                <div className="flex items-center justify-between mb-4">
+                  <H id="agent-orchestrator"><div className="flex items-center gap-3 cursor-help"><span className="text-3xl">🎭</span><div><div className="text-violet-300 font-black text-lg">AGENT ORCHESTRATOR</div><div className="text-violet-200 text-sm">Manages the agentic loop - NOT the LLM itself</div></div></div></H>
+                  <div className="flex gap-2">
+                    <H id="agent-state"><div className="px-3 py-1 bg-violet-600 rounded-full text-violet-200 text-sm cursor-help">📊 State Manager</div></H>
+                    <H id="agent-memory"><div className="px-3 py-1 bg-violet-600 rounded-full text-violet-200 text-sm cursor-help">🧠 Memory Systems</div></H>
+                  </div>
+                </div>
+
+                {/* The Loop */}
+                <div className="bg-black/30 border border-violet-500/50 rounded-xl p-4">
+                  <div className="text-center text-violet-300 font-bold mb-4">🔄 AGENTIC LOOP (repeats until done)</div>
+                  
+                  {/* Step 1: Context Assembly */}
+                  <div className="bg-indigo-900/50 border border-indigo-400 rounded-xl p-3 mb-3">
+                    <div className="text-indigo-300 font-bold mb-2">1️⃣ CONTEXT ASSEMBLY</div>
+                    <div className="flex gap-2 flex-wrap">
+                      <H id="ctx-system"><div className="px-3 py-2 bg-indigo-700 rounded-lg text-sm cursor-help"><span className="text-indigo-200">📋 System Prompt</span></div></H>
+                      <H id="ctx-tools"><div className="px-3 py-2 bg-indigo-700 rounded-lg text-sm cursor-help"><span className="text-indigo-200">🔧 Tool Definitions</span></div></H>
+                      <H id="ctx-history"><div className="px-3 py-2 bg-indigo-700 rounded-lg text-sm cursor-help"><span className="text-indigo-200">💬 Conversation History</span></div></H>
+                      <H id="ctx-results"><div className="px-3 py-2 bg-indigo-700 rounded-lg text-sm cursor-help"><span className="text-indigo-200">📥 Tool Results</span></div></H>
+                      <H id="ctx-working"><div className="px-3 py-2 bg-indigo-700 rounded-lg text-sm cursor-help"><span className="text-indigo-200">📝 Working Memory</span></div></H>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center mb-3">
+                    <div className="w-1 h-6 bg-cyan-400"></div>
+                  </div>
+
+                  {/* Step 2: LLM INFERENCE - THE BIG BOX */}
+                  <H id="llm-box">
+                    <div className="bg-gradient-to-br from-cyan-900 to-blue-900 border-4 border-cyan-400 rounded-xl p-4 mb-3 cursor-help relative overflow-hidden">
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-cyan-500 rounded text-xs font-bold text-white">STAGES 0-13</div>
+                      <div className="text-center mb-3">
+                        <div className="text-cyan-300 font-black text-xl">⚡ LLM INFERENCE PIPELINE</div>
+                        <div className="text-cyan-200 text-sm">Complete inference runs HERE - the pipeline from previous diagrams!</div>
+                      </div>
+                      
+                      {/* Mini pipeline */}
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                        <H id="llm-stages-0"><div className="bg-slate-700 border border-slate-500 rounded px-2 py-1 text-xs text-slate-300 cursor-help">0: Pre-Model</div></H>
+                        <div className="text-cyan-400">→</div>
+                        <H id="llm-stages-12"><div className="bg-pink-700 border border-pink-500 rounded px-2 py-1 text-xs text-pink-200 cursor-help">1-2: Tokenize</div></H>
+                        <div className="text-cyan-400">→</div>
+                        <H id="llm-stages-34"><div className="bg-purple-700 border border-purple-500 rounded px-2 py-1 text-xs text-purple-200 cursor-help">3-4: Prefill O(n²)</div></H>
+                        <div className="text-cyan-400">→</div>
+                        <H id="llm-stages-56"><div className="bg-green-700 border border-green-500 rounded px-2 py-1 text-xs text-green-200 cursor-help">5-6: Decode</div></H>
+                        <div className="text-cyan-400">→</div>
+                        <H id="llm-stages-79"><div className="bg-amber-700 border border-amber-500 rounded px-2 py-1 text-xs text-amber-200 cursor-help">7-9: Sample</div></H>
+                        <div className="text-cyan-400">→</div>
+                        <H id="llm-stages-1013"><div className="bg-blue-700 border border-blue-500 rounded px-2 py-1 text-xs text-blue-200 cursor-help">10-13: Output</div></H>
+                      </div>
+                      
+                      <div className="text-center mt-3 text-cyan-400 text-sm font-bold">
+                        ⏱️ 500ms - 30s per call | 💰 $0.01 - $0.50 per call
+                      </div>
+                    </div>
+                  </H>
+
+                  <div className="flex justify-center mb-3">
+                    <div className="w-1 h-6 bg-amber-400"></div>
+                  </div>
+
+                  {/* Step 3: Output Router */}
+                  <div className="bg-amber-900/50 border border-amber-400 rounded-xl p-3 mb-3">
+                    <H id="router-detect"><div className="text-amber-300 font-bold mb-2 cursor-help">3️⃣ OUTPUT ROUTER - What did LLM output?</div></H>
+                    <div className="grid grid-cols-3 gap-3">
+                      <H id="router-tool">
+                        <div className="bg-orange-700 border-2 border-orange-400 rounded-lg p-3 text-center cursor-help">
+                          <div className="text-2xl mb-1">🔧</div>
+                          <div className="text-white font-bold text-sm">Tool Call</div>
+                          <div className="text-orange-200 text-xs">Execute tool →</div>
+                        </div>
+                      </H>
+                      <H id="router-final">
+                        <div className="bg-green-700 border-2 border-green-400 rounded-lg p-3 text-center cursor-help">
+                          <div className="text-2xl mb-1">✅</div>
+                          <div className="text-white font-bold text-sm">Final Answer</div>
+                          <div className="text-green-200 text-xs">Return to user →</div>
+                        </div>
+                      </H>
+                      <H id="router-continue">
+                        <div className="bg-blue-700 border-2 border-blue-400 rounded-lg p-3 text-center cursor-help">
+                          <div className="text-2xl mb-1">🔄</div>
+                          <div className="text-white font-bold text-sm">Continue</div>
+                          <div className="text-blue-200 text-xs">Loop again →</div>
+                        </div>
+                      </H>
+                    </div>
+                  </div>
+
+                  {/* Tool Execution Branch */}
+                  <div className="flex gap-4">
+                    {/* Tool path */}
+                    <div className="flex-1 bg-orange-900/30 border border-orange-500/50 rounded-xl p-3">
+                      <div className="text-orange-300 font-bold mb-2 text-center">IF TOOL CALL:</div>
+                      <div className="flex items-center gap-1 justify-center flex-wrap">
+                        <H id="tool-parse"><div className="bg-orange-700 rounded px-2 py-1 text-xs text-orange-200 cursor-help">Parse</div></H>
+                        <div className="text-orange-400">→</div>
+                        <H id="tool-permission"><div className="bg-orange-700 rounded px-2 py-1 text-xs text-orange-200 cursor-help">Permission</div></H>
+                        <div className="text-orange-400">→</div>
+                        <H id="tool-execute"><div className="bg-orange-700 rounded px-2 py-1 text-xs text-orange-200 cursor-help">Execute</div></H>
+                        <div className="text-orange-400">→</div>
+                        <H id="tool-format"><div className="bg-orange-700 rounded px-2 py-1 text-xs text-orange-200 cursor-help">Format</div></H>
+                        <div className="text-orange-400">→</div>
+                        <H id="tool-inject"><div className="bg-orange-700 rounded px-2 py-1 text-xs text-orange-200 cursor-help">Inject</div></H>
+                      </div>
+                      <div className="flex justify-center mt-2">
+                        <H id="loop-iterate"><div className="px-3 py-1 bg-violet-600 rounded-full text-violet-200 text-sm cursor-help">↩️ LOOP BACK to Context Assembly</div></H>
+                      </div>
+                    </div>
+
+                    {/* Loop control */}
+                    <div className="w-48 bg-slate-800/50 border border-slate-500/50 rounded-xl p-3">
+                      <div className="text-slate-300 font-bold mb-2 text-center text-sm">LOOP CONTROL</div>
+                      <H id="loop-check"><div className="text-xs text-slate-400 mb-1 cursor-help">✓ Max iterations?</div></H>
+                      <H id="loop-max"><div className="text-xs text-slate-400 mb-1 cursor-help">✓ Token budget?</div></H>
+                      <div className="text-xs text-slate-400 mb-1">✓ Time limit?</div>
+                      <div className="text-xs text-slate-400">✓ Error count?</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Final Response */}
+              <div className="flex justify-center mb-4">
+                <div className="w-1 h-8 bg-green-400"></div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-green-950 to-emerald-950 border-2 border-green-400 rounded-xl p-4 mb-4">
+                <div className="text-green-300 font-black text-lg mb-2">📤 RESPONSE DELIVERY</div>
+                <div className="flex gap-3">
+                  <H id="response-format"><div className="flex-1 bg-green-800 rounded-lg p-3 text-center cursor-help"><div className="text-green-200 font-bold">Format Response</div><div className="text-green-300 text-xs">Add metadata, usage</div></div></H>
+                  <H id="response-stream"><div className="flex-1 bg-green-800 rounded-lg p-3 text-center cursor-help"><div className="text-green-200 font-bold">Stream to Client</div><div className="text-green-300 text-xs">SSE / WebSocket</div></div></H>
+                  <H id="response-log"><div className="flex-1 bg-green-800 rounded-lg p-3 text-center cursor-help"><div className="text-green-200 font-bold">Log & Telemetry</div><div className="text-green-300 text-xs">Trace, metrics</div></div></H>
+                </div>
+              </div>
+
+              <div className="flex justify-center mb-4">
+                <div className="w-1 h-8 bg-green-400"></div>
+              </div>
+
+              {/* User Response */}
+              <div className="flex justify-center">
+                <div className="bg-green-600 border-2 border-green-400 rounded-xl px-8 py-4 text-center">
+                  <div className="text-2xl mb-1">✅</div>
+                  <div className="text-white font-black">USER RECEIVES RESPONSE</div>
+                  <div className="text-green-200 text-sm">"It's 72°F and sunny in NYC!"</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Key Insights */}
+            <div className="mt-8 grid grid-cols-3 gap-4">
+              <H id="insight-multiple">
+                <div className="bg-gradient-to-br from-fuchsia-950 to-pink-950 border-2 border-fuchsia-400 rounded-xl p-4 cursor-help">
+                  <div className="text-2xl mb-2">🔁</div>
+                  <div className="text-fuchsia-300 font-black">MULTIPLE LLM CALLS</div>
+                  <div className="text-fuchsia-200 text-sm mt-1">One request = 1-10+ complete inference pipelines</div>
+                  <div className="text-fuchsia-400 text-xs mt-2">Simple: 1 call | Complex: 10+ calls</div>
+                </div>
+              </H>
+              <H id="insight-context">
+                <div className="bg-gradient-to-br from-amber-950 to-yellow-950 border-2 border-amber-400 rounded-xl p-4 cursor-help">
+                  <div className="text-2xl mb-2">📈</div>
+                  <div className="text-amber-300 font-black">GROWING CONTEXT</div>
+                  <div className="text-amber-200 text-sm mt-1">Each iteration adds tool results → longer prefill</div>
+                  <div className="text-amber-400 text-xs mt-2">Later iterations have O(n²) longer prefill!</div>
+                </div>
+              </H>
+              <H id="insight-cost">
+                <div className="bg-gradient-to-br from-red-950 to-rose-950 border-2 border-red-400 rounded-xl p-4 cursor-help">
+                  <div className="text-2xl mb-2">💰</div>
+                  <div className="text-red-300 font-black">COST MULTIPLIER</div>
+                  <div className="text-red-200 text-sm mt-1">Agent cost = sum of all LLM calls</div>
+                  <div className="text-red-400 text-xs mt-2">5 iterations ≈ 5x single completion cost</div>
+                </div>
+              </H>
+            </div>
+
+            {/* Legend */}
+            <div className="mt-8 bg-slate-900 border border-slate-700 rounded-xl p-4">
+              <div className="text-slate-300 font-bold mb-3">📍 WHERE PREVIOUS DIAGRAMS FIT:</div>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-cyan-600 rounded"></div>
+                  <span className="text-cyan-300 text-sm">LLM Inference (Stages 0-13) — runs MULTIPLE times in loop</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-violet-600 rounded"></div>
+                  <span className="text-violet-300 text-sm">Agent Orchestrator — wraps LLM, manages loop</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-orange-600 rounded"></div>
+                  <span className="text-orange-300 text-sm">Tool Execution — external to LLM, between calls</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-8 text-center text-slate-400 text-sm border-t border-slate-800 pt-6">
+              <p className="font-semibold">Agent Pipeline — Complete Architecture</p>
+              <p className="text-fuchsia-400 font-bold mt-1">LLM INFERENCE IS A COMPONENT CALLED REPEATEDLY WITHIN THE AGENT LOOP</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AgentPipeline />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attention Variants - MHA, GQA, MQA & FlashAttention</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function AttentionVariants() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Core Attention
+        'attn-overview': {
+          title: '👁️ ATTENTION MECHANISM',
+          content: 'Core operation in Transformers. Allows each token to "attend" to all other tokens.',
+          formula: 'Attention(Q, K, V) = softmax(QK^T / √d_k) × V',
+          shapes: 'Q: [batch, heads, seq, head_dim]\nK: [batch, heads, seq, head_dim]\nV: [batch, heads, seq, head_dim]\nOutput: [batch, heads, seq, head_dim]'
+        },
+        'attn-qkv': {
+          title: '🔑 Q, K, V Projections',
+          content: 'Linear projections from input to query, key, and value representations.',
+          projections: 'Q = X × W_Q (what am I looking for?)\nK = X × W_K (what do I contain?)\nV = X × W_V (what do I provide?)',
+          shapes: 'W_Q, W_K, W_V: [d_model, d_model]\nEach head gets d_model/n_heads dimensions'
+        },
+        'attn-scores': {
+          title: '📊 Attention Scores',
+          content: 'Dot product of queries and keys. Measures relevance between token pairs.',
+          formula: 'Scores = Q × K^T / √d_k\nShape: [batch, heads, seq_q, seq_k]',
+          scaling: '√d_k scaling prevents softmax saturation\nLarger d_k → larger dot products\nScaling keeps gradients stable'
+        },
+        'attn-softmax': {
+          title: '🔢 Softmax',
+          content: 'Normalizes scores to probabilities. Each query gets a distribution over keys.',
+          formula: 'Weights = softmax(Scores, dim=-1)\nSum to 1 over key dimension\nShape: [batch, heads, seq_q, seq_k]',
+          numerical: 'Subtract max for stability\nOnline softmax in FlashAttention\nCausal mask applied before'
+        },
+        'attn-output': {
+          title: '📤 Attention Output',
+          content: 'Weighted sum of values. Result of the attention operation.',
+          formula: 'Output = Weights × V\nShape: [batch, heads, seq, head_dim]',
+          final: 'Concatenate heads\nProject through W_O\nFinal: [batch, seq, d_model]'
+        },
+
+        // Multi-Head Attention
+        'mha-concept': {
+          title: '🔷 MULTI-HEAD ATTENTION (MHA)',
+          content: 'Original attention design. Each head has separate Q, K, V projections.',
+          mechanism: 'n_heads independent attention operations\nEach head: d_model / n_heads dimensions\nConcat and project at end',
+          benefit: 'Different heads learn different patterns\nPosition, syntax, semantics\nFull expressiveness'
+        },
+        'mha-heads': {
+          title: '🔷 MHA Head Structure',
+          content: 'Typical configuration for modern LLMs.',
+          llama70b: 'LLaMA-70B:\nn_heads = 64\nd_model = 8192\nhead_dim = 128',
+          params: 'Per layer:\nW_Q: 8192 × 8192\nW_K: 8192 × 8192\nW_V: 8192 × 8192\nW_O: 8192 × 8192'
+        },
+        'mha-kvcache': {
+          title: '💾 MHA KV Cache',
+          content: 'Memory for cached keys and values. Grows linearly with sequence and heads.',
+          formula: 'KV memory = 2 × layers × seq × n_heads × head_dim × bytes',
+          example: 'LLaMA-70B (80 layers, 64 heads):\n2 × 80 × 4096 × 64 × 128 × 2 bytes\n= 84 GB for 4K context!'
+        },
+
+        // Grouped Query Attention
+        'gqa-concept': {
+          title: '🔶 GROUPED QUERY ATTENTION (GQA)',
+          content: 'Compromise between MHA and MQA. Groups of Q heads share K, V heads.',
+          mechanism: 'n_heads Q heads\nn_kv_heads K,V heads (fewer)\nEach K,V shared by n_heads/n_kv_heads Q heads',
+          benefit: 'Reduces KV cache significantly\nMinimal quality loss\nBest balance for inference'
+        },
+        'gqa-structure': {
+          title: '🔶 GQA Structure',
+          content: 'Typical GQA configuration in modern models.',
+          llama70b: 'LLaMA-2-70B:\nQ heads: 64\nKV heads: 8\nRatio: 8 Q per KV',
+          savings: 'KV cache: 8× smaller than MHA\nKV params: 8× fewer\nQuality: Nearly same as MHA'
+        },
+        'gqa-kvcache': {
+          title: '💾 GQA KV Cache',
+          content: 'Much smaller KV cache due to fewer KV heads.',
+          formula: 'KV memory = 2 × layers × seq × n_kv_heads × head_dim × bytes',
+          example: 'LLaMA-2-70B (80 layers, 8 KV heads):\n2 × 80 × 4096 × 8 × 128 × 2 bytes\n= 10.5 GB for 4K context\n(8× smaller than MHA!)'
+        },
+        'gqa-broadcast': {
+          title: '📡 GQA Broadcasting',
+          content: 'How K, V are shared across Q head groups during attention.',
+          mechanism: 'K, V: [batch, n_kv_heads, seq, head_dim]\nBroadcast to: [batch, n_heads, seq, head_dim]\nEach KV repeated n_heads/n_kv_heads times',
+          implementation: 'expand() or repeat_interleave()\nNo extra memory if done right\nEfficient on GPU'
+        },
+
+        // Multi-Query Attention
+        'mqa-concept': {
+          title: '🔸 MULTI-QUERY ATTENTION (MQA)',
+          content: 'Extreme version: single K, V head shared by all Q heads. Maximum efficiency.',
+          mechanism: 'n_heads Q heads\n1 K head, 1 V head\nAll Q heads share same K, V',
+          benefit: 'Minimum KV cache\nFastest inference\nSome quality degradation'
+        },
+        'mqa-tradeoff': {
+          title: '⚖️ MQA Trade-offs',
+          content: 'MQA saves memory but may reduce quality.',
+          pros: '✅ Minimum KV cache\n✅ Fastest decode\n✅ Simpler implementation',
+          cons: '❌ Less expressive\n❌ Quality drop for some tasks\n❌ Less common now'
+        },
+
+        // Comparison
+        'compare-memory': {
+          title: '💾 KV CACHE COMPARISON',
+          content: 'Memory savings from different attention variants.',
+          comparison: 'For 70B model, 4K context:\nMHA (64 heads): 84 GB\nGQA (8 heads): 10.5 GB (8× less)\nMQA (1 head): 1.3 GB (64× less)',
+          implication: 'GQA enables longer contexts\nMQA enables huge batches\nChoose based on use case'
+        },
+        'compare-quality': {
+          title: '📊 QUALITY COMPARISON',
+          content: 'How attention variants affect model quality.',
+          results: 'MHA: Full quality (baseline)\nGQA: ~0.1-0.5% degradation\nMQA: ~1-3% degradation',
+          recommendation: 'GQA: Best default for new models\nMHA: If quality is paramount\nMQA: Extreme inference optimization'
+        },
+
+        // FlashAttention
+        'flash-concept': {
+          title: '⚡ FLASHATTENTION',
+          content: 'Memory-efficient attention via tiling. IO-aware algorithm that never materializes full attention matrix.',
+          insight: 'Standard: O(N²) memory for attention matrix\nFlash: O(N) memory via online softmax\nSame compute, much less memory',
+          speedup: '2-4× faster than PyTorch attention\nEnables longer sequences\nStandard in all modern frameworks'
+        },
+        'flash-tiling': {
+          title: '🧱 FlashAttention Tiling',
+          content: 'Process attention in tiles that fit in SRAM. Never create full N×N matrix.',
+          mechanism: 'Tile Q into blocks of size B_q\nTile K, V into blocks of size B_kv\nProcess Q_tile vs all K,V tiles\nAccumulate with online softmax',
+          sram: 'Each tile fits in shared memory\nFast SRAM vs slow HBM\nReduce memory bandwidth'
+        },
+        'flash-online': {
+          title: '🔄 Online Softmax',
+          content: 'Compute softmax incrementally without full attention matrix.',
+          algorithm: 'For each K,V tile:\n1. Compute partial scores\n2. Update running max\n3. Rescale previous results\n4. Accumulate weighted sum',
+          formula: 'Track: m (running max), l (running sum)\nRescale old output when new max found\nMathematically equivalent'
+        },
+        'flash-memory': {
+          title: '💾 FlashAttention Memory',
+          content: 'Memory complexity reduction from O(N²) to O(N).',
+          standard: 'Standard attention:\nS = QK^T: O(N²) memory\nP = softmax(S): O(N²) memory\nO = PV: O(N) memory',
+          flash: 'FlashAttention:\nNever store full S or P\nOnly O(N) for output\n+ small O(B²) for tiles'
+        },
+        'flash-v2': {
+          title: '⚡ FlashAttention-2',
+          content: 'Improved version with better GPU utilization.',
+          improvements: 'Better work partitioning\nReduced non-matmul FLOPs\nParallelize over seq length\n2× faster than FA1',
+          features: 'Causal mask optimized\nVariable sequence lengths\nMulti-query/grouped attention'
+        },
+        'flash-v3': {
+          title: '⚡ FlashAttention-3 (H100)',
+          content: 'Hopper-optimized with FP8 and async operations.',
+          features: 'FP8 attention (Hopper)\nWarp specialization\nAsynchronous operations\n1.5-2× faster than FA2 on H100'
+        },
+        'flash-decode': {
+          title: '⚡ Flash Decoding',
+          content: 'FlashAttention optimized for decode phase (single query token).',
+          problem: 'Decode: Q=[1, h, 1, d], K,V=[1, h, N, d]\nStandard: Parallelize over batch/heads\nUnderutilized for small batch',
+          solution: 'Also parallelize over K,V length\nSplit K,V into tiles\nReduce across tiles\n8× speedup for long contexts'
+        },
+
+        // Position Encoding
+        'pos-rope': {
+          title: '🔄 RoPE (Rotary Position Embedding)',
+          content: 'Position encoding via rotation matrices. Applied to Q and K.',
+          mechanism: 'Rotate Q, K by angle θ × position\nθ = 10000^(-2i/d) for dimension i\nRelative positions via dot product',
+          benefit: 'Relative position awareness\nExtrapolates to longer sequences\nNo learned parameters',
+          formula: 'RoPE(x, pos) = x × [cos(pos×θ), -sin(pos×θ); sin(pos×θ), cos(pos×θ)]'
+        },
+        'pos-alibi': {
+          title: '📐 ALiBi',
+          content: 'Attention with Linear Biases. Add position-dependent bias to attention scores.',
+          mechanism: 'Bias = -m × |i - j|\nm varies by head\nNo position embedding',
+          benefit: 'Strong length extrapolation\nSimpler than RoPE\nUsed in BLOOM, MPT'
+        },
+
+        // Causal Masking
+        'mask-causal': {
+          title: '⬇️ CAUSAL MASK',
+          content: 'Prevent attending to future tokens. Essential for autoregressive generation.',
+          mechanism: 'mask[i,j] = -inf if j > i\nAfter softmax: weight = 0 for future\nTriangular attention pattern',
+          implementation: 'Add mask to scores before softmax\nOr use triangular matmul kernels\nFlashAttention handles efficiently'
+        },
+        'mask-sliding': {
+          title: '🪟 SLIDING WINDOW',
+          content: 'Limit attention to local context. Reduces complexity for very long sequences.',
+          mechanism: 'Only attend to W previous tokens\nmask[i,j] = -inf if |i-j| > W\nReduces O(N²) to O(N×W)',
+          usage: 'Mistral: W = 4096\nLongformer: Sliding + global\nEfficient for very long contexts'
+        },
+
+        // Sparse Attention
+        'sparse-concept': {
+          title: '🔳 SPARSE ATTENTION',
+          content: 'Don\'t compute all N² attention scores. Only compute "important" pairs.',
+          patterns: 'Local: Nearby tokens\nGlobal: Special tokens attend to all\nRandom: Random connections\nLearned: Let model choose',
+          benefit: 'O(N√N) or O(N log N) complexity\nEnables very long sequences\nSome quality trade-off'
+        },
+        'sparse-bigbird': {
+          title: '🐦 BigBird Pattern',
+          content: 'Combination of local, global, and random attention.',
+          pattern: 'Local window: W neighbors\nGlobal tokens: First few attend to all\nRandom: R random connections',
+          complexity: 'O(N) instead of O(N²)\nEnables 4K+ sequences\nUsed in BigBird, Longformer'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.comparison && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">COMPARISON</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.comparison}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.insight && (
+              <div className="text-xs text-blue-400 mt-2">
+                <span className="font-bold">💡 </span>{t.insight}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-violet-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-purple-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-indigo-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600/30 border border-violet-400 rounded-full mb-6">
+                <span className="text-violet-300 font-bold">ATTENTION</span>
+                <span className="text-white">•</span>
+                <span className="text-violet-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-purple-400 to-indigo-400">
+                Attention Variants
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-violet-300 font-bold">MHA, GQA, MQA & FlashAttention</span> — the core of modern Transformers.
+              </p>
+            </header>
+
+            {/* Core Attention Formula */}
+            <Hoverable id="attn-overview">
+              <div className="bg-gradient-to-r from-violet-900/50 to-purple-900/50 border-2 border-violet-500/50 rounded-xl p-8 mb-12">
+                <div className="text-center">
+                  <div className="text-xl font-black text-white mb-4">👁️ THE ATTENTION EQUATION</div>
+                  <div className="inline-block bg-black/50 rounded-xl p-6 font-mono text-2xl text-violet-300 border border-violet-500/50">
+                    Attention(Q, K, V) = softmax(QK<sup>T</sup> / √d<sub>k</sub>) × V
+                  </div>
+                </div>
+              </div>
+            </Hoverable>
+
+            {/* SECTION 1: ATTENTION MECHANICS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-violet-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-violet-300">ATTENTION MECHANICS</h2>
+                  <p className="text-violet-200/80">Q, K, V projections and attention computation</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-violet-500/30 rounded-xl p-6">
+                <div className="flex items-center justify-between gap-2">
+                  <Hoverable id="attn-qkv">
+                    <div className="bg-violet-900/50 border border-violet-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-violet-200 font-bold">Q, K, V</div>
+                      <div className="text-violet-100/60 text-xs mt-1">Linear projections</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-violet-400 text-2xl">→</div>
+
+                  <Hoverable id="attn-scores">
+                    <div className="bg-purple-900/50 border border-purple-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-purple-200 font-bold">QK<sup>T</sup>/√d</div>
+                      <div className="text-purple-100/60 text-xs mt-1">Attention scores</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-violet-400 text-2xl">→</div>
+
+                  <Hoverable id="attn-softmax">
+                    <div className="bg-indigo-900/50 border border-indigo-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-indigo-200 font-bold">Softmax</div>
+                      <div className="text-indigo-100/60 text-xs mt-1">Normalize weights</div>
+                    </div>
+                  </Hoverable>
+
+                  <div className="text-violet-400 text-2xl">→</div>
+
+                  <Hoverable id="attn-output">
+                    <div className="bg-blue-900/50 border-2 border-blue-400 rounded-xl p-4 text-center flex-1">
+                      <div className="text-blue-200 font-bold">× V</div>
+                      <div className="text-blue-100/60 text-xs mt-1">Weighted sum</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 2: MHA vs GQA vs MQA */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">HEAD CONFIGURATIONS</h2>
+                  <p className="text-blue-200/80">MHA, GQA, MQA — trading memory for quality</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-6 mb-6">
+                {/* MHA */}
+                <div className="bg-slate-900/80 border border-blue-500/30 rounded-xl p-5">
+                  <Hoverable id="mha-concept">
+                    <div className="text-center mb-4">
+                      <div className="text-2xl font-black text-blue-300">🔷 MHA</div>
+                      <div className="text-blue-200/70 text-sm">Multi-Head Attention</div>
+                    </div>
+                  </Hoverable>
+                  
+                  {/* Visual */}
+                  <div className="bg-black/30 rounded-lg p-4 mb-4">
+                    <div className="text-xs text-slate-400 mb-2 text-center">64 Q heads → 64 KV heads</div>
+                    <div className="flex justify-center gap-1">
+                      {[...Array(8)].map((_, i) => (
+                        <div key={i} className="flex flex-col gap-1">
+                          <div className="w-3 h-3 bg-blue-500 rounded-sm" title="Q"></div>
+                          <div className="w-3 h-3 bg-blue-400 rounded-sm" title="KV"></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-center mt-2 text-xs text-slate-500">1:1 ratio</div>
+                  </div>
+                  
+                  <Hoverable id="mha-kvcache">
+                    <div className="bg-blue-900/30 rounded-lg p-3 text-center">
+                      <div className="text-blue-300 text-sm font-bold">KV Cache: 84 GB</div>
+                      <div className="text-blue-100/50 text-xs">4K context, 70B model</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* GQA */}
+                <div className="bg-slate-900/80 border-2 border-green-500 rounded-xl p-5">
+                  <Hoverable id="gqa-concept">
+                    <div className="text-center mb-4">
+                      <div className="text-2xl font-black text-green-300">🔶 GQA ✓</div>
+                      <div className="text-green-200/70 text-sm">Grouped Query Attention</div>
+                    </div>
+                  </Hoverable>
+                  
+                  {/* Visual */}
+                  <div className="bg-black/30 rounded-lg p-4 mb-4">
+                    <div className="text-xs text-slate-400 mb-2 text-center">64 Q heads → 8 KV heads</div>
+                    <div className="flex justify-center gap-1">
+                      {[...Array(8)].map((_, i) => (
+                        <div key={i} className="flex flex-col gap-1">
+                          <div className="flex gap-0.5">
+                            {[...Array(8)].map((_, j) => (
+                              <div key={j} className="w-1 h-3 bg-green-500 rounded-sm" title="Q"></div>
+                            ))}
+                          </div>
+                          <div className="w-full h-3 bg-green-400 rounded-sm" title="KV"></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-center mt-2 text-xs text-slate-500">8:1 ratio</div>
+                  </div>
+                  
+                  <Hoverable id="gqa-kvcache">
+                    <div className="bg-green-900/30 rounded-lg p-3 text-center">
+                      <div className="text-green-300 text-sm font-bold">KV Cache: 10.5 GB</div>
+                      <div className="text-green-100/50 text-xs">8× smaller! ✓</div>
+                    </div>
+                  </Hoverable>
+                </div>
+
+                {/* MQA */}
+                <div className="bg-slate-900/80 border border-orange-500/30 rounded-xl p-5">
+                  <Hoverable id="mqa-concept">
+                    <div className="text-center mb-4">
+                      <div className="text-2xl font-black text-orange-300">🔸 MQA</div>
+                      <div className="text-orange-200/70 text-sm">Multi-Query Attention</div>
+                    </div>
+                  </Hoverable>
+                  
+                  {/* Visual */}
+                  <div className="bg-black/30 rounded-lg p-4 mb-4">
+                    <div className="text-xs text-slate-400 mb-2 text-center">64 Q heads → 1 KV head</div>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex gap-0.5">
+                        {[...Array(64)].map((_, i) => (
+                          <div key={i} className="w-1 h-3 bg-orange-500 rounded-sm" title="Q"></div>
+                        ))}
+                      </div>
+                      <div className="w-full h-3 bg-orange-400 rounded-sm max-w-[200px]" title="KV"></div>
+                    </div>
+                    <div className="text-center mt-2 text-xs text-slate-500">64:1 ratio</div>
+                  </div>
+                  
+                  <Hoverable id="mqa-tradeoff">
+                    <div className="bg-orange-900/30 rounded-lg p-3 text-center">
+                      <div className="text-orange-300 text-sm font-bold">KV Cache: 1.3 GB</div>
+                      <div className="text-orange-100/50 text-xs">64× smaller, quality ↓</div>
+                    </div>
+                  </Hoverable>
+                </div>
+              </div>
+
+              {/* Comparison */}
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="compare-memory">
+                  <div className="bg-slate-800 border border-slate-600 rounded-xl p-4">
+                    <div className="text-slate-200 font-bold mb-2">💾 Memory Comparison</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-blue-300">MHA</span>
+                        <span className="text-slate-400">84 GB (baseline)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-green-300">GQA</span>
+                        <span className="text-green-400">10.5 GB (8× less)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-orange-300">MQA</span>
+                        <span className="text-orange-400">1.3 GB (64× less)</span>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="compare-quality">
+                  <div className="bg-slate-800 border border-slate-600 rounded-xl p-4">
+                    <div className="text-slate-200 font-bold mb-2">📊 Quality Comparison</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-blue-300">MHA</span>
+                        <span className="text-slate-400">Full quality</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-green-300">GQA</span>
+                        <span className="text-green-400">~0.1-0.5% ↓ ✓</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-orange-300">MQA</span>
+                        <span className="text-orange-400">~1-3% ↓</span>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 3: FlashAttention */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">FLASHATTENTION</h2>
+                  <p className="text-yellow-200/80">IO-aware attention — O(N) memory, 2-4× faster</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <Hoverable id="flash-concept">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">⚡ Concept</div>
+                    <div className="text-yellow-100/80 text-sm">Tiled computation</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">O(N) memory vs O(N²)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="flash-tiling">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-xl font-black text-orange-200 mb-2">🧱 Tiling</div>
+                    <div className="text-orange-100/80 text-sm">Process in SRAM</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Never materialize N×N</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="flash-online">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">🔄 Online Softmax</div>
+                    <div className="text-amber-100/80 text-sm">Incremental computation</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Track running max/sum</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* FlashAttention Memory */}
+              <Hoverable id="flash-memory">
+                <div className="bg-slate-900/80 border border-yellow-500/30 rounded-xl p-5 mb-6">
+                  <div className="text-lg font-black text-yellow-300 mb-4">💾 Memory Complexity</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-red-900/30 border border-red-500 rounded-lg p-4">
+                      <div className="text-red-300 font-bold">Standard Attention</div>
+                      <div className="text-red-100/70 text-sm mt-2">
+                        S = QK<sup>T</sup>: <span className="text-red-400 font-mono">O(N²)</span><br/>
+                        P = softmax(S): <span className="text-red-400 font-mono">O(N²)</span><br/>
+                        <span className="text-red-400 font-bold">Total: O(N²)</span>
+                      </div>
+                    </div>
+                    <div className="bg-green-900/30 border border-green-500 rounded-lg p-4">
+                      <div className="text-green-300 font-bold">FlashAttention</div>
+                      <div className="text-green-100/70 text-sm mt-2">
+                        Never store full S, P<br/>
+                        Only output: <span className="text-green-400 font-mono">O(N)</span><br/>
+                        <span className="text-green-400 font-bold">Total: O(N)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Hoverable>
+
+              {/* Versions */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-slate-800 border border-slate-600 rounded-lg p-3 text-center">
+                  <div className="text-slate-300 font-bold">FlashAttention-1</div>
+                  <div className="text-slate-500 text-xs">Original (2022)</div>
+                </div>
+                <Hoverable id="flash-v2">
+                  <div className="bg-yellow-900/30 border border-yellow-500 rounded-lg p-3 text-center">
+                    <div className="text-yellow-200 font-bold">FlashAttention-2</div>
+                    <div className="text-yellow-100/60 text-xs">2× faster, standard now</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="flash-v3">
+                  <div className="bg-orange-900/30 border border-orange-500 rounded-lg p-3 text-center">
+                    <div className="text-orange-200 font-bold">FlashAttention-3</div>
+                    <div className="text-orange-100/60 text-xs">H100 optimized, FP8</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 4: POSITION ENCODING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-cyan-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-cyan-300">POSITION ENCODING</h2>
+                  <p className="text-cyan-200/80">RoPE, ALiBi — how attention knows position</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="pos-rope">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">🔄 RoPE</div>
+                    <div className="text-cyan-100/80 text-sm">Rotary Position Embedding</div>
+                    <div className="text-cyan-100/60 text-xs mt-2">Rotate Q, K by position</div>
+                    <div className="text-cyan-300 text-xs mt-1">LLaMA, Mistral, most models</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="pos-alibi">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-xl font-black text-teal-200 mb-2">📐 ALiBi</div>
+                    <div className="text-teal-100/80 text-sm">Attention Linear Biases</div>
+                    <div className="text-teal-100/60 text-xs mt-2">Bias by distance</div>
+                    <div className="text-teal-300 text-xs mt-1">BLOOM, MPT</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 5: MASKING & SPARSE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">MASKING & SPARSE ATTENTION</h2>
+                  <p className="text-pink-200/80">Causal mask, sliding window, sparse patterns</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="mask-causal">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-xl font-black text-pink-200 mb-2">⬇️ Causal Mask</div>
+                    <div className="text-pink-100/80 text-sm">No future attention</div>
+                    <div className="text-pink-100/60 text-xs mt-2">Essential for generation</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="mask-sliding">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-xl font-black text-rose-200 mb-2">🪟 Sliding Window</div>
+                    <div className="text-rose-100/80 text-sm">Local attention only</div>
+                    <div className="text-rose-100/60 text-xs mt-2">Mistral: W=4096</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="sparse-concept">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-xl font-black text-red-200 mb-2">🔳 Sparse Attention</div>
+                    <div className="text-red-100/80 text-sm">O(N√N) complexity</div>
+                    <div className="text-red-100/60 text-xs mt-2">Local + global + random</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-violet-900/50 to-purple-900/50 border-2 border-violet-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                👁️ ATTENTION SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Modern attention uses GQA for memory efficiency, FlashAttention for speed,
+                and RoPE for position encoding. These optimizations enable longer contexts and faster inference.
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">GQA</div>
+                  <div className="text-slate-400">8× less KV cache</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-yellow-300 font-bold">FlashAttention</div>
+                  <div className="text-slate-400">O(N) memory</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">RoPE</div>
+                  <div className="text-slate-400">Position encoding</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-pink-300 font-bold">Causal Mask</div>
+                  <div className="text-slate-400">Autoregressive</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Attention Variants • MHA → GQA → FlashAttention</p>
+              <p className="text-xs mt-1 text-slate-600">softmax(QK<sup>T</sup>/√d) × V</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AttentionVariants />);
+  </script>
+</body>
+</html>
