@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>MCP - Model Context Protocol</title>
+  <title>MCP - Model Context Protocol Deep Dive</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,131 +12,1442 @@
   <div id="root"></div>
   <script type="text/babel">
     function App() {
-      const [hover, setHover] = React.useState(null);
-      
-      const tips = {
-        'what': 'Open protocol by Anthropic for connecting LLMs to external data sources and tools. USB-C for AI - one standard, universal connectivity.',
-        'why': 'Before MCP: N apps x M tools = N*M integrations. With MCP: N+M integrations. Build once, works everywhere.',
-        'server': 'Lightweight programs that expose tools, resources, and prompts. Run locally or remotely. Examples: filesystem, database, GitHub, Slack.',
-        'client': 'LLM applications that connect to servers. Claude Desktop, IDEs, custom apps. Maintains 1:1 connection with servers.',
-        'host': 'The application that runs MCP clients. Manages connections, enforces security, coordinates between client and servers.',
-        'tools': 'Functions the LLM can call. Like function calling but standardized. Server defines schema, LLM invokes, server executes.',
-        'resources': 'Data the LLM can read. Files, database records, API responses. URI-based addressing. Read-only access.',
-        'prompts': 'Reusable prompt templates. Server-defined, user-selectable. Slash commands in Claude Desktop.',
-        'sampling': 'Server can request LLM completions. Enables agentic behaviors. Server asks host to generate, host returns result.',
-        'stdio': 'Local transport. Communication via stdin/stdout. Simple, secure, process-based isolation. Default for local servers.',
-        'sse': 'HTTP-based transport. Server-Sent Events for streaming. Good for remote servers. Supports authentication.',
-        'lifecycle': 'Initialize -> exchange capabilities -> normal operation -> shutdown. Server and client negotiate features.',
-        'security': 'User consent required. Servers run in sandbox. Host controls permissions. No ambient authority.',
-        'claude': 'Claude Desktop has built-in MCP support. Add servers via config file. Filesystem, GitHub, Postgres, and more.',
-        'sdk': 'Official SDKs: TypeScript and Python. Build servers in minutes. Schema validation, transport handling included.',
-        'ecosystem': 'Growing ecosystem: 50+ official servers, community contributions. Databases, APIs, dev tools, productivity apps.'
+      const [activeSection, setActiveSection] = React.useState('overview');
+      const [expandedCard, setExpandedCard] = React.useState(null);
+      const [showCode, setShowCode] = React.useState({});
+
+      const toggleCode = (id) => {
+        setShowCode(prev => ({...prev, [id]: !prev[id]}));
       };
 
-      const Card = ({id, bg, title, sub}) => (
-        <div 
-          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
-          onMouseEnter={() => setHover(id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <div className="font-bold">{title}</div>
-          <div className="text-sm opacity-60">{sub}</div>
-          {hover === id && (
-            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
-              {tips[id]}
+      // ============== SECTION: OVERVIEW ==============
+      const OverviewSection = () => (
+        <div className="space-y-6">
+          {/* Original hover cards preserved */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-gradient-to-br from-violet-900/50 to-purple-900/50 border border-violet-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-violet-300 mb-3">🔌 What is MCP?</h3>
+              <p className="text-slate-300 mb-4">
+                Open protocol by Anthropic for connecting LLMs to external data sources and tools. 
+                <span className="text-violet-400 font-semibold"> USB-C for AI</span> - one standard, universal connectivity.
+              </p>
+              <div className="bg-black/30 rounded-lg p-4 text-sm">
+                <div className="text-slate-400 mb-2">The Problem MCP Solves:</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-red-400">
+                    <div className="font-bold">Before MCP</div>
+                    <div>N apps × M tools = N×M integrations</div>
+                    <div className="text-xs mt-1">Each app rebuilds each integration</div>
+                  </div>
+                  <div className="text-green-400">
+                    <div className="font-bold">With MCP</div>
+                    <div>N apps + M tools = N+M integrations</div>
+                    <div className="text-xs mt-1">Build once, works everywhere</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
+
+            <div className="bg-gradient-to-br from-blue-900/50 to-cyan-900/50 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-3">🎯 Why MCP Matters</h3>
+              <ul className="space-y-2 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Standardization:</strong> One protocol for all LLM-tool integrations</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Ecosystem:</strong> Tools built once work with any MCP-compatible client</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Security:</strong> Built-in consent model, sandboxed execution</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Open:</strong> Not locked to Anthropic - any LLM can use it</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Architecture Diagram */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">MCP Architecture Overview</h3>
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              <div className="bg-violet-900/50 border border-violet-500 rounded-lg p-4 text-center">
+                <div className="text-2xl mb-1">🖥️</div>
+                <div className="font-bold text-violet-300">Host</div>
+                <div className="text-xs text-slate-400">Claude Desktop, IDE</div>
+              </div>
+              <div className="text-slate-500 text-2xl">→</div>
+              <div className="bg-blue-900/50 border border-blue-500 rounded-lg p-4 text-center">
+                <div className="text-2xl mb-1">🔗</div>
+                <div className="font-bold text-blue-300">Client</div>
+                <div className="text-xs text-slate-400">Protocol handler</div>
+              </div>
+              <div className="text-slate-500 text-2xl">→</div>
+              <div className="bg-green-900/50 border border-green-500 rounded-lg p-4 text-center">
+                <div className="text-2xl mb-1">⚙️</div>
+                <div className="font-bold text-green-300">Server</div>
+                <div className="text-xs text-slate-400">GitHub, DB, Files</div>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
+              <div className="text-center">
+                <div className="text-violet-400 font-semibold">Host Responsibilities</div>
+                <div className="text-slate-400">Security, UI, LLM access</div>
+              </div>
+              <div className="text-center">
+                <div className="text-blue-400 font-semibold">Client Responsibilities</div>
+                <div className="text-slate-400">Protocol, connections</div>
+              </div>
+              <div className="text-center">
+                <div className="text-green-400 font-semibold">Server Responsibilities</div>
+                <div className="text-slate-400">Tools, resources, prompts</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Key Insight */}
+          <div className="bg-amber-900/30 border border-amber-500/50 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">💡</span>
+              <div>
+                <div className="font-bold text-amber-300">Key Insight: Servers are Lightweight</div>
+                <div className="text-slate-300 text-sm">
+                  MCP servers are simple programs (often just 100-300 lines). They don't contain AI - 
+                  they just expose capabilities. The LLM (in the host) decides when and how to use them.
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       );
 
-      return (
-        <div className="min-h-screen bg-black text-white p-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-8">
-              <div className="inline-block px-4 py-1 bg-violet-900/50 border border-violet-500 rounded-full mb-4">
-                <span className="text-violet-300 font-bold text-sm">AGENT INFRASTRUCTURE</span>
+      // ============== SECTION: CORE PRIMITIVES ==============
+      const PrimitivesSection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Tools */}
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-2">🔧 Tools</h3>
+              <p className="text-slate-300 mb-4">
+                Functions the LLM can invoke. Server defines the schema, LLM decides when to call, server executes and returns results.
+              </p>
+              
+              <button 
+                onClick={() => toggleCode('tools')}
+                className="text-sm bg-green-900/50 hover:bg-green-900/70 px-3 py-1 rounded text-green-300 mb-3"
+              >
+                {showCode['tools'] ? 'Hide' : 'Show'} Tool Definition Example
+              </button>
+              
+              {showCode['tools'] && (
+                <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Server defines a tool
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [{
+    name: "query_database",
+    description: "Execute SQL query against the database",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "SQL query" },
+        database: { type: "string", description: "Target DB" }
+      },
+      required: ["query"]
+    }
+  }]
+}));
+
+// Server handles tool invocation
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (request.params.name === "query_database") {
+    const result = await db.query(request.params.arguments.query);
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }
+});`}
+                </pre>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">●</span>
+                  <span className="text-slate-300">JSON Schema for input validation</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">●</span>
+                  <span className="text-slate-300">LLM sees description to decide usage</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">●</span>
+                  <span className="text-slate-300">Can return text, images, or errors</span>
+                </div>
               </div>
-              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-purple-500">
+            </div>
+
+            {/* Resources */}
+            <div className="bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-2">📁 Resources</h3>
+              <p className="text-slate-300 mb-4">
+                Data the LLM can read. Files, database records, API responses. URI-based addressing with read-only access.
+              </p>
+              
+              <button 
+                onClick={() => toggleCode('resources')}
+                className="text-sm bg-blue-900/50 hover:bg-blue-900/70 px-3 py-1 rounded text-blue-300 mb-3"
+              >
+                {showCode['resources'] ? 'Hide' : 'Show'} Resource Example
+              </button>
+              
+              {showCode['resources'] && (
+                <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// List available resources
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+  resources: [
+    {
+      uri: "file:///project/README.md",
+      name: "Project README",
+      mimeType: "text/markdown"
+    },
+    {
+      uri: "postgres://localhost/users",
+      name: "Users Table",
+      mimeType: "application/json"
+    }
+  ]
+}));
+
+// Read a specific resource
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const uri = request.params.uri;
+  if (uri.startsWith("file://")) {
+    const content = await fs.readFile(uri.slice(7), 'utf-8');
+    return { contents: [{ uri, text: content, mimeType: "text/plain" }] };
+  }
+});`}
+                </pre>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-blue-400">●</span>
+                  <span className="text-slate-300">URI-based: file://, postgres://, custom://</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-blue-400">●</span>
+                  <span className="text-slate-300">Supports subscriptions for live updates</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-blue-400">●</span>
+                  <span className="text-slate-300">Templates for dynamic resources</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Prompts */}
+            <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-purple-300 mb-2">📝 Prompts</h3>
+              <p className="text-slate-300 mb-4">
+                Reusable prompt templates defined by servers. Appear as slash commands in Claude Desktop. User-invokable workflows.
+              </p>
+              
+              <button 
+                onClick={() => toggleCode('prompts')}
+                className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300 mb-3"
+              >
+                {showCode['prompts'] ? 'Hide' : 'Show'} Prompt Example
+              </button>
+              
+              {showCode['prompts'] && (
+                <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Define available prompts
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: [{
+    name: "code_review",
+    description: "Review code for bugs and improvements",
+    arguments: [
+      { name: "language", description: "Programming language", required: true },
+      { name: "focus", description: "Review focus area", required: false }
+    ]
+  }]
+}));
+
+// Return prompt content when requested
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  if (request.params.name === "code_review") {
+    return {
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: \`Review this \${request.params.arguments.language} code.
+                 Focus on: \${request.params.arguments.focus || "general quality"}\`
+        }
+      }]
+    };
+  }
+});`}
+                </pre>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-purple-400">●</span>
+                  <span className="text-slate-300">Slash commands: /code_review</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-purple-400">●</span>
+                  <span className="text-slate-300">Can include embedded resources</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-purple-400">●</span>
+                  <span className="text-slate-300">Multi-turn conversation starters</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sampling */}
+            <div className="bg-gradient-to-br from-orange-900/40 to-red-900/40 border border-orange-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-orange-300 mb-2">🎲 Sampling</h3>
+              <p className="text-slate-300 mb-4">
+                Server can request LLM completions from the host. Enables agentic behaviors where the server drives multi-step workflows.
+              </p>
+              
+              <button 
+                onClick={() => toggleCode('sampling')}
+                className="text-sm bg-orange-900/50 hover:bg-orange-900/70 px-3 py-1 rounded text-orange-300 mb-3"
+              >
+                {showCode['sampling'] ? 'Hide' : 'Show'} Sampling Example
+              </button>
+              
+              {showCode['sampling'] && (
+                <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Server requests completion from host
+const result = await client.request({
+  method: "sampling/createMessage",
+  params: {
+    messages: [
+      { role: "user", content: { type: "text", text: "Summarize this data..." } }
+    ],
+    maxTokens: 500,
+    temperature: 0.7,
+    systemPrompt: "You are a data analyst."
+  }
+});
+
+// Host processes with its LLM and returns
+// result.content contains the LLM response
+
+// Use case: Server orchestrates complex workflows
+// 1. Server fetches data
+// 2. Server asks LLM to analyze (via sampling)
+// 3. Server takes action based on analysis
+// 4. Server reports back to user`}
+                </pre>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-orange-400">●</span>
+                  <span className="text-slate-300">Enables server-driven agent loops</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-orange-400">●</span>
+                  <span className="text-slate-300">Host controls model and permissions</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-orange-400">●</span>
+                  <span className="text-slate-300">Human-in-the-loop approval possible</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Primitives Comparison */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Primitives Comparison</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-2 text-slate-400">Primitive</th>
+                    <th className="text-left p-2 text-slate-400">Direction</th>
+                    <th className="text-left p-2 text-slate-400">Purpose</th>
+                    <th className="text-left p-2 text-slate-400">Initiated By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-2 text-green-300">Tools</td>
+                    <td className="p-2">Client → Server</td>
+                    <td className="p-2 text-slate-300">Execute actions</td>
+                    <td className="p-2 text-slate-400">LLM decides</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-2 text-blue-300">Resources</td>
+                    <td className="p-2">Client → Server</td>
+                    <td className="p-2 text-slate-300">Read data</td>
+                    <td className="p-2 text-slate-400">LLM or User</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-2 text-purple-300">Prompts</td>
+                    <td className="p-2">Client → Server</td>
+                    <td className="p-2 text-slate-300">Get templates</td>
+                    <td className="p-2 text-slate-400">User explicitly</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2 text-orange-300">Sampling</td>
+                    <td className="p-2">Server → Client</td>
+                    <td className="p-2 text-slate-300">Request LLM output</td>
+                    <td className="p-2 text-slate-400">Server logic</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: TRANSPORT ==============
+      const TransportSection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* stdio Transport */}
+            <div className="bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-cyan-300 mb-2">📟 stdio Transport</h3>
+              <p className="text-slate-300 mb-4">
+                Communication via stdin/stdout. Default for local servers. Simple, secure, process-based isolation.
+              </p>
+              
+              <div className="bg-black/50 rounded-lg p-4 mb-4">
+                <div className="text-xs text-slate-400 mb-2">How it works:</div>
+                <div className="flex items-center justify-center gap-2 text-sm">
+                  <span className="bg-violet-900/50 px-2 py-1 rounded text-violet-300">Host</span>
+                  <span className="text-slate-500">spawns</span>
+                  <span className="bg-cyan-900/50 px-2 py-1 rounded text-cyan-300">Server Process</span>
+                </div>
+                <div className="text-center mt-2 text-xs text-slate-500">
+                  JSON-RPC messages over stdin/stdout
+                </div>
+              </div>
+
+              <button 
+                onClick={() => toggleCode('stdio')}
+                className="text-sm bg-cyan-900/50 hover:bg-cyan-900/70 px-3 py-1 rounded text-cyan-300 mb-3"
+              >
+                {showCode['stdio'] ? 'Hide' : 'Show'} stdio Server Example
+              </button>
+              
+              {showCode['stdio'] && (
+                <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// TypeScript stdio server
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
+const server = new Server({
+  name: "my-server",
+  version: "1.0.0"
+}, {
+  capabilities: {
+    tools: {},
+    resources: {}
+  }
+});
+
+// Register handlers...
+
+// Start with stdio transport
+const transport = new StdioServerTransport();
+await server.connect(transport);
+
+// Claude Desktop config (claude_desktop_config.json):
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "node",
+      "args": ["/path/to/server.js"],
+      "env": { "API_KEY": "xxx" }
+    }
+  }
+}`}
+                </pre>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">✓</span>
+                  <span className="text-slate-300">Process isolation (security)</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">✓</span>
+                  <span className="text-slate-300">No network exposure</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-yellow-400">●</span>
+                  <span className="text-slate-300">Local only (same machine)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* HTTP + SSE Transport */}
+            <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-orange-300 mb-2">🌐 HTTP + SSE Transport</h3>
+              <p className="text-slate-300 mb-4">
+                HTTP-based transport with Server-Sent Events for streaming. Good for remote servers, supports authentication.
+              </p>
+              
+              <div className="bg-black/50 rounded-lg p-4 mb-4">
+                <div className="text-xs text-slate-400 mb-2">How it works:</div>
+                <div className="flex items-center justify-center gap-2 text-sm flex-wrap">
+                  <span className="bg-violet-900/50 px-2 py-1 rounded text-violet-300">Client</span>
+                  <span className="text-slate-500">→ HTTP POST →</span>
+                  <span className="bg-orange-900/50 px-2 py-1 rounded text-orange-300">Server</span>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-sm mt-2 flex-wrap">
+                  <span className="bg-orange-900/50 px-2 py-1 rounded text-orange-300">Server</span>
+                  <span className="text-slate-500">→ SSE Stream →</span>
+                  <span className="bg-violet-900/50 px-2 py-1 rounded text-violet-300">Client</span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => toggleCode('sse')}
+                className="text-sm bg-orange-900/50 hover:bg-orange-900/70 px-3 py-1 rounded text-orange-300 mb-3"
+              >
+                {showCode['sse'] ? 'Hide' : 'Show'} HTTP Server Example
+              </button>
+              
+              {showCode['sse'] && (
+                <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Express-based HTTP/SSE server
+import express from "express";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+
+const app = express();
+const server = new Server({ name: "remote-server", version: "1.0.0" });
+
+// SSE endpoint for client connections
+app.get("/sse", async (req, res) => {
+  // Verify auth token
+  const token = req.headers.authorization;
+  if (!verifyToken(token)) {
+    return res.status(401).send("Unauthorized");
+  }
+
+  const transport = new SSEServerTransport("/messages", res);
+  await server.connect(transport);
+});
+
+// Message endpoint for client requests
+app.post("/messages", express.json(), async (req, res) => {
+  // Handle incoming JSON-RPC messages
+  await transport.handlePostMessage(req, res);
+});
+
+app.listen(3000);`}
+                </pre>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">✓</span>
+                  <span className="text-slate-300">Remote access (cloud deployment)</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">✓</span>
+                  <span className="text-slate-300">Auth via headers/tokens</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-yellow-400">●</span>
+                  <span className="text-slate-300">More setup, network considerations</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Protocol Lifecycle */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Protocol Lifecycle</h3>
+            <div className="flex items-center justify-between gap-2 overflow-x-auto pb-2">
+              {[
+                { step: '1', label: 'Initialize', desc: 'Exchange versions & capabilities', color: 'violet' },
+                { step: '2', label: 'Capabilities', desc: 'Server declares tools/resources', color: 'blue' },
+                { step: '3', label: 'Operation', desc: 'Normal request/response flow', color: 'green' },
+                { step: '4', label: 'Shutdown', desc: 'Graceful disconnect', color: 'orange' }
+              ].map((phase, i) => (
+                <React.Fragment key={phase.step}>
+                  <div className={`flex-shrink-0 bg-${phase.color}-900/50 border border-${phase.color}-500 rounded-lg p-3 text-center min-w-[120px]`}
+                       style={{backgroundColor: `rgb(var(--${phase.color}-900) / 0.5)`}}>
+                    <div className={`text-${phase.color}-300 font-bold`}>{phase.step}. {phase.label}</div>
+                    <div className="text-xs text-slate-400 mt-1">{phase.desc}</div>
+                  </div>
+                  {i < 3 && <div className="text-slate-500 text-xl flex-shrink-0">→</div>}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => toggleCode('lifecycle')}
+              className="mt-4 text-sm bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded text-slate-300"
+            >
+              {showCode['lifecycle'] ? 'Hide' : 'Show'} Initialization Sequence
+            </button>
+            
+            {showCode['lifecycle'] && (
+              <pre className="mt-3 bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Client → Server: Initialize
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "clientInfo": { "name": "claude-desktop", "version": "1.0.0" },
+    "capabilities": { "sampling": {} }  // What client can do
+  }
+}
+
+// Server → Client: Initialize Response  
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "serverInfo": { "name": "github-server", "version": "1.0.0" },
+    "capabilities": {
+      "tools": {},      // Server offers tools
+      "resources": {},  // Server offers resources
+      "prompts": {}     // Server offers prompts
+    }
+  }
+}
+
+// Client → Server: Initialized (handshake complete)
+{ "jsonrpc": "2.0", "method": "notifications/initialized" }`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: IMPLEMENTATION ==============
+      const ImplementationSection = () => (
+        <div className="space-y-6">
+          {/* Python Server */}
+          <div className="bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-blue-300 mb-2">🐍 Python Server Implementation</h3>
+            <p className="text-slate-300 mb-4">Complete example of an MCP server in Python with tools and resources.</p>
+            
+            <button 
+              onClick={() => toggleCode('python-server')}
+              className="text-sm bg-blue-900/50 hover:bg-blue-900/70 px-3 py-1 rounded text-blue-300 mb-3"
+            >
+              {showCode['python-server'] ? 'Hide' : 'Show'} Full Python Server
+            </button>
+            
+            {showCode['python-server'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+{`# weather_server.py
+import asyncio
+import httpx
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent, Resource
+
+# Create server instance
+server = Server("weather-server")
+
+# Define available tools
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="get_weather",
+            description="Get current weather for a city",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string", "description": "City name"},
+                    "units": {"type": "string", "enum": ["celsius", "fahrenheit"], "default": "celsius"}
+                },
+                "required": ["city"]
+            }
+        ),
+        Tool(
+            name="get_forecast",
+            description="Get 5-day weather forecast",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string"},
+                    "days": {"type": "integer", "minimum": 1, "maximum": 5}
+                },
+                "required": ["city"]
+            }
+        )
+    ]
+
+# Handle tool calls
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name == "get_weather":
+        city = arguments["city"]
+        units = arguments.get("units", "celsius")
+        
+        # Call weather API
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.weather.com/current",
+                params={"city": city, "units": units}
+            )
+            data = response.json()
+        
+        return [TextContent(
+            type="text",
+            text=f"Weather in {city}: {data['temp']}°, {data['condition']}"
+        )]
+    
+    elif name == "get_forecast":
+        # Similar implementation...
+        pass
+
+# Define resources (optional)
+@server.list_resources()
+async def list_resources() -> list[Resource]:
+    return [
+        Resource(
+            uri="weather://cities/popular",
+            name="Popular Cities",
+            description="List of commonly queried cities",
+            mimeType="application/json"
+        )
+    ]
+
+@server.read_resource()
+async def read_resource(uri: str) -> str:
+    if uri == "weather://cities/popular":
+        return '["London", "New York", "Tokyo", "Paris", "Sydney"]'
+
+# Run the server
+async def main():
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream)
+
+if __name__ == "__main__":
+    asyncio.run(main())`}
+              </pre>
+            )}
+          </div>
+
+          {/* TypeScript Server */}
+          <div className="bg-gradient-to-br from-yellow-900/40 to-orange-900/40 border border-yellow-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-yellow-300 mb-2">📜 TypeScript Server Implementation</h3>
+            <p className="text-slate-300 mb-4">Complete TypeScript server with tools, resources, and prompts.</p>
+            
+            <button 
+              onClick={() => toggleCode('ts-server')}
+              className="text-sm bg-yellow-900/50 hover:bg-yellow-900/70 px-3 py-1 rounded text-yellow-300 mb-3"
+            >
+              {showCode['ts-server'] ? 'Hide' : 'Show'} Full TypeScript Server
+            </button>
+            
+            {showCode['ts-server'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+{`// database-server.ts
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema
+} from "@modelcontextprotocol/sdk/types.js";
+import { Pool } from "pg";
+
+// Database connection
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Create server
+const server = new Server(
+  { name: "postgres-server", version: "1.0.0" },
+  { capabilities: { tools: {}, resources: {}, prompts: {} } }
+);
+
+// === TOOLS ===
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "query",
+      description: "Execute a read-only SQL query",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sql: { type: "string", description: "SQL SELECT query" },
+          params: { type: "array", items: { type: "string" }, description: "Query parameters" }
+        },
+        required: ["sql"]
+      }
+    },
+    {
+      name: "list_tables",
+      description: "List all tables in the database",
+      inputSchema: { type: "object", properties: {} }
+    }
+  ]
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  if (name === "query") {
+    // Only allow SELECT queries for safety
+    if (!args.sql.trim().toLowerCase().startsWith("select")) {
+      return { content: [{ type: "text", text: "Error: Only SELECT queries allowed" }] };
+    }
+    
+    try {
+      const result = await pool.query(args.sql, args.params || []);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result.rows, null, 2)
+        }]
+      };
+    } catch (error) {
+      return { content: [{ type: "text", text: \`Query error: \${error.message}\` }] };
+    }
+  }
+
+  if (name === "list_tables") {
+    const result = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+    );
+    return {
+      content: [{
+        type: "text",
+        text: result.rows.map(r => r.table_name).join("\\n")
+      }]
+    };
+  }
+});
+
+// === RESOURCES ===
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const tables = await pool.query(
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+  );
+  
+  return {
+    resources: tables.rows.map(row => ({
+      uri: \`postgres://table/\${row.table_name}\`,
+      name: row.table_name,
+      description: \`Schema for \${row.table_name} table\`,
+      mimeType: "application/json"
+    }))
+  };
+});
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const tableName = request.params.uri.split("/").pop();
+  
+  const schema = await pool.query(
+    "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1",
+    [tableName]
+  );
+  
+  return {
+    contents: [{
+      uri: request.params.uri,
+      mimeType: "application/json",
+      text: JSON.stringify(schema.rows, null, 2)
+    }]
+  };
+});
+
+// === PROMPTS ===
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: [{
+    name: "analyze_table",
+    description: "Analyze a database table structure and suggest optimizations",
+    arguments: [{ name: "table", description: "Table name to analyze", required: true }]
+  }]
+}));
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const tableName = request.params.arguments?.table;
+  return {
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text: \`Analyze the "\${tableName}" table. Check the schema, suggest indexes, 
+               and identify potential performance issues.\`
+      }
+    }]
+  };
+});
+
+// Start server
+const transport = new StdioServerTransport();
+await server.connect(transport);`}
+              </pre>
+            )}
+          </div>
+
+          {/* Claude Desktop Config */}
+          <div className="bg-gradient-to-br from-violet-900/40 to-purple-900/40 border border-violet-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-violet-300 mb-2">⚙️ Claude Desktop Configuration</h3>
+            <p className="text-slate-300 mb-4">How to configure MCP servers in Claude Desktop.</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">macOS config location:</div>
+                <code className="text-violet-300 text-xs">~/Library/Application Support/Claude/claude_desktop_config.json</code>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">Windows config location:</div>
+                <code className="text-violet-300 text-xs">%APPDATA%\Claude\claude_desktop_config.json</code>
+              </div>
+            </div>
+            
+            <button 
+              onClick={() => toggleCode('config')}
+              className="text-sm bg-violet-900/50 hover:bg-violet-900/70 px-3 py-1 rounded text-violet-300 mb-3"
+            >
+              {showCode['config'] ? 'Hide' : 'Show'} Configuration Examples
+            </button>
+            
+            {showCode['config'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`{
+  "mcpServers": {
+    // Local Node.js server
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/projects"],
+      "env": {}
+    },
+    
+    // Local Python server
+    "weather": {
+      "command": "python",
+      "args": ["/path/to/weather_server.py"],
+      "env": {
+        "WEATHER_API_KEY": "your-api-key"
+      }
+    },
+    
+    // Docker-based server
+    "postgres": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "mcp/postgres-server"],
+      "env": {
+        "DATABASE_URL": "postgresql://user:pass@localhost/db"
+      }
+    },
+    
+    // UV-managed Python server (recommended)
+    "github": {
+      "command": "uvx",
+      "args": ["mcp-server-github"],
+      "env": {
+        "GITHUB_TOKEN": "ghp_xxxx"
+      }
+    }
+  }
+}`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: SECURITY ==============
+      const SecuritySection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Security Model */}
+            <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-red-300 mb-3">🔒 Security Model</h3>
+              
+              <div className="space-y-4">
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-red-300 mb-2">User Consent Required</div>
+                  <p className="text-slate-300 text-sm">
+                    Users must explicitly add servers to config. No ambient authority - 
+                    the host mediates all tool access.
+                  </p>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-orange-300 mb-2">Process Isolation</div>
+                  <p className="text-slate-300 text-sm">
+                    Each server runs in its own process. Crash isolation, resource limits, 
+                    no direct memory access between servers.
+                  </p>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-yellow-300 mb-2">Capability Negotiation</div>
+                  <p className="text-slate-300 text-sm">
+                    Servers declare capabilities upfront. Host knows exactly what each 
+                    server can do before allowing access.
+                  </p>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-green-300 mb-2">Host Controls Sampling</div>
+                  <p className="text-slate-300 text-sm">
+                    When servers request LLM completions (sampling), the host decides 
+                    whether to allow it and can require user approval.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Best Practices */}
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-3">✅ Security Best Practices</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">1</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Validate All Inputs</div>
+                    <p className="text-slate-400 text-sm">Use JSON Schema validation. Never trust LLM-provided arguments without sanitization.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">2</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Principle of Least Privilege</div>
+                    <p className="text-slate-400 text-sm">Servers should request only permissions they need. Read-only DB access if writes aren't needed.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">3</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Sanitize File Paths</div>
+                    <p className="text-slate-400 text-sm">Prevent path traversal attacks. Restrict to allowed directories.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">4</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Rate Limiting</div>
+                    <p className="text-slate-400 text-sm">Implement rate limits for expensive operations. Prevent runaway loops.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">5</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Audit Logging</div>
+                    <p className="text-slate-400 text-sm">Log all tool invocations for debugging and security review.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Common Vulnerabilities */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">⚠️ Common Vulnerabilities to Avoid</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                <div className="font-semibold text-red-300 mb-2">SQL Injection</div>
+                <p className="text-slate-400 text-sm">Always use parameterized queries. Never concatenate user input into SQL.</p>
+                <pre className="mt-2 text-xs bg-black/30 p-2 rounded">
+{`// BAD
+query(\`SELECT * FROM \${table}\`)
+
+// GOOD  
+query("SELECT * FROM $1", [table])`}
+                </pre>
+              </div>
+
+              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                <div className="font-semibold text-red-300 mb-2">Path Traversal</div>
+                <p className="text-slate-400 text-sm">Validate paths stay within allowed directories.</p>
+                <pre className="mt-2 text-xs bg-black/30 p-2 rounded">
+{`// BAD
+readFile(userPath)
+
+// GOOD
+const safe = path.resolve(baseDir, userPath)
+if (!safe.startsWith(baseDir)) throw`}
+                </pre>
+              </div>
+
+              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                <div className="font-semibold text-red-300 mb-2">Command Injection</div>
+                <p className="text-slate-400 text-sm">Never pass LLM output directly to shell commands.</p>
+                <pre className="mt-2 text-xs bg-black/30 p-2 rounded">
+{`// BAD
+exec(\`git clone \${url}\`)
+
+// GOOD
+execFile('git', ['clone', url])`}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: COMPARISON ==============
+      const ComparisonSection = () => (
+        <div className="space-y-6">
+          {/* MCP vs Function Calling */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">MCP vs OpenAI Function Calling</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Aspect</th>
+                    <th className="text-left p-3 text-violet-300">MCP</th>
+                    <th className="text-left p-3 text-green-300">OpenAI Functions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Protocol</td>
+                    <td className="p-3">Open standard, JSON-RPC</td>
+                    <td className="p-3">Proprietary API format</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Discovery</td>
+                    <td className="p-3">Dynamic - servers declare capabilities</td>
+                    <td className="p-3">Static - defined in API call</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Resources</td>
+                    <td className="p-3">✅ First-class support</td>
+                    <td className="p-3">❌ Must use tools</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Prompts</td>
+                    <td className="p-3">✅ Server-defined templates</td>
+                    <td className="p-3">❌ Not supported</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Sampling</td>
+                    <td className="p-3">✅ Bidirectional (server → LLM)</td>
+                    <td className="p-3">❌ One direction only</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Transport</td>
+                    <td className="p-3">stdio, HTTP/SSE</td>
+                    <td className="p-3">HTTP only</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400">Ecosystem</td>
+                    <td className="p-3">50+ official servers, growing</td>
+                    <td className="p-3">Plugins (deprecated) → GPTs</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* MCP vs A2A */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">MCP vs A2A (Google)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-violet-300 mb-3">MCP Focus</h4>
+                <ul className="space-y-2 text-sm text-slate-300">
+                  <li>• <strong>LLM ↔ Tools</strong> connectivity</li>
+                  <li>• Local-first (stdio default)</li>
+                  <li>• Tools, Resources, Prompts primitives</li>
+                  <li>• Single host manages multiple servers</li>
+                  <li>• Developer/power-user focused</li>
+                </ul>
+              </div>
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-green-300 mb-3">A2A Focus</h4>
+                <ul className="space-y-2 text-sm text-slate-300">
+                  <li>• <strong>Agent ↔ Agent</strong> communication</li>
+                  <li>• Cloud-native (HTTP default)</li>
+                  <li>• Task delegation protocol</li>
+                  <li>• Agent Cards for discovery</li>
+                  <li>• Enterprise/multi-vendor focused</li>
+                </ul>
+              </div>
+            </div>
+            <div className="mt-4 bg-amber-900/20 border border-amber-500/30 rounded-lg p-4">
+              <div className="font-semibold text-amber-300 mb-2">💡 They're Complementary</div>
+              <p className="text-slate-300 text-sm">
+                MCP connects an LLM to its tools. A2A connects agents to other agents. 
+                An agent could use MCP for tools AND A2A to delegate to specialized agents.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: DEBUGGING ==============
+      const DebuggingSection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Common Issues */}
+            <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-red-300 mb-4">🐛 Common Issues</h3>
+              
+              <div className="space-y-4">
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-red-300 mb-1">Server Not Appearing</div>
+                  <ul className="text-slate-300 text-sm space-y-1">
+                    <li>• Check config JSON syntax (trailing commas!)</li>
+                    <li>• Verify command path is correct</li>
+                    <li>• Restart Claude Desktop after config change</li>
+                  </ul>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-orange-300 mb-1">Connection Failed</div>
+                  <ul className="text-slate-300 text-sm space-y-1">
+                    <li>• Server process may have crashed - check stderr</li>
+                    <li>• Missing dependencies - run npm install</li>
+                    <li>• Environment variables not set</li>
+                  </ul>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-yellow-300 mb-1">Tools Not Working</div>
+                  <ul className="text-slate-300 text-sm space-y-1">
+                    <li>• Check tool schema validation</li>
+                    <li>• Verify LLM understands tool description</li>
+                    <li>• Check server logs for errors</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Debugging Tools */}
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-4">🔧 Debugging Tools</h3>
+              
+              <div className="space-y-4">
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-green-300 mb-2">MCP Inspector</div>
+                  <p className="text-slate-300 text-sm mb-2">Official debugging tool for testing servers interactively.</p>
+                  <pre className="text-xs bg-black/50 p-2 rounded">
+{`npx @modelcontextprotocol/inspector \\
+  node /path/to/server.js`}
+                  </pre>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-blue-300 mb-2">Claude Desktop Logs</div>
+                  <p className="text-slate-300 text-sm mb-2">Check MCP-specific logs:</p>
+                  <pre className="text-xs bg-black/50 p-2 rounded">
+{`# macOS
+tail -f ~/Library/Logs/Claude/mcp*.log
+
+# Windows
+type %APPDATA%\\Claude\\logs\\mcp*.log`}
+                  </pre>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-purple-300 mb-2">Server-Side Logging</div>
+                  <p className="text-slate-300 text-sm">Add logging to your server:</p>
+                  <pre className="text-xs bg-black/50 p-2 rounded mt-2">
+{`// Write to stderr (doesn't interfere with stdio)
+console.error("[DEBUG]", request.params);`}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Debug Checklist */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">📋 Debug Checklist</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { icon: '1️⃣', title: 'Config Valid?', desc: 'JSON syntax, paths correct' },
+                { icon: '2️⃣', title: 'Server Starts?', desc: 'Run manually in terminal' },
+                { icon: '3️⃣', title: 'Handshake OK?', desc: 'Check initialize response' },
+                { icon: '4️⃣', title: 'Tools Listed?', desc: 'Verify capabilities' }
+              ].map((item, i) => (
+                <div key={i} className="bg-slate-800/50 rounded-lg p-4 text-center">
+                  <div className="text-2xl mb-2">{item.icon}</div>
+                  <div className="font-semibold text-white">{item.title}</div>
+                  <div className="text-xs text-slate-400">{item.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: ECOSYSTEM ==============
+      const EcosystemSection = () => (
+        <div className="space-y-6">
+          {/* Popular Servers */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">🌐 Popular MCP Servers</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                { name: 'Filesystem', desc: 'Read/write local files', pkg: '@modelcontextprotocol/server-filesystem', color: 'blue' },
+                { name: 'GitHub', desc: 'Repos, issues, PRs', pkg: 'mcp-server-github', color: 'green' },
+                { name: 'Postgres', desc: 'Database queries', pkg: '@modelcontextprotocol/server-postgres', color: 'cyan' },
+                { name: 'Slack', desc: 'Messages, channels', pkg: 'mcp-server-slack', color: 'purple' },
+                { name: 'Brave Search', desc: 'Web search', pkg: '@anthropics/mcp-server-brave-search', color: 'orange' },
+                { name: 'Puppeteer', desc: 'Browser automation', pkg: '@anthropics/mcp-server-puppeteer', color: 'pink' }
+              ].map((server, i) => (
+                <div key={i} className={`bg-${server.color}-900/20 border border-${server.color}-500/30 rounded-lg p-4`}>
+                  <div className={`font-bold text-${server.color}-300 mb-1`}>{server.name}</div>
+                  <div className="text-slate-400 text-sm mb-2">{server.desc}</div>
+                  <code className="text-xs text-slate-500">{server.pkg}</code>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Getting Started */}
+          <div className="bg-gradient-to-br from-violet-900/40 to-purple-900/40 border border-violet-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-violet-300 mb-4">🚀 Quick Start</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="text-4xl mb-3">1️⃣</div>
+                <div className="font-bold text-white mb-2">Install SDK</div>
+                <pre className="text-xs bg-black/30 p-2 rounded">
+{`# TypeScript
+npm i @modelcontextprotocol/sdk
+
+# Python
+pip install mcp`}
+                </pre>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl mb-3">2️⃣</div>
+                <div className="font-bold text-white mb-2">Create Server</div>
+                <pre className="text-xs bg-black/30 p-2 rounded">
+{`const server = new Server({
+  name: "my-server",
+  version: "1.0.0"
+});`}
+                </pre>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl mb-3">3️⃣</div>
+                <div className="font-bold text-white mb-2">Add to Claude</div>
+                <pre className="text-xs bg-black/30 p-2 rounded">
+{`// claude_desktop_config.json
+{
+  "mcpServers": {
+    "my-server": {...}
+  }
+}`}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // Navigation
+      const sections = [
+        { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'primitives', label: 'Primitives', icon: '🧱' },
+        { id: 'transport', label: 'Transport', icon: '🔌' },
+        { id: 'implementation', label: 'Implementation', icon: '💻' },
+        { id: 'security', label: 'Security', icon: '🔒' },
+        { id: 'comparison', label: 'Comparison', icon: '⚖️' },
+        { id: 'debugging', label: 'Debugging', icon: '🐛' },
+        { id: 'ecosystem', label: 'Ecosystem', icon: '🌐' }
+      ];
+
+      const renderSection = () => {
+        switch(activeSection) {
+          case 'overview': return <OverviewSection />;
+          case 'primitives': return <PrimitivesSection />;
+          case 'transport': return <TransportSection />;
+          case 'implementation': return <ImplementationSection />;
+          case 'security': return <SecuritySection />;
+          case 'comparison': return <ComparisonSection />;
+          case 'debugging': return <DebuggingSection />;
+          case 'ecosystem': return <EcosystemSection />;
+          default: return <OverviewSection />;
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-black text-white">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-violet-900/50 to-purple-900/50 border-b border-violet-500/30 p-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-violet-500/20 border border-violet-500 rounded-full text-violet-300 text-sm font-bold">
+                  AGENT INFRASTRUCTURE
+                </span>
+                <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-full text-green-300 text-sm">
+                  Anthropic Protocol
+                </span>
+              </div>
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-purple-400">
                 Model Context Protocol (MCP)
               </h1>
-              <p className="text-slate-400">Anthropic's open standard for LLM-tool connectivity. Hover for details.</p>
-            </div>
-
-            {/* Overview */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-violet-300">1. Overview</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="what" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="What is MCP?" sub="Universal protocol for AI tools"/>
-                <Card id="why" bg="bg-violet-900/50 border-violet-500 text-violet-200" title="Why MCP?" sub="N+M instead of N*M integrations"/>
-              </div>
-            </div>
-
-            {/* Architecture */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Architecture</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="host" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Host" sub="Application runtime"/>
-                <Card id="client" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Client" sub="Connects to servers"/>
-                <Card id="server" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Server" sub="Exposes capabilities"/>
-              </div>
-              <div className="mt-4 p-4 bg-slate-900/50 border border-slate-700 rounded-xl text-center text-sm">
-                <span className="text-blue-300">Host (Claude Desktop)</span>
-                <span className="text-slate-500 mx-2">&rarr;</span>
-                <span className="text-cyan-300">Client</span>
-                <span className="text-slate-500 mx-2">&rarr;</span>
-                <span className="text-green-300">Server (GitHub, Postgres, etc)</span>
-              </div>
-            </div>
-
-            {/* Primitives */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-green-300">3. Core Primitives</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="tools" bg="bg-green-900/50 border-green-500 text-green-200" title="Tools" sub="Functions to call"/>
-                <Card id="resources" bg="bg-green-900/50 border-green-500 text-green-200" title="Resources" sub="Data to read"/>
-                <Card id="prompts" bg="bg-green-900/50 border-green-500 text-green-200" title="Prompts" sub="Templates"/>
-                <Card id="sampling" bg="bg-green-900/50 border-green-500 text-green-200" title="Sampling" sub="Server requests LLM"/>
-              </div>
-            </div>
-
-            {/* Transport */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Transport</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="stdio" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="stdio" sub="Local, stdin/stdout"/>
-                <Card id="sse" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="HTTP + SSE" sub="Remote, streaming"/>
-                <Card id="lifecycle" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Lifecycle" sub="Init, operate, shutdown"/>
-              </div>
-            </div>
-
-            {/* Practical */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-pink-300">5. Practical</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="claude" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Claude Desktop" sub="Built-in support"/>
-                <Card id="sdk" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="SDKs" sub="TypeScript, Python"/>
-                <Card id="security" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Security" sub="User consent required"/>
-                <Card id="ecosystem" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Ecosystem" sub="50+ servers"/>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-900/50 border border-violet-500/30 rounded-xl p-6 text-center">
-              <div className="text-xl font-bold text-white mb-2">MCP Summary</div>
-              <p className="text-slate-400 text-sm mb-4">
-                One protocol, universal connectivity. Servers expose tools/resources, clients connect, hosts orchestrate.
+              <p className="text-slate-400 mt-2">
+                The universal standard for connecting LLMs to tools, data, and services. USB-C for AI.
               </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                <span className="px-3 py-1 bg-violet-900/50 rounded text-violet-300 text-sm">Open Standard</span>
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Host/Client/Server</span>
-                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Tools + Resources</span>
-                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">stdio / HTTP</span>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex gap-1 overflow-x-auto py-2">
+                {sections.map(section => (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeSection === section.id
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {section.icon} {section.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="max-w-7xl mx-auto p-6">
+            {renderSection()}
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-900/50 border-t border-slate-700 p-6 mt-8">
+            <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
+              <div className="flex justify-center gap-4 flex-wrap">
+                <span className="px-3 py-1 bg-violet-900/30 rounded">Open Protocol</span>
+                <span className="px-3 py-1 bg-blue-900/30 rounded">Host → Client → Server</span>
+                <span className="px-3 py-1 bg-green-900/30 rounded">Tools + Resources + Prompts</span>
+                <span className="px-3 py-1 bg-orange-900/30 rounded">stdio / HTTP+SSE</span>
+                <span className="px-3 py-1 bg-pink-900/30 rounded">50+ Servers</span>
               </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>

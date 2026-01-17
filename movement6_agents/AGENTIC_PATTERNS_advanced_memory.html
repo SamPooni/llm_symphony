@@ -657,6 +657,22 @@
               <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-orange-400">🏭</div><div className="text-slate-400 text-sm">Production-Ready</div></div>
               <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-red-400">🛡️</div><div className="text-slate-400 text-sm">Reliability</div></div>
             </div>
+            
+            {/* Related Detailed References */}
+            <div className="mb-12 p-4 glass rounded-xl border border-amber-500/30">
+              <div className="text-sm text-amber-400 font-semibold mb-3">📚 Detailed References (for deeper dives)</div>
+              <div className="grid grid-cols-2 gap-3">
+                <a href="AGENT_MEMORY_state_management.html" className="flex items-center gap-2 px-4 py-2 bg-amber-900/30 rounded-lg hover:bg-amber-900/50 transition no-underline">
+                  <span className="text-lg">🧠</span>
+                  <div><span className="text-white font-medium">Memory Systems</span><span className="text-amber-300 text-xs block">16 memory concepts detailed</span></div>
+                </a>
+                <a href="AGENT_OBSERVABILITY_tracing.html" className="flex items-center gap-2 px-4 py-2 bg-teal-900/30 rounded-lg hover:bg-teal-900/50 transition no-underline">
+                  <span className="text-lg">📊</span>
+                  <div><span className="text-white font-medium">Observability & Tracing</span><span className="text-teal-300 text-xs block">Tools, metrics, debugging</span></div>
+                </a>
+              </div>
+            </div>
+            
             <div className="space-y-12">
               {patterns.map((pattern) => (
                 <section key={pattern.id} className="glass rounded-2xl p-8 hover:border-amber-500/30 transition-colors">

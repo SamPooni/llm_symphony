@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Agentic Coding</title>
+  <title>Agentic Coding - SWE Agents Deep Dive</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,126 +12,945 @@
   <div id="root"></div>
   <script type="text/babel">
     function App() {
-      const [hover, setHover] = React.useState(null);
-      
-      const tips = {
-        'what': 'AI that writes, edits, tests, and debugs code autonomously. Beyond autocomplete - full task completion. The frontier of coding AI.',
-        'evolution': 'Copilot (autocomplete) -> Cursor (chat+edit) -> Claude Code (terminal agent) -> Devin (full autonomy). Increasing agency.',
-        'claude': 'Anthropic CLI tool. Terminal-based. Reads files, writes code, runs tests, uses git. Multi-file changes. Production-quality output.',
-        'cursor': 'AI-first IDE. Chat with codebase. Cmd+K for edits. Composer for multi-file. Tab for autocomplete. Most popular AI editor.',
-        'copilot': 'GitHub/Microsoft. Inline completions. Chat in VS Code. Workspace agent. 1M+ users. The original coding AI.',
-        'devin': 'Cognition AI. Full software engineer agent. Browser, terminal, editor access. Can deploy. Expensive, autonomous.',
-        'aider': 'Open source CLI. Git-aware editing. Multiple models. Pair programming style. Free, self-hosted.',
-        'loop': 'Read code -> Understand context -> Plan changes -> Write code -> Test -> Fix errors -> Commit. Iterative refinement.',
-        'tools': 'File read/write, terminal/shell, git operations, browser/docs, test runners, linters. More tools = more capable.',
-        'context': 'Codebase understanding is key. Embeddings over repo. File tree awareness. Symbol/reference tracking. RAG over code.',
-        'swe': 'SWE-bench: 2,294 real GitHub issues. Agents try to fix. Current SOTA ~50% on verified. Hard benchmark.',
-        'humaneval': 'OpenAI benchmark. 164 function problems. Tests correctness. 90%+ now routine. Saturating.',
-        'multifile': 'Real coding spans files. Imports, dependencies, configs. Agents must coordinate changes. Much harder than single file.',
-        'test': 'Write tests, run tests, fix failures. Test-driven agents. Coverage as metric. Regression prevention.',
-        'debug': 'Read error, find cause, fix code. Iterative debugging. Stack traces, logs, breakpoints. Hard for agents.',
-        'review': 'AI reviews human code. Style, bugs, security. PR comments. Catching up to human reviewers.'
+      const [activeSection, setActiveSection] = React.useState('overview');
+      const [showCode, setShowCode] = React.useState({});
+
+      const toggleCode = (id) => {
+        setShowCode(prev => ({...prev, [id]: !prev[id]}));
       };
 
-      const Card = ({id, bg, title, sub}) => (
-        <div 
-          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
-          onMouseEnter={() => setHover(id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <div className="font-bold">{title}</div>
-          <div className="text-sm opacity-60">{sub}</div>
-          {hover === id && (
-            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
-              {tips[id]}
+      // ============== SECTION: OVERVIEW ==============
+      const OverviewSection = () => (
+        <div className="space-y-6">
+          {/* What is Agentic Coding */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-br from-green-900/50 to-emerald-900/50 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-3">🤖 What is Agentic Coding?</h3>
+              <p className="text-slate-300 mb-4">
+                AI that writes, edits, tests, and debugs code <span className="text-green-400 font-semibold">autonomously</span>. 
+                Beyond autocomplete — full task completion. The frontier of coding AI.
+              </p>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">Key Characteristics:</div>
+                <ul className="space-y-2 text-sm">
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">●</span>
+                    <span className="text-slate-300"><strong>Autonomous:</strong> Completes tasks without hand-holding</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">●</span>
+                    <span className="text-slate-300"><strong>Multi-step:</strong> Reads, plans, writes, tests, fixes</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">●</span>
+                    <span className="text-slate-300"><strong>Tool-using:</strong> Terminal, git, file system access</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">●</span>
+                    <span className="text-slate-300"><strong>Self-correcting:</strong> Iterates until tests pass</span>
+                  </li>
+                </ul>
+              </div>
             </div>
-          )}
+
+            <div className="bg-gradient-to-br from-blue-900/50 to-indigo-900/50 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-3">📈 Evolution of Coding AI</h3>
+              <div className="space-y-3">
+                {[
+                  { year: '2021', tool: 'Copilot', desc: 'Inline autocomplete', level: 'Level 1', color: 'slate' },
+                  { year: '2023', tool: 'Cursor/Continue', desc: 'Chat + context-aware edits', level: 'Level 2', color: 'blue' },
+                  { year: '2024', tool: 'Claude Code', desc: 'Terminal agent, multi-file', level: 'Level 3', color: 'violet' },
+                  { year: '2024', tool: 'Devin', desc: 'Full autonomy, browser+deploy', level: 'Level 4', color: 'amber' }
+                ].map((item, i) => (
+                  <div key={i} className={`flex items-center gap-3 p-3 rounded-lg bg-${item.color}-900/30 border border-${item.color}-500/30`}>
+                    <div className="text-xs text-slate-500 w-12">{item.year}</div>
+                    <div className="flex-1">
+                      <div className={`font-bold text-${item.color}-300`}>{item.tool}</div>
+                      <div className="text-xs text-slate-400">{item.desc}</div>
+                    </div>
+                    <div className={`text-xs px-2 py-1 rounded bg-${item.color}-900/50 text-${item.color}-300`}>
+                      {item.level}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Agency Spectrum */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Agency Spectrum</h3>
+            <div className="flex items-center justify-between gap-2 overflow-x-auto pb-2">
+              {[
+                { label: 'Autocomplete', desc: 'Next token prediction', color: 'slate', examples: 'Tab completion' },
+                { label: 'Chat', desc: 'Q&A about code', color: 'blue', examples: 'Explain this function' },
+                { label: 'Inline Edit', desc: 'Edit selected code', color: 'cyan', examples: 'Cmd+K refactor' },
+                { label: 'Multi-file', desc: 'Coordinated changes', color: 'violet', examples: 'Add feature across files' },
+                { label: 'Agentic', desc: 'Autonomous loops', color: 'green', examples: 'Fix all tests' },
+                { label: 'Full Autonomy', desc: 'End-to-end tasks', color: 'amber', examples: 'Build & deploy app' }
+              ].map((level, i) => (
+                <div key={i} className={`flex-shrink-0 bg-${level.color}-900/30 border border-${level.color}-500/30 rounded-lg p-3 min-w-[130px] text-center`}>
+                  <div className={`font-bold text-${level.color}-300 text-sm`}>{level.label}</div>
+                  <div className="text-xs text-slate-400 mt-1">{level.desc}</div>
+                  <div className="text-xs text-slate-500 mt-2 italic">{level.examples}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       );
 
-      return (
-        <div className="min-h-screen bg-black text-white p-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-8">
-              <div className="inline-block px-4 py-1 bg-green-900/50 border border-green-500 rounded-full mb-4">
-                <span className="text-green-300 font-bold text-sm">CODE AGENTS</span>
-              </div>
-              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-500">
-                Agentic Coding
-              </h1>
-              <p className="text-slate-400">AI that writes, tests, and ships code. Hover for details.</p>
-            </div>
-
-            {/* Overview */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-green-300">1. Overview</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="what" bg="bg-green-900/50 border-green-500 text-green-200" title="What is Agentic Coding?" sub="Autonomous code writing"/>
-                <Card id="evolution" bg="bg-green-900/50 border-green-500 text-green-200" title="Evolution" sub="Autocomplete to autonomy"/>
+      // ============== SECTION: TOOLS COMPARISON ==============
+      const ToolsSection = () => (
+        <div className="space-y-6">
+          {/* Claude Code */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-3xl">🟠</span>
+              <div>
+                <h3 className="text-xl font-bold text-orange-300">Claude Code (Anthropic)</h3>
+                <p className="text-slate-400 text-sm">Terminal-based agentic coding CLI</p>
               </div>
             </div>
-
-            {/* Tools */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Tools</h2>
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                <Card id="claude" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Claude Code" sub="Anthropic CLI agent"/>
-                <Card id="cursor" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Cursor" sub="AI-first IDE"/>
-                <Card id="copilot" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Copilot" sub="GitHub inline + chat"/>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-orange-300 mb-2">Architecture</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Terminal-native interface</li>
+                  <li>• File read/write with diff view</li>
+                  <li>• Shell command execution</li>
+                  <li>• Git operations built-in</li>
+                  <li>• Multi-file context awareness</li>
+                  <li>• MCP server support</li>
+                </ul>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="devin" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Devin" sub="Full autonomy agent"/>
-                <Card id="aider" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Aider" sub="Open source CLI"/>
-              </div>
-            </div>
-
-            {/* How it Works */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-purple-300">3. How It Works</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="loop" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Agent Loop" sub="Read, plan, write, test, fix"/>
-                <Card id="tools" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Tool Access" sub="Files, terminal, git"/>
-                <Card id="context" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Codebase Context" sub="RAG over repo"/>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-orange-300 mb-2">Strengths</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>✓ Production-quality code output</li>
+                  <li>✓ Deep reasoning before changes</li>
+                  <li>✓ Excellent multi-file refactoring</li>
+                  <li>✓ Terminal power users love it</li>
+                  <li>✓ Direct Anthropic integration</li>
+                </ul>
               </div>
             </div>
 
-            {/* Capabilities */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Capabilities</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="multifile" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Multi-File" sub="Coordinated changes"/>
-                <Card id="test" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Testing" sub="Write and run tests"/>
-                <Card id="debug" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Debugging" sub="Find and fix errors"/>
-                <Card id="review" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Code Review" sub="AI reviews PRs"/>
+            <button 
+              onClick={() => toggleCode('claude-code')}
+              className="text-sm bg-orange-900/50 hover:bg-orange-900/70 px-3 py-1 rounded text-orange-300 mb-3"
+            >
+              {showCode['claude-code'] ? 'Hide' : 'Show'} Usage Example
+            </button>
+            
+            {showCode['claude-code'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+
+# Start in your project
+cd my-project
+claude
+
+# Example session:
+> Add authentication to the API using JWT
+
+Claude: I'll add JWT authentication. Let me first examine the current structure...
+
+[Reads: src/api/routes.js, src/middleware/index.js]
+
+I'll create an auth middleware and update the routes:
+
+[Creates: src/middleware/auth.js]
+[Modifies: src/api/routes.js]
+[Creates: src/utils/jwt.js]
+
+Let me run the tests to verify...
+[Runs: npm test]
+
+All tests pass. I've also added the jsonwebtoken dependency.
+[Runs: npm install jsonwebtoken]
+
+Ready for review. Want me to commit these changes?`}
+              </pre>
+            )}
+          </div>
+
+          {/* Cursor */}
+          <div className="bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-3xl">🔵</span>
+              <div>
+                <h3 className="text-xl font-bold text-blue-300">Cursor</h3>
+                <p className="text-slate-400 text-sm">AI-first IDE (VS Code fork)</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Key Features</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• <strong>Cmd+K:</strong> Inline code generation/edit</li>
+                  <li>• <strong>Cmd+L:</strong> Chat with codebase context</li>
+                  <li>• <strong>Tab:</strong> Smart autocomplete</li>
+                  <li>• <strong>Composer:</strong> Multi-file agent mode</li>
+                  <li>• <strong>@symbols:</strong> Reference files/docs</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Context System</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Automatic codebase indexing</li>
+                  <li>• @file, @folder, @codebase refs</li>
+                  <li>• @docs for documentation</li>
+                  <li>• @web for web search</li>
+                  <li>• Custom context rules</li>
+                </ul>
               </div>
             </div>
 
-            {/* Benchmarks */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-red-300">5. Benchmarks</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="swe" bg="bg-red-900/50 border-red-500 text-red-200" title="SWE-bench" sub="Real GitHub issues, ~50% SOTA"/>
-                <Card id="humaneval" bg="bg-red-900/50 border-red-500 text-red-200" title="HumanEval" sub="Function problems, 90%+ solved"/>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-6 text-center">
-              <div className="text-xl font-bold text-white mb-2">Agentic Coding Summary</div>
-              <p className="text-slate-400 text-sm mb-4">
-                From autocomplete to autonomous coding. Claude Code, Cursor, Copilot lead. SWE-bench is the real test.
+            <div className="bg-black/30 rounded-lg p-4">
+              <div className="font-semibold text-cyan-300 mb-2">Composer (Agent Mode)</div>
+              <p className="text-slate-300 text-sm mb-2">
+                Multi-file editing with agent capabilities. Creates a plan, makes coordinated changes across files.
               </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Claude Code</span>
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Cursor</span>
-                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Agent Loop</span>
-                <span className="px-3 py-1 bg-red-900/50 rounded text-red-300 text-sm">SWE-bench</span>
+              <div className="text-xs text-slate-500">
+                "Add user authentication with login, signup, and protected routes" → 
+                Modifies 5-10 files with imports, types, components, routes, middleware
+              </div>
+            </div>
+          </div>
+
+          {/* Comparison Table */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Tool Comparison Matrix</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Feature</th>
+                    <th className="text-center p-3 text-orange-300">Claude Code</th>
+                    <th className="text-center p-3 text-blue-300">Cursor</th>
+                    <th className="text-center p-3 text-purple-300">Copilot</th>
+                    <th className="text-center p-3 text-amber-300">Devin</th>
+                    <th className="text-center p-3 text-green-300">Aider</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { feature: 'Interface', claude: 'Terminal', cursor: 'IDE', copilot: 'IDE Plugin', devin: 'Web App', aider: 'Terminal' },
+                    { feature: 'Multi-file', claude: '✓✓✓', cursor: '✓✓', copilot: '✓', devin: '✓✓✓', aider: '✓✓' },
+                    { feature: 'Terminal Access', claude: '✓✓✓', cursor: '✓', copilot: '✓', devin: '✓✓✓', aider: '✓✓' },
+                    { feature: 'Git Integration', claude: '✓✓', cursor: '✓', copilot: '✓', devin: '✓✓', aider: '✓✓✓' },
+                    { feature: 'Browser Access', claude: '○', cursor: '○', copilot: '○', devin: '✓✓✓', aider: '○' },
+                    { feature: 'Self-hosting', claude: '○', cursor: '○', copilot: '○', devin: '○', aider: '✓✓✓' },
+                    { feature: 'Price', claude: 'API usage', cursor: '$20/mo', copilot: '$10/mo', devin: '$500/mo', aider: 'Free' },
+                    { feature: 'Best For', claude: 'Power users', cursor: 'Daily coding', copilot: 'Quick edits', devin: 'Full tasks', aider: 'OSS/Privacy' }
+                  ].map((row, i) => (
+                    <tr key={i} className="border-b border-slate-800">
+                      <td className="p-3 text-slate-400">{row.feature}</td>
+                      <td className="p-3 text-center text-slate-300">{row.claude}</td>
+                      <td className="p-3 text-center text-slate-300">{row.cursor}</td>
+                      <td className="p-3 text-center text-slate-300">{row.copilot}</td>
+                      <td className="p-3 text-center text-slate-300">{row.devin}</td>
+                      <td className="p-3 text-center text-slate-300">{row.aider}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Other Tools */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-purple-900/30 border border-purple-500/50 rounded-xl p-4">
+              <h4 className="font-bold text-purple-300 mb-2">GitHub Copilot</h4>
+              <p className="text-slate-400 text-sm mb-2">The original. Best inline autocomplete. 1M+ users.</p>
+              <ul className="text-xs text-slate-500 space-y-1">
+                <li>• Workspace agent (new)</li>
+                <li>• Chat in VS Code</li>
+                <li>• Copilot CLI</li>
+              </ul>
+            </div>
+
+            <div className="bg-amber-900/30 border border-amber-500/50 rounded-xl p-4">
+              <h4 className="font-bold text-amber-300 mb-2">Devin (Cognition)</h4>
+              <p className="text-slate-400 text-sm mb-2">Full autonomy. Browser, terminal, editor. Can deploy.</p>
+              <ul className="text-xs text-slate-500 space-y-1">
+                <li>• Most autonomous</li>
+                <li>• Expensive ($500/mo)</li>
+                <li>• Best for complete tasks</li>
+              </ul>
+            </div>
+
+            <div className="bg-green-900/30 border border-green-500/50 rounded-xl p-4">
+              <h4 className="font-bold text-green-300 mb-2">Aider</h4>
+              <p className="text-slate-400 text-sm mb-2">Open source CLI. Git-aware. Self-hosted.</p>
+              <ul className="text-xs text-slate-500 space-y-1">
+                <li>• Works with any model</li>
+                <li>• Excellent git integration</li>
+                <li>• Free, privacy-friendly</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: AGENT LOOP ==============
+      const AgentLoopSection = () => (
+        <div className="space-y-6">
+          {/* The Loop */}
+          <div className="bg-gradient-to-br from-violet-900/40 to-purple-900/40 border border-violet-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-violet-300 mb-4">🔄 The Agentic Coding Loop</h3>
+            
+            <div className="flex items-center justify-center gap-2 flex-wrap mb-6">
+              {[
+                { step: '1', label: 'Read', desc: 'Understand codebase', icon: '📖' },
+                { step: '2', label: 'Plan', desc: 'Decide changes', icon: '📋' },
+                { step: '3', label: 'Write', desc: 'Generate code', icon: '✍️' },
+                { step: '4', label: 'Test', desc: 'Run tests', icon: '🧪' },
+                { step: '5', label: 'Fix', desc: 'Debug errors', icon: '🔧' },
+                { step: '6', label: 'Commit', desc: 'Save changes', icon: '✅' }
+              ].map((phase, i) => (
+                <React.Fragment key={phase.step}>
+                  <div className="bg-violet-900/50 border border-violet-500 rounded-lg p-3 text-center min-w-[90px]">
+                    <div className="text-2xl mb-1">{phase.icon}</div>
+                    <div className="text-violet-300 font-bold text-sm">{phase.label}</div>
+                    <div className="text-xs text-slate-400">{phase.desc}</div>
+                  </div>
+                  {i < 5 && <div className="text-violet-500 text-xl">→</div>}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <div className="bg-black/30 rounded-lg p-4">
+              <div className="text-sm text-slate-400 mb-2">Key Insight: Iteration is Everything</div>
+              <p className="text-slate-300 text-sm">
+                The power of agentic coding comes from the loop. When tests fail, the agent reads the error, 
+                reasons about the cause, and tries again. This self-correction is what separates agents from simple code generators.
+              </p>
+            </div>
+          </div>
+
+          {/* Tool Access */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">🛠️ Tools Available to Coding Agents</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { icon: '📁', name: 'File System', tools: 'read, write, list, search', color: 'blue' },
+                { icon: '💻', name: 'Terminal', tools: 'bash, run commands', color: 'green' },
+                { icon: '🔀', name: 'Git', tools: 'status, diff, commit, branch', color: 'orange' },
+                { icon: '🧪', name: 'Test Runner', tools: 'npm test, pytest', color: 'purple' },
+                { icon: '🔍', name: 'Search', tools: 'grep, ripgrep, symbols', color: 'cyan' },
+                { icon: '📦', name: 'Package Mgr', tools: 'npm, pip, cargo', color: 'yellow' },
+                { icon: '🌐', name: 'Browser', tools: 'fetch docs, search', color: 'pink' },
+                { icon: '🐛', name: 'Debugger', tools: 'breakpoints, inspect', color: 'red' }
+              ].map((tool, i) => (
+                <div key={i} className={`bg-${tool.color}-900/30 border border-${tool.color}-500/30 rounded-lg p-3 text-center`}>
+                  <div className="text-2xl mb-1">{tool.icon}</div>
+                  <div className={`font-bold text-${tool.color}-300 text-sm`}>{tool.name}</div>
+                  <div className="text-xs text-slate-500">{tool.tools}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Context Management */}
+          <div className="bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-cyan-300 mb-4">📚 Context Management</h3>
+            <p className="text-slate-300 mb-4">
+              Codebase understanding is the key differentiator. Agents need to know where things are, 
+              how they connect, and what patterns are used.
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-cyan-300 mb-2">Context Sources</div>
+                <ul className="text-sm text-slate-300 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <span className="text-cyan-400">●</span>
+                    <span><strong>File tree:</strong> Directory structure, naming conventions</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-cyan-400">●</span>
+                    <span><strong>Embeddings:</strong> Semantic search over code</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-cyan-400">●</span>
+                    <span><strong>Symbols:</strong> Functions, classes, imports</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-cyan-400">●</span>
+                    <span><strong>References:</strong> Who calls what</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Context Strategies</div>
+                <ul className="text-sm text-slate-300 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-400">1.</span>
+                    <span><strong>RAG:</strong> Retrieve relevant code chunks</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-400">2.</span>
+                    <span><strong>Repo map:</strong> Condensed structure view</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-400">3.</span>
+                    <span><strong>On-demand:</strong> Fetch files as needed</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-400">4.</span>
+                    <span><strong>LSP:</strong> Language server for symbols</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('context')}
+              className="mt-4 text-sm bg-cyan-900/50 hover:bg-cyan-900/70 px-3 py-1 rounded text-cyan-300"
+            >
+              {showCode['context'] ? 'Hide' : 'Show'} Context Example (Aider style)
+            </button>
+            
+            {showCode['context'] && (
+              <pre className="mt-3 bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`# Aider's repo-map approach
+# Creates a condensed view of the codebase structure
+
+Repository Map:
+├── src/
+│   ├── api/
+│   │   ├── routes.py (Flask routes: /users, /posts, /auth)
+│   │   └── models.py (User, Post, Comment classes)
+│   ├── services/
+│   │   ├── user_service.py (create_user, get_user, update_user)
+│   │   └── post_service.py (create_post, get_posts, delete_post)
+│   └── utils/
+│       └── auth.py (verify_token, create_token)
+├── tests/
+│   ├── test_api.py (10 tests)
+│   └── test_services.py (15 tests)
+└── requirements.txt
+
+# Agent uses this map to:
+# 1. Know where to look for specific functionality
+# 2. Understand import relationships
+# 3. Decide which files need modification
+# 4. Avoid missing related changes`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: BENCHMARKS ==============
+      const BenchmarksSection = () => (
+        <div className="space-y-6">
+          {/* SWE-bench */}
+          <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-red-300 mb-4">🏆 SWE-bench: The Real Test</h3>
+            <p className="text-slate-300 mb-4">
+              2,294 real GitHub issues from popular Python repos. Agents must understand the issue, 
+              navigate the codebase, and submit a fix that passes the tests.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-red-300">2,294</div>
+                <div className="text-sm text-slate-400">Total Issues</div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-orange-300">~50%</div>
+                <div className="text-sm text-slate-400">SOTA on Verified</div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-yellow-300">12</div>
+                <div className="text-sm text-slate-400">Source Repos</div>
+              </div>
+            </div>
+
+            <div className="bg-black/30 rounded-lg p-4 mb-4">
+              <div className="font-semibold text-red-300 mb-2">What Makes It Hard</div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <ul className="space-y-1 text-slate-300">
+                  <li>• Real-world complexity</li>
+                  <li>• Multi-file changes required</li>
+                  <li>• Must understand existing code</li>
+                </ul>
+                <ul className="space-y-1 text-slate-300">
+                  <li>• Tests must pass (not just look right)</li>
+                  <li>• Large codebases (Django, Flask, etc.)</li>
+                  <li>• Diverse issue types</li>
+                </ul>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('swe-bench')}
+              className="text-sm bg-red-900/50 hover:bg-red-900/70 px-3 py-1 rounded text-red-300 mb-3"
+            >
+              {showCode['swe-bench'] ? 'Hide' : 'Show'} Example SWE-bench Issue
+            </button>
+            
+            {showCode['swe-bench'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`# Example: django/django#12345
+# Issue: QuerySet.union() returns wrong results when using distinct()
+
+Repository: django/django
+Issue ID: 12345
+Created: 2023-01-15
+
+Description:
+When using .union() followed by .distinct(), the query returns 
+duplicate rows when it shouldn't. This only happens when the 
+underlying queries have different orderings.
+
+Expected behavior: distinct() should eliminate duplicates
+Actual behavior: duplicates remain in results
+
+Steps to reproduce:
+qs1 = Model.objects.filter(status='active').order_by('name')
+qs2 = Model.objects.filter(status='pending').order_by('created')
+result = qs1.union(qs2).distinct()
+# result contains duplicates
+
+# Agent must:
+# 1. Understand Django ORM internals
+# 2. Find the relevant code in django/db/models/query.py
+# 3. Fix the SQL generation logic
+# 4. Ensure fix doesn't break other tests
+# 5. Add a test case for this specific issue`}
+              </pre>
+            )}
+          </div>
+
+          {/* Benchmark Comparison */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Benchmark Comparison</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Benchmark</th>
+                    <th className="text-left p-3 text-slate-400">What it Tests</th>
+                    <th className="text-left p-3 text-slate-400">Difficulty</th>
+                    <th className="text-left p-3 text-slate-400">SOTA</th>
+                    <th className="text-left p-3 text-slate-400">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-red-300 font-bold">SWE-bench</td>
+                    <td className="p-3 text-slate-300">Real GitHub issues</td>
+                    <td className="p-3 text-red-400">Very Hard</td>
+                    <td className="p-3">~50%</td>
+                    <td className="p-3 text-slate-400">Gold standard</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-orange-300 font-bold">SWE-bench Lite</td>
+                    <td className="p-3 text-slate-300">Subset of easier issues</td>
+                    <td className="p-3 text-orange-400">Hard</td>
+                    <td className="p-3">~65%</td>
+                    <td className="p-3 text-slate-400">300 issues</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-yellow-300 font-bold">HumanEval</td>
+                    <td className="p-3 text-slate-300">Function completion</td>
+                    <td className="p-3 text-yellow-400">Medium</td>
+                    <td className="p-3">95%+</td>
+                    <td className="p-3 text-slate-400">Saturating</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-green-300 font-bold">MBPP</td>
+                    <td className="p-3 text-slate-300">Python problems</td>
+                    <td className="p-3 text-green-400">Easy</td>
+                    <td className="p-3">90%+</td>
+                    <td className="p-3 text-slate-400">Basic programming</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-blue-300 font-bold">APPS</td>
+                    <td className="p-3 text-slate-300">Competition problems</td>
+                    <td className="p-3 text-blue-400">Variable</td>
+                    <td className="p-3">30-70%</td>
+                    <td className="p-3 text-slate-400">Interview-style</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Leaderboard */}
+          <div className="bg-gradient-to-br from-amber-900/40 to-yellow-900/40 border border-amber-500 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-amber-300 mb-4">📊 SWE-bench Leaderboard (Verified)</h3>
+            <div className="space-y-2">
+              {[
+                { rank: 1, name: 'Claude 3.5 Sonnet + SWE-agent', score: '49.0%', company: 'Anthropic', color: 'amber' },
+                { rank: 2, name: 'GPT-4 + SWE-agent', score: '45.2%', company: 'OpenAI', color: 'green' },
+                { rank: 3, name: 'Claude 3 Opus + Custom', score: '41.3%', company: 'Various', color: 'blue' },
+                { rank: 4, name: 'Devin', score: '38.5%', company: 'Cognition', color: 'purple' },
+                { rank: 5, name: 'GPT-4 Turbo + RAG', score: '35.0%', company: 'Various', color: 'slate' }
+              ].map((entry, i) => (
+                <div key={i} className={`flex items-center gap-4 p-3 rounded-lg bg-${entry.color}-900/30 border border-${entry.color}-500/30`}>
+                  <div className={`text-2xl font-bold text-${entry.color}-300 w-8`}>#{entry.rank}</div>
+                  <div className="flex-1">
+                    <div className="font-semibold text-white">{entry.name}</div>
+                    <div className="text-xs text-slate-400">{entry.company}</div>
+                  </div>
+                  <div className={`text-xl font-bold text-${entry.color}-300`}>{entry.score}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-3">* Scores as of late 2024. Check swe-bench.com for latest.</p>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: PATTERNS ==============
+      const PatternsSection = () => (
+        <div className="space-y-6">
+          {/* Multi-file Editing */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">📂 Multi-file Editing Patterns</h3>
+            <p className="text-slate-300 mb-4">
+              Real coding spans files. Agents must coordinate changes across imports, types, 
+              implementations, tests, and configs.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">Sequential Strategy</div>
+                <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+                  <li>Plan all changes upfront</li>
+                  <li>Edit files in dependency order</li>
+                  <li>Types/interfaces first</li>
+                  <li>Implementation second</li>
+                  <li>Tests last</li>
+                </ol>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-pink-300 mb-2">Atomic Strategy</div>
+                <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+                  <li>Make minimal change</li>
+                  <li>Run tests</li>
+                  <li>Fix any breaks</li>
+                  <li>Repeat until done</li>
+                  <li>Smaller, safer commits</li>
+                </ol>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('multifile')}
+              className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300"
+            >
+              {showCode['multifile'] ? 'Hide' : 'Show'} Multi-file Example
+            </button>
+            
+            {showCode['multifile'] && (
+              <pre className="mt-3 bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`# Task: Add "archived" status to posts
+
+# Agent's plan:
+1. Add 'archived' to PostStatus enum (src/types.ts)
+2. Add archived_at column to Post model (src/models/post.py)
+3. Create migration (migrations/add_archived_status.py)  
+4. Add archive/unarchive methods to PostService (src/services/post.py)
+5. Add API endpoints (src/api/routes.py)
+6. Update tests (tests/test_post_service.py)
+7. Update API docs (docs/api.md)
+
+# Files changed:
+src/types.ts           (+1 line: 'archived' enum value)
+src/models/post.py     (+2 lines: archived_at field)
+migrations/xxx.py      (new file: migration)
+src/services/post.py   (+20 lines: archive/unarchive methods)
+src/api/routes.py      (+15 lines: new endpoints)
+tests/test_post.py     (+30 lines: test cases)
+docs/api.md            (+10 lines: documentation)`}
+              </pre>
+            )}
+          </div>
+
+          {/* Test-Driven Patterns */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">🧪 Test-Driven Agent Patterns</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">TDD Loop</div>
+                <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+                  <li>Write failing test</li>
+                  <li>Write minimal code</li>
+                  <li>Run test (expect pass)</li>
+                  <li>Refactor</li>
+                </ol>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-emerald-300 mb-2">Test-Fix Loop</div>
+                <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+                  <li>Run existing tests</li>
+                  <li>Read failures</li>
+                  <li>Fix code</li>
+                  <li>Repeat until green</li>
+                </ol>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-teal-300 mb-2">Coverage-Guided</div>
+                <ol className="text-sm text-slate-300 space-y-1 list-decimal list-inside">
+                  <li>Check coverage report</li>
+                  <li>Find uncovered code</li>
+                  <li>Generate tests for it</li>
+                  <li>Improve coverage</li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4">
+              <div className="font-semibold text-amber-300 mb-2">💡 Why Tests Matter for Agents</div>
+              <p className="text-slate-300 text-sm">
+                Tests give agents a <strong>success signal</strong>. Without tests, agents can only hope 
+                the code "looks right." With tests, they can iterate until they actually work.
+                This is why SWE-bench requires passing tests, not just plausible-looking patches.
+              </p>
+            </div>
+          </div>
+
+          {/* Debugging Patterns */}
+          <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-red-300 mb-4">🐛 Debugging Patterns</h3>
+            
+            <div className="space-y-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-red-300 mb-2">Error → Fix Loop</div>
+                <div className="flex items-center gap-2 flex-wrap text-sm">
+                  <span className="bg-red-900/50 px-2 py-1 rounded text-red-300">Read Error</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-orange-900/50 px-2 py-1 rounded text-orange-300">Find Location</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-yellow-900/50 px-2 py-1 rounded text-yellow-300">Understand Cause</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-green-900/50 px-2 py-1 rounded text-green-300">Apply Fix</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-blue-900/50 px-2 py-1 rounded text-blue-300">Verify</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-orange-300 mb-2">What Agents Can Parse</div>
+                  <ul className="text-sm text-slate-300 space-y-1">
+                    <li>✓ Stack traces</li>
+                    <li>✓ Compiler errors</li>
+                    <li>✓ Test failure messages</li>
+                    <li>✓ Lint warnings</li>
+                    <li>✓ Type errors</li>
+                  </ul>
+                </div>
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-yellow-300 mb-2">Still Challenging</div>
+                  <ul className="text-sm text-slate-300 space-y-1">
+                    <li>△ Race conditions</li>
+                    <li>△ Memory leaks</li>
+                    <li>△ Performance issues</li>
+                    <li>△ Subtle logic bugs</li>
+                    <li>△ Integration issues</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: SECURITY ==============
+      const SecuritySection = () => (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-red-900/40 to-pink-900/40 border border-red-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-red-300 mb-4">🔒 Security & Sandboxing</h3>
+            <p className="text-slate-300 mb-4">
+              Agentic coding tools have significant access: file system, terminal, network. 
+              Security boundaries are critical.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-red-300 mb-2">⚠️ Risks</div>
+                <ul className="text-sm text-slate-300 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400">●</span>
+                    <span>Arbitrary code execution via terminal</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400">●</span>
+                    <span>File access outside project directory</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400">●</span>
+                    <span>Network requests to malicious endpoints</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400">●</span>
+                    <span>Credential exposure in code/logs</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400">●</span>
+                    <span>Supply chain attacks via dependencies</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">✅ Mitigations</div>
+                <ul className="text-sm text-slate-300 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <span className="text-green-400">●</span>
+                    <span>Docker/container sandboxing</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-green-400">●</span>
+                    <span>Path restrictions (chroot-like)</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-green-400">●</span>
+                    <span>Command allowlists</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-green-400">●</span>
+                    <span>Human approval for destructive ops</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-green-400">●</span>
+                    <span>Secret scanning before commit</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Tool-Specific Security</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
+                <div className="font-bold text-orange-300 mb-2">Claude Code</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Asks permission for destructive ops</li>
+                  <li>• Shows diffs before applying</li>
+                  <li>• No automatic network requests</li>
+                </ul>
+              </div>
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <div className="font-bold text-blue-300 mb-2">Cursor</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• IDE sandbox</li>
+                  <li>• Terminal requires approval</li>
+                  <li>• Workspace-scoped access</li>
+                </ul>
+              </div>
+              <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4">
+                <div className="font-bold text-amber-300 mb-2">Devin</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Cloud VM isolation</li>
+                  <li>• Ephemeral environments</li>
+                  <li>• Audit logging</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // Navigation
+      const sections = [
+        { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'tools', label: 'Tools', icon: '🛠️' },
+        { id: 'loop', label: 'Agent Loop', icon: '🔄' },
+        { id: 'benchmarks', label: 'Benchmarks', icon: '📊' },
+        { id: 'patterns', label: 'Patterns', icon: '📐' },
+        { id: 'security', label: 'Security', icon: '🔒' }
+      ];
+
+      const renderSection = () => {
+        switch(activeSection) {
+          case 'overview': return <OverviewSection />;
+          case 'tools': return <ToolsSection />;
+          case 'loop': return <AgentLoopSection />;
+          case 'benchmarks': return <BenchmarksSection />;
+          case 'patterns': return <PatternsSection />;
+          case 'security': return <SecuritySection />;
+          default: return <OverviewSection />;
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-black text-white">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-green-900/50 to-emerald-900/50 border-b border-green-500/30 p-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-full text-green-300 text-sm font-bold">
+                  CODE AGENTS
+                </span>
+                <span className="px-3 py-1 bg-amber-500/20 border border-amber-500 rounded-full text-amber-300 text-sm">
+                  SWE-bench SOTA
+                </span>
+              </div>
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-400">
+                Agentic Coding & SWE Agents
+              </h1>
+              <p className="text-slate-400 mt-2">
+                AI that writes, tests, debugs, and ships code. From autocomplete to full autonomy.
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex gap-1 overflow-x-auto py-2">
+                {sections.map(section => (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeSection === section.id
+                        ? 'bg-green-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {section.icon} {section.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="max-w-7xl mx-auto p-6">
+            {renderSection()}
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-900/50 border-t border-slate-700 p-6 mt-8">
+            <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
+              <div className="flex justify-center gap-4 flex-wrap">
+                <span className="px-3 py-1 bg-orange-900/30 rounded">Claude Code</span>
+                <span className="px-3 py-1 bg-blue-900/30 rounded">Cursor</span>
+                <span className="px-3 py-1 bg-purple-900/30 rounded">Copilot</span>
+                <span className="px-3 py-1 bg-amber-900/30 rounded">Devin</span>
+                <span className="px-3 py-1 bg-red-900/30 rounded">SWE-bench ~50%</span>
               </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>

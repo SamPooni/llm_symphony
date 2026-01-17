@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>AG-UI - Agent Generated User Interfaces</title>
+  <title>AG-UI - Agent Generated User Interfaces Deep Dive</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,120 +12,960 @@
   <div id="root"></div>
   <script type="text/babel">
     function App() {
-      const [hover, setHover] = React.useState(null);
-      
-      const tips = {
-        'what': 'Protocol for agents to generate rich UI components, not just text. Agent returns React components, forms, charts. The chat becomes an app.',
-        'why': 'Text is limiting. Agents need to show data, collect input, display visualizations. AG-UI lets agents create real interfaces on the fly.',
-        'vs-text': 'Before: Agent returns markdown/text. After: Agent returns interactive components. Forms, tables, charts, maps. Full application capability.',
-        'stream': 'Components stream in progressively. See UI building in real-time. Partial renders before completion. Better perceived performance.',
-        'events': 'Bidirectional events. User clicks button -> event to agent. Agent can respond to user input. Full interactivity loop.',
-        'state': 'UI state synchronized between agent and frontend. Agent can update state, read user input. Reactive data binding.',
-        'tools': 'Tools return UI, not just data. Search tool returns results component. Chart tool returns visualization. Composable UI building.',
-        'lifecycle': 'TEXT_MESSAGE_START -> TEXT_MESSAGE_CONTENT -> TOOL_CALL_START -> TOOL_CALL_END -> STATE_DELTA. Event-driven architecture.',
-        'render': 'Client receives component spec, renders React. Agent doesnt need to know rendering details. Separation of concerns.',
-        'copilotkit': 'CopilotKit implements AG-UI. Open source. React components. Agent-native development. Leading implementation.',
-        'custom': 'Define custom components. Agent knows what components exist. Chooses appropriate UI for context. Extensible system.',
-        'form': 'Agent generates forms for input. Validation, submission handling. Multi-step wizards. Structured data collection.',
-        'security': 'Sandboxed rendering. Agent cant execute arbitrary code. Component whitelist. Safe by design.',
-        'future': 'Beyond chat. Agents generate full applications. Dynamic interfaces. Personalized UX per user.'
+      const [activeSection, setActiveSection] = React.useState('overview');
+      const [showCode, setShowCode] = React.useState({});
+
+      const toggleCode = (id) => {
+        setShowCode(prev => ({...prev, [id]: !prev[id]}));
       };
 
-      const Card = ({id, bg, title, sub}) => (
-        <div 
-          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
-          onMouseEnter={() => setHover(id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <div className="font-bold">{title}</div>
-          <div className="text-sm opacity-60">{sub}</div>
-          {hover === id && (
-            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
-              {tips[id]}
+      // ============== SECTION: OVERVIEW ==============
+      const OverviewSection = () => (
+        <div className="space-y-6">
+          {/* What is AG-UI */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-br from-pink-900/50 to-rose-900/50 border border-pink-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-pink-300 mb-3">🎨 What is AG-UI?</h3>
+              <p className="text-slate-300 mb-4">
+                <span className="text-pink-400 font-semibold">Agent-Generated User Interface</span> protocol. 
+                Agents produce rich, interactive UI components—not just text. The chat becomes an application.
+              </p>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">The Paradigm Shift:</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-red-400">
+                    <div className="font-bold">Traditional LLM</div>
+                    <div className="text-sm">Returns: text, markdown</div>
+                    <div className="text-xs mt-1">Static, read-only output</div>
+                  </div>
+                  <div className="text-green-400">
+                    <div className="font-bold">AG-UI</div>
+                    <div className="text-sm">Returns: React components</div>
+                    <div className="text-xs mt-1">Interactive, dynamic UIs</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
+
+            <div className="bg-gradient-to-br from-purple-900/50 to-indigo-900/50 border border-purple-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-purple-300 mb-3">💡 Why AG-UI?</h3>
+              <ul className="space-y-3 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Beyond Text:</strong> Show data, collect input, visualize results</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Interactive:</strong> Forms, buttons, selections, real-time updates</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Contextual:</strong> Right UI for the right task automatically</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Composable:</strong> Agent combines components into workflows</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Visual Example */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Text vs AG-UI Response</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-red-400 font-bold mb-2">❌ Traditional (Text Only)</div>
+                <div className="bg-slate-800 rounded p-3 text-sm text-slate-300 font-mono">
+                  Here are the search results:<br/><br/>
+                  1. Product A - $29.99 - 4.5 stars<br/>
+                  2. Product B - $34.99 - 4.8 stars<br/>
+                  3. Product C - $24.99 - 4.2 stars<br/><br/>
+                  Would you like more details?
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-green-400 font-bold mb-2">✅ AG-UI (Interactive Components)</div>
+                <div className="bg-slate-800 rounded p-3">
+                  <div className="space-y-2">
+                    {[
+                      { name: 'Product A', price: '$29.99', rating: 4.5 },
+                      { name: 'Product B', price: '$34.99', rating: 4.8 },
+                      { name: 'Product C', price: '$24.99', rating: 4.2 }
+                    ].map((p, i) => (
+                      <div key={i} className="flex items-center justify-between bg-slate-700 rounded p-2 text-sm">
+                        <span className="text-white">{p.name}</span>
+                        <span className="text-green-300">{p.price}</span>
+                        <span className="text-yellow-300">{'⭐'.repeat(Math.floor(p.rating))}</span>
+                        <button className="px-2 py-1 bg-blue-600 rounded text-xs">Add to Cart</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Key Insight */}
+          <div className="bg-amber-900/30 border border-amber-500/50 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">💡</span>
+              <div>
+                <div className="font-bold text-amber-300">Key Insight: Agents Become App Builders</div>
+                <div className="text-slate-300 text-sm">
+                  AG-UI transforms agents from "text generators" to "app generators." Instead of describing 
+                  what a UI should look like, the agent directly produces the UI. This is like the jump 
+                  from describing code to actually writing code.
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       );
 
-      return (
-        <div className="min-h-screen bg-black text-white p-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-8">
-              <div className="inline-block px-4 py-1 bg-pink-900/50 border border-pink-500 rounded-full mb-4">
-                <span className="text-pink-300 font-bold text-sm">AGENT UI</span>
-              </div>
-              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-rose-500">
-                AG-UI: Agent Generated Interfaces
-              </h1>
-              <p className="text-slate-400">Agents that generate UI, not just text. Hover for details.</p>
+      // ============== SECTION: PROTOCOL ==============
+      const ProtocolSection = () => (
+        <div className="space-y-6">
+          {/* Event Types */}
+          <div className="bg-gradient-to-br from-violet-900/40 to-purple-900/40 border border-violet-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-violet-300 mb-4">📡 Protocol Event Types</h3>
+            <p className="text-slate-300 mb-4">
+              AG-UI uses a streaming event protocol. Events flow from agent to frontend, enabling 
+              progressive rendering and real-time updates.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              {[
+                { event: 'TEXT_MESSAGE_START', desc: 'Begin text message', color: 'blue', phase: 'Start' },
+                { event: 'TEXT_MESSAGE_CONTENT', desc: 'Stream text tokens', color: 'blue', phase: 'Stream' },
+                { event: 'TEXT_MESSAGE_END', desc: 'Complete text message', color: 'blue', phase: 'End' },
+                { event: 'TOOL_CALL_START', desc: 'Begin tool invocation', color: 'green', phase: 'Start' },
+                { event: 'TOOL_CALL_ARGS', desc: 'Stream tool arguments', color: 'green', phase: 'Stream' },
+                { event: 'TOOL_CALL_END', desc: 'Tool call complete', color: 'green', phase: 'End' },
+                { event: 'STATE_SNAPSHOT', desc: 'Full state replacement', color: 'orange', phase: 'State' },
+                { event: 'STATE_DELTA', desc: 'Incremental state update', color: 'orange', phase: 'State' },
+                { event: 'CUSTOM', desc: 'Custom event types', color: 'pink', phase: 'Custom' },
+                { event: 'RUN_STARTED', desc: 'Agent run begins', color: 'slate', phase: 'Lifecycle' },
+                { event: 'RUN_FINISHED', desc: 'Agent run complete', color: 'slate', phase: 'Lifecycle' },
+                { event: 'RUN_ERROR', desc: 'Agent run failed', color: 'red', phase: 'Lifecycle' }
+              ].map((evt, i) => (
+                <div key={i} className={`bg-${evt.color}-900/30 border border-${evt.color}-500/30 rounded-lg p-3 flex items-center justify-between`}>
+                  <div>
+                    <code className={`text-${evt.color}-300 text-sm font-bold`}>{evt.event}</code>
+                    <div className="text-xs text-slate-400">{evt.desc}</div>
+                  </div>
+                  <span className={`text-xs px-2 py-1 bg-${evt.color}-900/50 rounded text-${evt.color}-300`}>
+                    {evt.phase}
+                  </span>
+                </div>
+              ))}
             </div>
 
-            {/* Overview */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-pink-300">1. Overview</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="what" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="What is AG-UI?" sub="Agents generate components"/>
-                <Card id="why" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Why AG-UI?" sub="Beyond text responses"/>
-                <Card id="vs-text" bg="bg-pink-900/50 border-pink-500 text-pink-200" title="Text vs UI" sub="Interactive, not static"/>
+            <button 
+              onClick={() => toggleCode('events')}
+              className="text-sm bg-violet-900/50 hover:bg-violet-900/70 px-3 py-1 rounded text-violet-300"
+            >
+              {showCode['events'] ? 'Hide' : 'Show'} Event Flow Example
+            </button>
+            
+            {showCode['events'] && (
+              <pre className="mt-3 bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Example event stream for "Show me sales data"
+
+{ "type": "RUN_STARTED", "threadId": "abc123", "runId": "run_001" }
+
+{ "type": "TEXT_MESSAGE_START", "messageId": "msg_001" }
+{ "type": "TEXT_MESSAGE_CONTENT", "content": "I'll " }
+{ "type": "TEXT_MESSAGE_CONTENT", "content": "create a " }
+{ "type": "TEXT_MESSAGE_CONTENT", "content": "sales dashboard for you." }
+{ "type": "TEXT_MESSAGE_END" }
+
+{ "type": "TOOL_CALL_START", "toolCallId": "tc_001", "toolName": "render_chart" }
+{ "type": "TOOL_CALL_ARGS", "args": "{\\"type\\": \\"bar\\", \\"data\\": " }
+{ "type": "TOOL_CALL_ARGS", "args": "[{\\"month\\": \\"Jan\\", \\"sales\\": 4200}," }
+{ "type": "TOOL_CALL_ARGS", "args": " {\\"month\\": \\"Feb\\", \\"sales\\": 5100}]}" }
+{ "type": "TOOL_CALL_END" }
+
+{ "type": "STATE_DELTA", "delta": [
+  { "op": "add", "path": "/charts/0", "value": { "id": "chart_001", ... } }
+]}
+
+{ "type": "RUN_FINISHED", "runId": "run_001" }`}
+              </pre>
+            )}
+          </div>
+
+          {/* State Management */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">🔄 State Synchronization</h3>
+            <p className="text-slate-300 mb-4">
+              AG-UI maintains shared state between agent and frontend. The agent can read user inputs 
+              and update UI state, enabling reactive applications.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-orange-300 mb-2">STATE_SNAPSHOT</div>
+                <p className="text-slate-300 text-sm mb-2">Complete state replacement. Used at start or for major updates.</p>
+                <pre className="bg-black/50 rounded p-2 text-xs">
+{`{
+  "type": "STATE_SNAPSHOT",
+  "state": {
+    "user": { "name": "Alice" },
+    "cart": [],
+    "filters": { "category": "all" }
+  }
+}`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-amber-300 mb-2">STATE_DELTA</div>
+                <p className="text-slate-300 text-sm mb-2">Incremental update via JSON Patch. Efficient for small changes.</p>
+                <pre className="bg-black/50 rounded p-2 text-xs">
+{`{
+  "type": "STATE_DELTA",
+  "delta": [
+    { "op": "add", "path": "/cart/-", 
+      "value": { "id": "p1", "qty": 2 } },
+    { "op": "replace", "path": "/total", 
+      "value": 59.98 }
+  ]
+}`}
+                </pre>
               </div>
             </div>
 
-            {/* Streaming */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-purple-300">2. Streaming & Events</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="stream" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Streaming" sub="Progressive UI render"/>
-                <Card id="events" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Events" sub="Bidirectional interaction"/>
-                <Card id="lifecycle" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Lifecycle" sub="Event-driven updates"/>
+            <div className="bg-black/30 rounded-lg p-4">
+              <div className="font-semibold text-yellow-300 mb-2">Bidirectional Flow</div>
+              <div className="flex items-center justify-center gap-4 flex-wrap">
+                <div className="bg-violet-900/50 px-3 py-2 rounded text-violet-300">Agent</div>
+                <div className="text-slate-500 flex flex-col items-center">
+                  <span>STATE_DELTA →</span>
+                  <span>← User Events</span>
+                </div>
+                <div className="bg-blue-900/50 px-3 py-2 rounded text-blue-300">Frontend</div>
               </div>
-            </div>
-
-            {/* State & Rendering */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-blue-300">3. State & Rendering</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="state" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="State Sync" sub="Agent <-> Frontend"/>
-                <Card id="render" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Rendering" sub="Component spec to React"/>
-                <Card id="tools" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="UI Tools" sub="Tools return components"/>
-              </div>
-            </div>
-
-            {/* Implementation */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-green-300">4. Implementation</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="copilotkit" bg="bg-green-900/50 border-green-500 text-green-200" title="CopilotKit" sub="Leading implementation"/>
-                <Card id="custom" bg="bg-green-900/50 border-green-500 text-green-200" title="Custom Components" sub="Extensible UI library"/>
-                <Card id="form" bg="bg-green-900/50 border-green-500 text-green-200" title="Forms" sub="Data collection UI"/>
-              </div>
-            </div>
-
-            {/* Future */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-orange-300">5. Practical</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="security" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Security" sub="Sandboxed rendering"/>
-                <Card id="future" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Future" sub="Agents as apps"/>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-900/50 border border-pink-500/30 rounded-xl p-6 text-center">
-              <div className="text-xl font-bold text-white mb-2">AG-UI Summary</div>
-              <p className="text-slate-400 text-sm mb-4">
-                Agents generate interactive React components. Streaming, events, state sync. Chat becomes app.
+              <p className="text-slate-400 text-sm mt-2 text-center">
+                Agent sends state updates. Frontend sends user interactions back to agent.
               </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Streaming</span>
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">State Sync</span>
-                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">CopilotKit</span>
-                <span className="px-3 py-1 bg-pink-900/50 rounded text-pink-300 text-sm">Components</span>
+            </div>
+          </div>
+
+          {/* Message Types */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Message & Tool Architecture</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-blue-300 mb-2">Text Messages</h4>
+                <p className="text-slate-400 text-sm mb-2">Standard conversational text from agent.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• Streams token by token</li>
+                  <li>• Renders as formatted text</li>
+                  <li>• Can include markdown</li>
+                </ul>
+              </div>
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-green-300 mb-2">Tool Calls → UI</h4>
+                <p className="text-slate-400 text-sm mb-2">Tools that return renderable components.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• render_chart, render_form</li>
+                  <li>• Args define component props</li>
+                  <li>• Frontend renders component</li>
+                </ul>
+              </div>
+              <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-orange-300 mb-2">State Updates</h4>
+                <p className="text-slate-400 text-sm mb-2">Shared state between agent and UI.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• Snapshot for full state</li>
+                  <li>• Delta for incremental</li>
+                  <li>• JSON Patch format</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: IMPLEMENTATION ==============
+      const ImplementationSection = () => (
+        <div className="space-y-6">
+          {/* CopilotKit */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">🛠️ CopilotKit Implementation</h3>
+            <p className="text-slate-300 mb-4">
+              CopilotKit is the leading open-source implementation of AG-UI. It provides React components 
+              and hooks for building agent-powered UIs.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">Core Components</div>
+                <ul className="text-sm text-slate-300 space-y-2">
+                  <li className="flex items-center gap-2">
+                    <code className="text-green-400">&lt;CopilotKit&gt;</code>
+                    <span className="text-slate-400">Provider wrapper</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <code className="text-green-400">&lt;CopilotPopup&gt;</code>
+                    <span className="text-slate-400">Chat popup UI</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <code className="text-green-400">&lt;CopilotSidebar&gt;</code>
+                    <span className="text-slate-400">Sidebar panel</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <code className="text-green-400">&lt;CopilotTextarea&gt;</code>
+                    <span className="text-slate-400">AI-enhanced input</span>
+                  </li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-emerald-300 mb-2">Key Hooks</div>
+                <ul className="text-sm text-slate-300 space-y-2">
+                  <li className="flex items-center gap-2">
+                    <code className="text-emerald-400">useCopilotAction</code>
+                    <span className="text-slate-400">Define agent actions</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <code className="text-emerald-400">useCopilotReadable</code>
+                    <span className="text-slate-400">Expose state to agent</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <code className="text-emerald-400">useCopilotChat</code>
+                    <span className="text-slate-400">Chat state & messages</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('copilotkit')}
+              className="text-sm bg-green-900/50 hover:bg-green-900/70 px-3 py-1 rounded text-green-300 mb-3"
+            >
+              {showCode['copilotkit'] ? 'Hide' : 'Show'} Basic Setup Example
+            </button>
+            
+            {showCode['copilotkit'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// 1. Install
+npm install @copilotkit/react-core @copilotkit/react-ui
+
+// 2. Wrap your app
+import { CopilotKit } from "@copilotkit/react-core";
+import { CopilotPopup } from "@copilotkit/react-ui";
+
+function App() {
+  return (
+    <CopilotKit runtimeUrl="/api/copilot">
+      <YourApp />
+      <CopilotPopup 
+        labels={{ title: "AI Assistant" }}
+        instructions="You are a helpful shopping assistant..."
+      />
+    </CopilotKit>
+  );
+}
+
+// 3. Define actions the agent can take
+function ProductPage() {
+  const [cart, setCart] = useState([]);
+  
+  // Expose readable state to agent
+  useCopilotReadable({
+    description: "Current shopping cart",
+    value: cart
+  });
+  
+  // Define action the agent can invoke
+  useCopilotAction({
+    name: "addToCart",
+    description: "Add a product to the shopping cart",
+    parameters: [
+      { name: "productId", type: "string", required: true },
+      { name: "quantity", type: "number", required: true }
+    ],
+    handler: async ({ productId, quantity }) => {
+      setCart(prev => [...prev, { productId, quantity }]);
+      return "Added to cart!";
+    },
+    // Render custom UI when this action runs
+    render: ({ status, args }) => (
+      <div className="p-2 bg-green-100 rounded">
+        {status === 'executing' ? 'Adding...' : '✓ Added to cart'}
+      </div>
+    )
+  });
+  
+  return <div>...</div>;
+}`}
+              </pre>
+            )}
+          </div>
+
+          {/* Custom Components */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">🎨 Custom Component Rendering</h3>
+            <p className="text-slate-300 mb-4">
+              Define custom components that agents can render. The agent chooses appropriate 
+              components based on context.
+            </p>
+
+            <button 
+              onClick={() => toggleCode('custom')}
+              className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300 mb-3"
+            >
+              {showCode['custom'] ? 'Hide' : 'Show'} Custom Renderer Example
+            </button>
+            
+            {showCode['custom'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Define a custom chart component the agent can use
+useCopilotAction({
+  name: "renderChart",
+  description: "Display data as an interactive chart",
+  parameters: [
+    { name: "type", type: "string", enum: ["bar", "line", "pie"] },
+    { name: "data", type: "object[]", required: true },
+    { name: "title", type: "string" }
+  ],
+  render: ({ args }) => {
+    if (!args?.data) return <div>Loading chart...</div>;
+    
+    return (
+      <div className="p-4 bg-slate-800 rounded-lg">
+        <h3 className="font-bold mb-2">{args.title}</h3>
+        <ResponsiveContainer width="100%" height={300}>
+          {args.type === 'bar' ? (
+            <BarChart data={args.data}>
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Bar dataKey="value" fill="#8884d8" />
+            </BarChart>
+          ) : args.type === 'line' ? (
+            <LineChart data={args.data}>
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Line dataKey="value" stroke="#82ca9d" />
+            </LineChart>
+          ) : (
+            <PieChart>
+              <Pie data={args.data} dataKey="value" nameKey="name" />
+            </PieChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+});
+
+// Now the agent can say:
+// "Let me visualize that data for you"
+// And invoke renderChart with the appropriate type and data`}
+              </pre>
+            )}
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+              {[
+                { icon: '📊', name: 'Charts', desc: 'Data visualization' },
+                { icon: '📝', name: 'Forms', desc: 'Data collection' },
+                { icon: '📋', name: 'Tables', desc: 'Data display' },
+                { icon: '🗺️', name: 'Maps', desc: 'Location data' },
+                { icon: '📅', name: 'Calendar', desc: 'Date selection' },
+                { icon: '🎨', name: 'Media', desc: 'Images, video' },
+                { icon: '⚙️', name: 'Settings', desc: 'Configuration' },
+                { icon: '🔔', name: 'Alerts', desc: 'Notifications' }
+              ].map((comp, i) => (
+                <div key={i} className="bg-black/30 rounded-lg p-3 text-center">
+                  <div className="text-2xl mb-1">{comp.icon}</div>
+                  <div className="text-sm font-semibold text-purple-300">{comp.name}</div>
+                  <div className="text-xs text-slate-500">{comp.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Backend Integration */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Backend Agent Integration</h3>
+            
+            <button 
+              onClick={() => toggleCode('backend')}
+              className="text-sm bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded text-slate-300 mb-3"
+            >
+              {showCode['backend'] ? 'Hide' : 'Show'} Backend Example
+            </button>
+            
+            {showCode['backend'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Next.js API route for CopilotKit
+// /api/copilot/route.ts
+
+import { CopilotRuntime, OpenAIAdapter } from "@copilotkit/runtime";
+import OpenAI from "openai";
+
+const openai = new OpenAI();
+
+export async function POST(req: Request) {
+  const copilotKit = new CopilotRuntime();
+  
+  // Add server-side actions
+  copilotKit.addAction({
+    name: "fetchUserData",
+    description: "Get user data from database",
+    parameters: [{ name: "userId", type: "string" }],
+    handler: async ({ userId }) => {
+      const user = await db.users.findUnique({ where: { id: userId } });
+      return user;
+    }
+  });
+  
+  return copilotKit.response(req, new OpenAIAdapter({ openai }));
+}
+
+// Or with LangGraph for complex agent workflows
+import { createCopilotRuntimeFromLangGraph } from "@copilotkit/runtime";
+
+const graph = createReactAgent({ ... });
+const runtime = createCopilotRuntimeFromLangGraph(graph);`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: USE CASES ==============
+      const UseCasesSection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* E-commerce */}
+            <div className="bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-3">🛒 E-commerce Assistant</h3>
+              <div className="space-y-3">
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Find me a laptop under $1000"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Product cards with images, specs, add-to-cart buttons, comparison table
+                  </div>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Help me checkout"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Multi-step checkout form with address, payment, confirmation
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Data Analysis */}
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-3">📊 Data Analysis</h3>
+              <div className="space-y-3">
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Show Q4 sales by region"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Interactive bar chart, filterable data table, export buttons
+                  </div>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Compare this year vs last year"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Side-by-side line charts, delta indicators, trend analysis
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Booking */}
+            <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-purple-300 mb-3">✈️ Travel Booking</h3>
+              <div className="space-y-3">
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Book a flight to Tokyo next month"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Calendar picker, flight cards, seat selection map, price breakdown
+                  </div>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Find hotels near Shibuya"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Interactive map with pins, hotel cards with photos, filter sidebar
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Productivity */}
+            <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-orange-300 mb-3">📋 Productivity Tools</h3>
+              <div className="space-y-3">
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Create a project timeline"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Gantt chart, task cards, drag-and-drop scheduling
+                  </div>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="text-sm text-slate-300">
+                    <strong>"Set up a meeting poll"</strong>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Agent renders: Time slot grid, participant checkboxes, share link
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Before/After */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Traditional Chat vs AG-UI Experience</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Scenario</th>
+                    <th className="text-left p-3 text-red-300">Traditional (Text)</th>
+                    <th className="text-left p-3 text-green-300">AG-UI (Components)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Show search results</td>
+                    <td className="p-3">Numbered list in text</td>
+                    <td className="p-3">Interactive cards with actions</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Collect user preferences</td>
+                    <td className="p-3">"Please type your preferences"</td>
+                    <td className="p-3">Form with dropdowns, sliders</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Show data trends</td>
+                    <td className="p-3">ASCII art or description</td>
+                    <td className="p-3">Interactive chart with hover</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Schedule meeting</td>
+                    <td className="p-3">Back-and-forth negotiation</td>
+                    <td className="p-3">Calendar picker component</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400">Product selection</td>
+                    <td className="p-3">"Type the number to select"</td>
+                    <td className="p-3">Click buttons, instant feedback</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: SECURITY ==============
+      const SecuritySection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-red-300 mb-4">🔒 Security Model</h3>
+              
+              <div className="space-y-4">
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-red-300 mb-2">Sandboxed Rendering</div>
+                  <p className="text-slate-300 text-sm">
+                    Agent can't execute arbitrary JavaScript. Only pre-defined components can be rendered.
+                    No eval(), no dangerouslySetInnerHTML.
+                  </p>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-orange-300 mb-2">Component Allowlist</div>
+                  <p className="text-slate-300 text-sm">
+                    Frontend defines which components exist. Agent can only reference registered components.
+                    Unknown component references are rejected.
+                  </p>
+                </div>
+
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="font-semibold text-yellow-300 mb-2">Input Validation</div>
+                  <p className="text-slate-300 text-sm">
+                    All component props are validated against schemas. Type checking, bounds checking,
+                    sanitization before rendering.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-4">✅ Best Practices</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">1</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Define Explicit Actions</div>
+                    <p className="text-slate-400 text-sm">Never let agent construct arbitrary UI. Pre-define all possible actions.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">2</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Validate Server-Side</div>
+                    <p className="text-slate-400 text-sm">Don't trust agent-provided data. Validate all inputs on server.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">3</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Scope State Access</div>
+                    <p className="text-slate-400 text-sm">Limit what state agent can read. Don't expose sensitive data unnecessarily.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">4</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Audit Actions</div>
+                    <p className="text-slate-400 text-sm">Log all agent actions. Review for unexpected patterns.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Threat Model */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Threat Model Considerations</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                <div className="font-bold text-red-300 mb-2">⚠️ Injection Attacks</div>
+                <p className="text-slate-400 text-sm mb-2">Malicious prompts trying to render harmful UI.</p>
+                <p className="text-green-400 text-xs">Mitigation: Component allowlist, prop validation</p>
+              </div>
+              <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
+                <div className="font-bold text-orange-300 mb-2">⚠️ State Tampering</div>
+                <p className="text-slate-400 text-sm mb-2">Agent trying to modify unauthorized state.</p>
+                <p className="text-green-400 text-xs">Mitigation: State access controls, server validation</p>
+              </div>
+              <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
+                <div className="font-bold text-yellow-300 mb-2">⚠️ Data Exfiltration</div>
+                <p className="text-slate-400 text-sm mb-2">Agent reading sensitive user data.</p>
+                <p className="text-green-400 text-xs">Mitigation: Minimal readable state, audit logging</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: COMPARISON ==============
+      const ComparisonSection = () => (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">AG-UI vs Related Approaches</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Approach</th>
+                    <th className="text-left p-3 text-slate-400">How UI is Generated</th>
+                    <th className="text-left p-3 text-slate-400">Interactivity</th>
+                    <th className="text-left p-3 text-slate-400">Use Case</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-pink-300 font-bold">AG-UI</td>
+                    <td className="p-3">Agent emits component specs</td>
+                    <td className="p-3 text-green-400">Full interactivity</td>
+                    <td className="p-3">Agent-driven apps</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-blue-300 font-bold">Artifacts (Claude)</td>
+                    <td className="p-3">Agent generates full code</td>
+                    <td className="p-3 text-yellow-400">View-only, rerun</td>
+                    <td className="p-3">Code demos, proofs</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-purple-300 font-bold">GPTs/Plugins</td>
+                    <td className="p-3">Pre-built actions, text output</td>
+                    <td className="p-3 text-orange-400">Limited (buttons)</td>
+                    <td className="p-3">Simple integrations</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-green-300 font-bold">v0/Bolt</td>
+                    <td className="p-3">Generate full apps from prompts</td>
+                    <td className="p-3 text-green-400">Full app</td>
+                    <td className="p-3">App scaffolding</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-orange-300 font-bold">Traditional Chat</td>
+                    <td className="p-3">Markdown/text only</td>
+                    <td className="p-3 text-red-400">None</td>
+                    <td className="p-3">Q&A, content</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* When to Use */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-green-900/20 border border-green-500/30 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-green-300 mb-4">✅ Use AG-UI When</h3>
+              <ul className="space-y-2 text-slate-300 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">●</span>
+                  <span>Building agent-powered applications</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">●</span>
+                  <span>Users need to interact with agent output</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">●</span>
+                  <span>Data visualization is important</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">●</span>
+                  <span>Collecting structured user input</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">●</span>
+                  <span>Multi-step workflows with feedback</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-red-300 mb-4">❌ Don't Use AG-UI When</h3>
+              <ul className="space-y-2 text-slate-300 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <span>Simple Q&A is sufficient</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <span>Text/markdown output works fine</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <span>No user interaction needed</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <span>Building static content</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <span>Backend-only processing</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      );
+
+      // Navigation
+      const sections = [
+        { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'protocol', label: 'Protocol', icon: '📡' },
+        { id: 'implementation', label: 'Implementation', icon: '🛠️' },
+        { id: 'usecases', label: 'Use Cases', icon: '💼' },
+        { id: 'security', label: 'Security', icon: '🔒' },
+        { id: 'comparison', label: 'Comparison', icon: '⚖️' }
+      ];
+
+      const renderSection = () => {
+        switch(activeSection) {
+          case 'overview': return <OverviewSection />;
+          case 'protocol': return <ProtocolSection />;
+          case 'implementation': return <ImplementationSection />;
+          case 'usecases': return <UseCasesSection />;
+          case 'security': return <SecuritySection />;
+          case 'comparison': return <ComparisonSection />;
+          default: return <OverviewSection />;
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-black text-white">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-pink-900/50 to-rose-900/50 border-b border-pink-500/30 p-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-pink-500/20 border border-pink-500 rounded-full text-pink-300 text-sm font-bold">
+                  AGENT UI
+                </span>
+                <span className="px-3 py-1 bg-purple-500/20 border border-purple-500 rounded-full text-purple-300 text-sm">
+                  Emerging Protocol
+                </span>
+              </div>
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-rose-400">
+                AG-UI: Agent Generated User Interfaces
+              </h1>
+              <p className="text-slate-400 mt-2">
+                Agents that generate rich, interactive UI components—not just text. Chat becomes an app.
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex gap-1 overflow-x-auto py-2">
+                {sections.map(section => (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeSection === section.id
+                        ? 'bg-pink-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {section.icon} {section.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="max-w-7xl mx-auto p-6">
+            {renderSection()}
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-900/50 border-t border-slate-700 p-6 mt-8">
+            <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
+              <div className="flex justify-center gap-4 flex-wrap">
+                <span className="px-3 py-1 bg-pink-900/30 rounded">Event Streaming</span>
+                <span className="px-3 py-1 bg-purple-900/30 rounded">State Sync</span>
+                <span className="px-3 py-1 bg-green-900/30 rounded">CopilotKit</span>
+                <span className="px-3 py-1 bg-blue-900/30 rounded">React Components</span>
               </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>

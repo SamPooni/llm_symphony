@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Computer Use - Browser & Desktop Control</title>
+  <title>Computer Use - Browser & Desktop Control Deep Dive</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,122 +12,930 @@
   <div id="root"></div>
   <script type="text/babel">
     function App() {
-      const [hover, setHover] = React.useState(null);
-      
-      const tips = {
-        'what': 'LLMs that control mouse, keyboard, and screen. See screenshots, decide actions, execute clicks and typing. Like a human at a computer.',
-        'why': 'Most software has no API. GUIs are universal interface. Computer use lets agents interact with ANY software - legacy, web, desktop.',
-        'claude': 'Anthropic Claude computer use. Screenshot analysis + coordinate output. Click, type, scroll actions. Beta feature, production-ready.',
-        'gpt4v': 'OpenAI with vision. Can analyze screenshots. Third-party tools (Skyvern, Browserbase) add action execution. Growing ecosystem.',
-        'screenshot': 'Agent sees screenshot image. Analyzes UI elements, text, buttons. Decides what to click/type. Vision model capability required.',
-        'coords': 'Agent outputs (x, y) coordinates or element references. "Click at (450, 320)" or "Click the Submit button". Precision matters.',
-        'actions': 'Mouse: click, double-click, drag, scroll. Keyboard: type, hotkeys. Screen: screenshot, resize. Navigation: goto URL, back, forward.',
-        'loop': 'Screenshot -> Analyze -> Plan action -> Execute -> Screenshot -> Verify -> Repeat. Iterative, self-correcting. Human-like workflow.',
-        'browser': 'Playwright, Puppeteer, Selenium backends. Headless or visible. Navigate, interact, scrape. Web automation foundation.',
-        'desktop': 'Full OS control. PyAutoGUI, native APIs. Launch apps, switch windows. More powerful but more risk.',
-        'sandbox': 'Run in isolated VM/container. Docker, cloud VM. Prevents damage to host. Essential for safety.',
-        'captcha': 'Cannot solve CAPTCHAs (by design). Human verification blocks automation. May need human-in-loop for protected sites.',
-        'latency': 'Each step requires LLM call + screenshot. 1-5 seconds per action. Slower than coded automation. But more flexible.',
-        'skyvern': 'Open source browser automation. AI-powered web scraping. Form filling, data extraction. Production workflows.',
-        'safety': 'Can access sensitive data. Must sandbox, limit permissions. Audit logs. Human approval for risky actions.'
+      const [activeSection, setActiveSection] = React.useState('overview');
+      const [showCode, setShowCode] = React.useState({});
+
+      const toggleCode = (id) => {
+        setShowCode(prev => ({...prev, [id]: !prev[id]}));
       };
 
-      const Card = ({id, bg, title, sub}) => (
-        <div 
-          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
-          onMouseEnter={() => setHover(id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <div className="font-bold">{title}</div>
-          <div className="text-sm opacity-60">{sub}</div>
-          {hover === id && (
-            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
-              {tips[id]}
+      // ============== SECTION: OVERVIEW ==============
+      const OverviewSection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-br from-orange-900/50 to-amber-900/50 border border-orange-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-orange-300 mb-3">🖥️ What is Computer Use?</h3>
+              <p className="text-slate-300 mb-4">
+                LLMs that control mouse, keyboard, and screen. They <span className="text-orange-400 font-semibold">see screenshots, 
+                decide actions, execute clicks and typing</span>. Like a human at a computer.
+              </p>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">The Core Loop:</div>
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <span className="bg-blue-900/50 px-2 py-1 rounded text-blue-300 text-sm">📸 Screenshot</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-green-900/50 px-2 py-1 rounded text-green-300 text-sm">🧠 Analyze</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-orange-900/50 px-2 py-1 rounded text-orange-300 text-sm">🎯 Act</span>
+                  <span className="text-slate-500">→</span>
+                  <span className="bg-purple-900/50 px-2 py-1 rounded text-purple-300 text-sm">✅ Verify</span>
+                </div>
+              </div>
             </div>
-          )}
+
+            <div className="bg-gradient-to-br from-blue-900/50 to-indigo-900/50 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-3">💡 Why Computer Use?</h3>
+              <ul className="space-y-3 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Universal Interface:</strong> GUIs work everywhere, no API needed</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Legacy Software:</strong> Control apps that have no API</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Cross-platform:</strong> Works on any OS, any application</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Human-like:</strong> Does what a human would do</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Visual Steps */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">How It Works: Step by Step</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">📸</div>
+                <div className="font-bold text-blue-300">1. Screenshot</div>
+                <div className="text-xs text-slate-400 mt-2">Capture current screen state</div>
+              </div>
+              <div className="bg-green-900/30 border border-green-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">🧠</div>
+                <div className="font-bold text-green-300">2. Understand</div>
+                <div className="text-xs text-slate-400 mt-2">Vision model analyzes UI</div>
+              </div>
+              <div className="bg-orange-900/30 border border-orange-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">🎯</div>
+                <div className="font-bold text-orange-300">3. Decide</div>
+                <div className="text-xs text-slate-400 mt-2">Choose action + coordinates</div>
+              </div>
+              <div className="bg-purple-900/30 border border-purple-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">⚡</div>
+                <div className="font-bold text-purple-300">4. Execute</div>
+                <div className="text-xs text-slate-400 mt-2">Perform click/type/scroll</div>
+              </div>
+            </div>
+            <div className="mt-4 text-center text-slate-400 text-sm">
+              ↻ Repeat until task is complete
+            </div>
+          </div>
+
+          {/* API vs GUI */}
+          <div className="bg-amber-900/30 border border-amber-500/50 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">💡</span>
+              <div>
+                <div className="font-bold text-amber-300">When to Use Computer Use vs APIs</div>
+                <div className="text-slate-300 text-sm mt-2">
+                  <strong>Use APIs when:</strong> Structured data, high speed, reliability needed<br/>
+                  <strong>Use Computer Use when:</strong> No API exists, visual verification needed, human-like interaction required
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       );
 
+      // ============== SECTION: CLAUDE COMPUTER USE ==============
+      const ClaudeSection = () => (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">🟠 Claude Computer Use</h3>
+            <p className="text-slate-300 mb-4">
+              Anthropic's native computer use capability. Claude analyzes screenshots and outputs 
+              precise coordinates for mouse/keyboard actions. Production-ready, well-documented.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-orange-300 mb-2">Supported Actions</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• <code className="text-orange-400">click</code> - Left click at coordinates</li>
+                  <li>• <code className="text-orange-400">type</code> - Type text string</li>
+                  <li>• <code className="text-orange-400">key</code> - Press key (enter, tab, etc.)</li>
+                  <li>• <code className="text-orange-400">scroll</code> - Scroll up/down/left/right</li>
+                  <li>• <code className="text-orange-400">screenshot</code> - Capture screen</li>
+                  <li>• <code className="text-orange-400">mouse_move</code> - Move cursor</li>
+                  <li>• <code className="text-orange-400">drag</code> - Click and drag</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-amber-300 mb-2">Tool Definition</div>
+                <pre className="text-xs bg-black/50 p-2 rounded overflow-x-auto">
+{`{
+  "type": "computer_20241022",
+  "name": "computer",
+  "display_width_px": 1920,
+  "display_height_px": 1080,
+  "display_number": 1
+}`}
+                </pre>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('claude-example')}
+              className="text-sm bg-orange-900/50 hover:bg-orange-900/70 px-3 py-1 rounded text-orange-300 mb-3"
+            >
+              {showCode['claude-example'] ? 'Hide' : 'Show'} Full Claude Example
+            </button>
+            
+            {showCode['claude-example'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+{`import anthropic
+import base64
+from PIL import ImageGrab
+
+client = anthropic.Anthropic()
+
+def capture_screenshot():
+    """Capture and encode screenshot as base64"""
+    screenshot = ImageGrab.grab()
+    import io
+    buffer = io.BytesIO()
+    screenshot.save(buffer, format='PNG')
+    return base64.standard_b64encode(buffer.getvalue()).decode()
+
+def execute_action(action):
+    """Execute the action using pyautogui"""
+    import pyautogui
+    
+    if action['action'] == 'click':
+        x, y = action['coordinate']
+        pyautogui.click(x, y)
+    elif action['action'] == 'type':
+        pyautogui.typewrite(action['text'], interval=0.02)
+    elif action['action'] == 'key':
+        pyautogui.press(action['key'])
+    elif action['action'] == 'scroll':
+        x, y = action['coordinate']
+        pyautogui.scroll(action['amount'], x=x, y=y)
+    elif action['action'] == 'mouse_move':
+        x, y = action['coordinate']
+        pyautogui.moveTo(x, y)
+
+def computer_use_loop(task: str, max_steps: int = 30):
+    """Main computer use loop"""
+    messages = []
+    
+    for step in range(max_steps):
+        print(f"Step {step + 1}")
+        
+        # Capture current state
+        screenshot_b64 = capture_screenshot()
+        
+        # Build message with screenshot
+        content = [
+            {"type": "text", "text": f"Task: {task}\\n\\nStep {step + 1}. What should I do next?"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": screenshot_b64
+                }
+            }
+        ]
+        
+        messages.append({"role": "user", "content": content})
+        
+        # Call Claude with computer use tool
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            tools=[{
+                "type": "computer_20241022",
+                "name": "computer",
+                "display_width_px": 1920,
+                "display_height_px": 1080
+            }],
+            messages=messages
+        )
+        
+        # Process response
+        assistant_content = response.content
+        messages.append({"role": "assistant", "content": assistant_content})
+        
+        # Find tool use
+        tool_use = None
+        for block in assistant_content:
+            if block.type == 'tool_use':
+                tool_use = block
+                break
+        
+        if tool_use is None:
+            print("Task complete!")
+            # Extract final text response
+            for block in assistant_content:
+                if hasattr(block, 'text'):
+                    print(f"Result: {block.text}")
+            break
+        
+        # Execute the action
+        action = tool_use.input
+        print(f"Action: {action['action']}")
+        execute_action(action)
+        
+        # Add tool result
+        messages.append({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_use.id,
+                "content": "Action executed successfully"
+            }]
+        })
+        
+        # Small delay for UI to update
+        import time
+        time.sleep(0.5)
+    
+    return messages
+
+# Usage
+computer_use_loop("Open Chrome and search for 'weather today'")`}
+              </pre>
+            )}
+          </div>
+
+          {/* Coordinate Systems */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">📐 Coordinate Systems & Clicking</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Absolute Coordinates</div>
+                <p className="text-slate-400 text-sm mb-2">Claude outputs (x, y) pixels from top-left corner</p>
+                <pre className="text-xs bg-black/50 p-2 rounded">
+{`{
+  "action": "click",
+  "coordinate": [450, 320]
+}`}
+                </pre>
+                <p className="text-xs text-slate-500 mt-2">Screen size must match tool definition!</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">Clicking Strategies</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Click center of buttons/elements</li>
+                  <li>• Avoid edges (misclicks)</li>
+                  <li>• Wait for page load after click</li>
+                  <li>• Verify action took effect</li>
+                  <li>• Retry on failure</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: BROWSER AUTOMATION ==============
+      const BrowserSection = () => (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-blue-300 mb-4">🌐 Browser Automation Backends</h3>
+            <p className="text-slate-300 mb-4">
+              Computer use typically runs on top of browser automation frameworks. These provide the 
+              actual control mechanisms while the LLM provides the intelligence.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-bold text-blue-300 mb-2">🎭 Playwright</div>
+                <p className="text-slate-400 text-sm mb-2">Microsoft. Modern, fast, auto-waiting.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• Best DX and reliability</li>
+                  <li>• Chromium, Firefox, WebKit</li>
+                  <li>• Built-in screenshot API</li>
+                  <li>• Network interception</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-bold text-cyan-300 mb-2">🤖 Puppeteer</div>
+                <p className="text-slate-400 text-sm mb-2">Google. Chrome/Chromium only.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• Mature ecosystem</li>
+                  <li>• Chrome DevTools Protocol</li>
+                  <li>• Good for Chrome-specific</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-bold text-green-300 mb-2">🔧 Selenium</div>
+                <p className="text-slate-400 text-sm mb-2">Classic. WebDriver standard.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• Widest browser support</li>
+                  <li>• Legacy but stable</li>
+                  <li>• Many language bindings</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Playwright Integration */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">Playwright + Claude Integration</h3>
+
+            <button 
+              onClick={() => toggleCode('playwright')}
+              className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300 mb-3"
+            >
+              {showCode['playwright'] ? 'Hide' : 'Show'} Playwright Example
+            </button>
+            
+            {showCode['playwright'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+{`import asyncio
+from playwright.async_api import async_playwright
+import anthropic
+import base64
+
+client = anthropic.Anthropic()
+
+async def browser_computer_use(task: str):
+    async with async_playwright() as p:
+        # Launch browser
+        browser = await p.chromium.launch(headless=False)
+        context = await browser.new_context(viewport={'width': 1280, 'height': 720})
+        page = await context.new_page()
+        
+        # Navigate to starting point
+        await page.goto('https://www.google.com')
+        
+        for step in range(30):
+            print(f"Step {step + 1}")
+            
+            # Take screenshot
+            screenshot_bytes = await page.screenshot()
+            screenshot_b64 = base64.standard_b64encode(screenshot_bytes).decode()
+            
+            # Ask Claude what to do
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1024,
+                tools=[{
+                    "type": "computer_20241022",
+                    "name": "computer",
+                    "display_width_px": 1280,
+                    "display_height_px": 720
+                }],
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"Task: {task}\\nStep {step + 1}"},
+                        {"type": "image", "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": screenshot_b64
+                        }}
+                    ]
+                }]
+            )
+            
+            # Find and execute action
+            for block in response.content:
+                if block.type == 'tool_use':
+                    action = block.input
+                    
+                    if action['action'] == 'click':
+                        x, y = action['coordinate']
+                        await page.mouse.click(x, y)
+                    elif action['action'] == 'type':
+                        await page.keyboard.type(action['text'])
+                    elif action['action'] == 'key':
+                        await page.keyboard.press(action['key'])
+                    elif action['action'] == 'scroll':
+                        x, y = action['coordinate']
+                        await page.mouse.wheel(0, action.get('amount', 3) * 100)
+                    
+                    await asyncio.sleep(0.5)
+                    break
+            else:
+                print("Task complete!")
+                break
+        
+        await browser.close()
+
+asyncio.run(browser_computer_use("Search for Claude AI and click the first result"))`}
+              </pre>
+            )}
+          </div>
+
+          {/* DOM vs Pixel */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">DOM-Based vs Pixel-Based Approaches</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-blue-300 mb-2">Pixel-Based (Pure Computer Use)</h4>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>✓ Works with any UI (web, desktop, games)</li>
+                  <li>✓ No DOM dependency</li>
+                  <li>✗ Slower (need screenshots)</li>
+                  <li>✗ Can misclick on small targets</li>
+                  <li>✗ Sensitive to resolution changes</li>
+                </ul>
+              </div>
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-green-300 mb-2">DOM-Based (Hybrid)</h4>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>✓ More precise element targeting</li>
+                  <li>✓ Faster (no screenshots needed)</li>
+                  <li>✓ Can extract text/data directly</li>
+                  <li>✗ Web-only</li>
+                  <li>✗ Complex dynamic sites can break</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: DESKTOP ==============
+      const DesktopSection = () => (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">💻 Desktop Automation</h3>
+            <p className="text-slate-300 mb-4">
+              Full OS control beyond the browser. Launch apps, switch windows, interact with native UIs.
+              More powerful but requires more careful sandboxing.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">🐍 PyAutoGUI (Python)</div>
+                <pre className="text-xs bg-black/50 p-2 rounded overflow-x-auto">
+{`import pyautogui
+
+# Mouse actions
+pyautogui.click(100, 200)
+pyautogui.doubleClick(100, 200)
+pyautogui.rightClick(100, 200)
+pyautogui.moveTo(100, 200)
+pyautogui.drag(100, 0)  # Drag right
+
+# Keyboard actions
+pyautogui.write('Hello World')
+pyautogui.press('enter')
+pyautogui.hotkey('ctrl', 'c')
+
+# Screenshot
+img = pyautogui.screenshot()
+img.save('screen.png')`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-emerald-300 mb-2">Capabilities</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Launch any application</li>
+                  <li>• Switch windows (Alt+Tab)</li>
+                  <li>• File explorer navigation</li>
+                  <li>• System settings changes</li>
+                  <li>• Multi-monitor support</li>
+                  <li>• Clipboard operations</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Platform-Specific */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Platform-Specific Tools</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <div className="font-bold text-blue-300 mb-2">🪟 Windows</div>
+                <ul className="text-sm text-slate-400 space-y-1">
+                  <li>• PyAutoGUI + pywin32</li>
+                  <li>• UI Automation framework</li>
+                  <li>• PowerShell scripting</li>
+                </ul>
+              </div>
+              <div className="bg-slate-700/50 border border-slate-500/30 rounded-lg p-4">
+                <div className="font-bold text-slate-300 mb-2">🍎 macOS</div>
+                <ul className="text-sm text-slate-400 space-y-1">
+                  <li>• PyAutoGUI + pyobjc</li>
+                  <li>• AppleScript integration</li>
+                  <li>• Accessibility APIs</li>
+                </ul>
+              </div>
+              <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
+                <div className="font-bold text-orange-300 mb-2">🐧 Linux</div>
+                <ul className="text-sm text-slate-400 space-y-1">
+                  <li>• PyAutoGUI + Xdotool</li>
+                  <li>• xdotool for X11</li>
+                  <li>• ydotool for Wayland</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: TOOLS ==============
+      const ToolsSection = () => (
+        <div className="space-y-6">
+          {/* Skyvern */}
+          <div className="bg-gradient-to-br from-violet-900/40 to-purple-900/40 border border-violet-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-violet-300 mb-4">🦅 Skyvern</h3>
+            <p className="text-slate-300 mb-4">
+              Open-source browser automation with AI. Production-ready web scraping, form filling, 
+              data extraction. Combines vision with DOM analysis.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-violet-300 mb-2">Key Features</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Hybrid DOM + Vision approach</li>
+                  <li>• Built-in proxy rotation</li>
+                  <li>• Workflow recording</li>
+                  <li>• Self-healing selectors</li>
+                  <li>• Cloud or self-hosted</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">Use Cases</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• Web scraping at scale</li>
+                  <li>• Form automation</li>
+                  <li>• Price monitoring</li>
+                  <li>• Data extraction</li>
+                  <li>• Testing workflows</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Comparison */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Tool Comparison</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Tool</th>
+                    <th className="text-left p-3 text-slate-400">Approach</th>
+                    <th className="text-left p-3 text-slate-400">Best For</th>
+                    <th className="text-left p-3 text-slate-400">Limitations</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-orange-300">Claude Computer Use</td>
+                    <td className="p-3">Pure vision + coordinates</td>
+                    <td className="p-3">General purpose, any UI</td>
+                    <td className="p-3 text-slate-400">Slower, needs screenshots</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-violet-300">Skyvern</td>
+                    <td className="p-3">Hybrid DOM + Vision</td>
+                    <td className="p-3">Web scraping, forms</td>
+                    <td className="p-3 text-slate-400">Web only</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-blue-300">Browserbase</td>
+                    <td className="p-3">Cloud browser infra</td>
+                    <td className="p-3">Scale, anti-detection</td>
+                    <td className="p-3 text-slate-400">Cost at scale</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-green-300">Playwright + LLM</td>
+                    <td className="p-3">Programmatic + AI</td>
+                    <td className="p-3">Testing, custom flows</td>
+                    <td className="p-3 text-slate-400">Setup complexity</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: SECURITY ==============
+      const SecuritySection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Risks */}
+            <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-red-300 mb-4">⚠️ Security Risks</h3>
+              
+              <div className="space-y-3">
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-red-300">Data Exposure</div>
+                  <p className="text-slate-400 text-sm">Agent sees everything on screen - passwords, personal data, sensitive info</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-orange-300">Unintended Actions</div>
+                  <p className="text-slate-400 text-sm">Agent might click wrong thing, send email, delete files</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-yellow-300">Prompt Injection</div>
+                  <p className="text-slate-400 text-sm">Malicious content on screen could manipulate agent</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-pink-300">Credential Theft</div>
+                  <p className="text-slate-400 text-sm">Agent could be tricked into entering credentials on phishing sites</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Mitigations */}
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-4">🛡️ Security Mitigations</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">1</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Sandboxed Execution</div>
+                    <p className="text-slate-400 text-sm">Run in isolated VM or container. Docker, cloud VMs, or dedicated machines.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">2</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Human Approval</div>
+                    <p className="text-slate-400 text-sm">Require human confirmation for destructive actions (delete, send, purchase).</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">3</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Action Allowlists</div>
+                    <p className="text-slate-400 text-sm">Restrict to specific apps, URLs, or action types.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">4</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Audit Logging</div>
+                    <p className="text-slate-400 text-sm">Record all actions and screenshots for review.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sandboxing Options */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">🐳 Sandboxing Options</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <div className="font-bold text-blue-300 mb-2">Docker Container</div>
+                <p className="text-slate-400 text-sm mb-2">Lightweight, fast startup. Good for browser-only.</p>
+                <pre className="text-xs bg-black/50 p-2 rounded">
+{`docker run -it \\
+  --shm-size=2g \\
+  browser-use:latest`}
+                </pre>
+              </div>
+              <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
+                <div className="font-bold text-purple-300 mb-2">Cloud VM</div>
+                <p className="text-slate-400 text-sm mb-2">Full isolation. Best for desktop automation.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• AWS EC2 / GCP / Azure</li>
+                  <li>• Ephemeral instances</li>
+                  <li>• Snapshot/restore</li>
+                </ul>
+              </div>
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                <div className="font-bold text-green-300 mb-2">Dedicated Device</div>
+                <p className="text-slate-400 text-sm mb-2">Physical isolation. Maximum security.</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>• Air-gapped network</li>
+                  <li>• No access to prod data</li>
+                  <li>• Wipe between tasks</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* CAPTCHAs */}
+          <div className="bg-amber-900/30 border border-amber-500/50 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">🤖</span>
+              <div>
+                <div className="font-bold text-amber-300">CAPTCHAs & Bot Detection</div>
+                <div className="text-slate-300 text-sm mt-2">
+                  Computer use agents <strong>cannot and should not</strong> bypass CAPTCHAs. These exist to 
+                  distinguish humans from bots. For protected sites, use human-in-the-loop or legitimate APIs.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: PATTERNS ==============
+      const PatternsSection = () => (
+        <div className="space-y-6">
+          {/* Error Recovery */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">🔄 Error Recovery Patterns</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">Retry with Backoff</div>
+                <pre className="text-xs bg-black/50 p-2 rounded overflow-x-auto">
+{`async def retry_action(action, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            result = await execute_action(action)
+            if verify_action_success():
+                return result
+        except Exception as e:
+            wait_time = 2 ** attempt  # 1, 2, 4 seconds
+            await asyncio.sleep(wait_time)
+    raise ActionFailedError()`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-pink-300 mb-2">Visual Verification</div>
+                <pre className="text-xs bg-black/50 p-2 rounded overflow-x-auto">
+{`# After each action, verify the expected change
+screenshot_before = capture()
+execute_action(click_button)
+screenshot_after = capture()
+
+# Ask model to verify
+response = ask_claude(
+    "Did clicking the Submit button work? "
+    "Compare before/after screenshots.",
+    [screenshot_before, screenshot_after]
+)`}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          {/* Best Practices */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">✅ Best Practices</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">1.</span>
+                  <span className="text-slate-300">Wait for page/UI to stabilize before screenshot</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">2.</span>
+                  <span className="text-slate-300">Use consistent screen resolution</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">3.</span>
+                  <span className="text-slate-300">Click center of elements, not edges</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">4.</span>
+                  <span className="text-slate-300">Handle popups and modals explicitly</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">5.</span>
+                  <span className="text-slate-300">Log all actions for debugging</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">6.</span>
+                  <span className="text-slate-300">Set reasonable max steps limit</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">7.</span>
+                  <span className="text-slate-300">Verify critical actions completed</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">8.</span>
+                  <span className="text-slate-300">Gracefully handle failures</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Performance */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-red-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">⚡ Performance Considerations</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-black/30 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-orange-300">1-5s</div>
+                <div className="text-sm text-slate-400">Per action (with LLM call)</div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-yellow-300">~$0.01</div>
+                <div className="text-sm text-slate-400">Per screenshot analysis</div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-red-300">30-100</div>
+                <div className="text-sm text-slate-400">Typical max steps</div>
+              </div>
+            </div>
+            <p className="text-slate-400 text-sm mt-4 text-center">
+              Computer use is slower than coded automation but more flexible. Use it for tasks that 
+              require visual understanding or change frequently.
+            </p>
+          </div>
+        </div>
+      );
+
+      // Navigation
+      const sections = [
+        { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'claude', label: 'Claude', icon: '🟠' },
+        { id: 'browser', label: 'Browser', icon: '🌐' },
+        { id: 'desktop', label: 'Desktop', icon: '💻' },
+        { id: 'tools', label: 'Tools', icon: '🛠️' },
+        { id: 'security', label: 'Security', icon: '🔒' },
+        { id: 'patterns', label: 'Patterns', icon: '📐' }
+      ];
+
+      const renderSection = () => {
+        switch(activeSection) {
+          case 'overview': return <OverviewSection />;
+          case 'claude': return <ClaudeSection />;
+          case 'browser': return <BrowserSection />;
+          case 'desktop': return <DesktopSection />;
+          case 'tools': return <ToolsSection />;
+          case 'security': return <SecuritySection />;
+          case 'patterns': return <PatternsSection />;
+          default: return <OverviewSection />;
+        }
+      };
+
       return (
-        <div className="min-h-screen bg-black text-white p-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-8">
-              <div className="inline-block px-4 py-1 bg-orange-900/50 border border-orange-500 rounded-full mb-4">
-                <span className="text-orange-300 font-bold text-sm">AGENT CONTROL</span>
+        <div className="min-h-screen bg-black text-white">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-orange-900/50 to-amber-900/50 border-b border-orange-500/30 p-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-orange-500/20 border border-orange-500 rounded-full text-orange-300 text-sm font-bold">
+                  AGENT CONTROL
+                </span>
+                <span className="px-3 py-1 bg-blue-500/20 border border-blue-500 rounded-full text-blue-300 text-sm">
+                  Vision + Actions
+                </span>
               </div>
-              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-500">
-                Computer Use
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-400">
+                Computer Use: Browser & Desktop Control
               </h1>
-              <p className="text-slate-400">Agents that control browser and desktop. Hover for details.</p>
-            </div>
-
-            {/* Overview */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-orange-300">1. Overview</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="what" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="What is Computer Use?" sub="LLM controls mouse/keyboard"/>
-                <Card id="why" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Why?" sub="GUIs are universal API"/>
-              </div>
-            </div>
-
-            {/* Providers */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Providers</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="claude" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Claude" sub="Anthropic native"/>
-                <Card id="gpt4v" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="GPT-4V" sub="OpenAI + tools"/>
-                <Card id="skyvern" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Skyvern" sub="Open source automation"/>
-              </div>
-            </div>
-
-            {/* How it Works */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-green-300">3. How It Works</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="screenshot" bg="bg-green-900/50 border-green-500 text-green-200" title="Screenshot" sub="See the screen"/>
-                <Card id="coords" bg="bg-green-900/50 border-green-500 text-green-200" title="Coordinates" sub="Where to click"/>
-                <Card id="actions" bg="bg-green-900/50 border-green-500 text-green-200" title="Actions" sub="Click, type, scroll"/>
-                <Card id="loop" bg="bg-green-900/50 border-green-500 text-green-200" title="Loop" sub="Observe-act-verify"/>
-              </div>
-            </div>
-
-            {/* Backends */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-purple-300">4. Backends</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="browser" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Browser" sub="Playwright, Puppeteer"/>
-                <Card id="desktop" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Desktop" sub="Full OS control"/>
-              </div>
-            </div>
-
-            {/* Safety & Limits */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-red-300">5. Safety & Limits</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="sandbox" bg="bg-red-900/50 border-red-500 text-red-200" title="Sandbox" sub="Isolated VM/container"/>
-                <Card id="captcha" bg="bg-red-900/50 border-red-500 text-red-200" title="CAPTCHAs" sub="Cannot bypass"/>
-                <Card id="latency" bg="bg-red-900/50 border-red-500 text-red-200" title="Latency" sub="1-5s per action"/>
-                <Card id="safety" bg="bg-red-900/50 border-red-500 text-red-200" title="Safety" sub="Audit, permissions"/>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-900/50 border border-orange-500/30 rounded-xl p-6 text-center">
-              <div className="text-xl font-bold text-white mb-2">Computer Use Summary</div>
-              <p className="text-slate-400 text-sm mb-4">
-                Screenshot -> Analyze -> Act -> Verify loop. Browser or desktop. Sandbox for safety.
+              <p className="text-slate-400 mt-2">
+                LLMs that see screens and control mouse/keyboard. The universal interface for AI agents.
               </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">Claude</span>
-                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Screenshot+Act</span>
-                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Playwright</span>
-                <span className="px-3 py-1 bg-red-900/50 rounded text-red-300 text-sm">Sandbox</span>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex gap-1 overflow-x-auto py-2">
+                {sections.map(section => (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeSection === section.id
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {section.icon} {section.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="max-w-7xl mx-auto p-6">
+            {renderSection()}
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-900/50 border-t border-slate-700 p-6 mt-8">
+            <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
+              <div className="flex justify-center gap-4 flex-wrap">
+                <span className="px-3 py-1 bg-orange-900/30 rounded">Screenshot → Act</span>
+                <span className="px-3 py-1 bg-blue-900/30 rounded">Claude Computer Use</span>
+                <span className="px-3 py-1 bg-purple-900/30 rounded">Playwright</span>
+                <span className="px-3 py-1 bg-red-900/30 rounded">Sandbox Required</span>
               </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>

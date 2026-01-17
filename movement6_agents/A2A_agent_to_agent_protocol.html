@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>A2A - Agent-to-Agent Protocol</title>
+  <title>A2A - Agent-to-Agent Protocol Deep Dive</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,128 +12,1293 @@
   <div id="root"></div>
   <script type="text/babel">
     function App() {
-      const [hover, setHover] = React.useState(null);
-      
-      const tips = {
-        'what': 'Google protocol for agent-to-agent communication. Enables agents built on different frameworks to discover, communicate, and collaborate. The HTTP of agent interoperability.',
-        'why': 'Agents are siloed. Your LangChain agent cant talk to my CrewAI agent. A2A provides standard way for agents to find and work with each other.',
-        'vs-mcp': 'MCP: Agent to Tools (vertical). A2A: Agent to Agent (horizontal). Complementary, not competing. Use both together.',
-        'card': 'Agent Card: JSON metadata describing agent capabilities. Name, description, skills, endpoint. Published at /.well-known/agent.json. Like a business card.',
-        'discover': 'Agents discover each other via Agent Cards. Query capabilities, check compatibility. Dynamic discovery or registry-based.',
-        'task': 'Unit of work between agents. Client creates task, server executes. Has lifecycle: submitted, working, completed, failed, canceled.',
-        'lifecycle': 'Task states: submitted -> working -> input-required -> completed/failed. Supports long-running tasks, human-in-loop, streaming updates.',
-        'message': 'Communication within task. User messages, agent responses. Supports text, files, structured data. Bidirectional conversation.',
-        'artifact': 'Output from task execution. Files, data, generated content. Typed and structured. Can be passed to other agents.',
-        'push': 'Server can push updates. Streaming responses, progress updates. SSE or webhooks. Real-time collaboration.',
-        'auth': 'OAuth 2.0, API keys, or custom auth. Agent Cards specify auth requirements. Enterprise-grade security.',
-        'enterprise': 'Built for enterprise. Audit logs, access control, compliance. Google backing. Production-ready.',
-        'http': 'HTTP/JSON based. REST-like. Easy to implement. Firewall-friendly. No special protocols needed.',
-        'ecosystem': 'Growing ecosystem. Google ADK, LangChain, CrewAI integrating. Early but momentum building.',
-        'collab': 'Multi-agent workflows. Research agent calls data agent calls viz agent. Chain of specialized agents.'
+      const [activeSection, setActiveSection] = React.useState('overview');
+      const [showCode, setShowCode] = React.useState({});
+
+      const toggleCode = (id) => {
+        setShowCode(prev => ({...prev, [id]: !prev[id]}));
       };
 
-      const Card = ({id, bg, title, sub}) => (
-        <div 
-          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
-          onMouseEnter={() => setHover(id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <div className="font-bold">{title}</div>
-          <div className="text-sm opacity-60">{sub}</div>
-          {hover === id && (
-            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
-              {tips[id]}
+      // ============== SECTION: OVERVIEW ==============
+      const OverviewSection = () => (
+        <div className="space-y-6">
+          {/* What is A2A */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-br from-blue-900/50 to-cyan-900/50 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-3">🤝 What is A2A?</h3>
+              <p className="text-slate-300 mb-4">
+                <span className="text-blue-400 font-semibold">Agent-to-Agent Protocol</span> by Google. 
+                Enables agents built on different frameworks to discover, communicate, and collaborate.
+                The HTTP of agent interoperability.
+              </p>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">The Problem A2A Solves:</div>
+                <div className="space-y-2">
+                  <div className="text-red-400 text-sm">
+                    <strong>Before:</strong> Your LangChain agent can't talk to my CrewAI agent. Each framework is an island.
+                  </div>
+                  <div className="text-green-400 text-sm">
+                    <strong>After:</strong> Standard protocol for agent discovery and task delegation. Any agent talks to any agent.
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
+
+            <div className="bg-gradient-to-br from-purple-900/50 to-indigo-900/50 border border-purple-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-purple-300 mb-3">🎯 Why A2A Matters</h3>
+              <ul className="space-y-3 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Interoperability:</strong> Agents from different vendors work together</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Specialization:</strong> Build best-of-breed agent ecosystems</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Enterprise-ready:</strong> Auth, audit, compliance built-in</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-400">✓</span>
+                  <span><strong>Simple:</strong> HTTP/JSON, no special protocols</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* A2A vs MCP */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">A2A vs MCP: Complementary, Not Competing</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-violet-300 mb-3">MCP (Anthropic)</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-violet-400">●</span>
+                    <span className="text-slate-300"><strong>Direction:</strong> Vertical (Agent ↔ Tools)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-violet-400">●</span>
+                    <span className="text-slate-300"><strong>Purpose:</strong> Connect LLM to external capabilities</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-violet-400">●</span>
+                    <span className="text-slate-300"><strong>Transport:</strong> stdio (local), HTTP/SSE (remote)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-violet-400">●</span>
+                    <span className="text-slate-300"><strong>Model:</strong> Tools, Resources, Prompts</span>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <h4 className="font-bold text-blue-300 mb-3">A2A (Google)</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-400">●</span>
+                    <span className="text-slate-300"><strong>Direction:</strong> Horizontal (Agent ↔ Agent)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-400">●</span>
+                    <span className="text-slate-300"><strong>Purpose:</strong> Agent collaboration and delegation</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-400">●</span>
+                    <span className="text-slate-300"><strong>Transport:</strong> HTTP/JSON (REST-like)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-400">●</span>
+                    <span className="text-slate-300"><strong>Model:</strong> Tasks, Messages, Artifacts</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 bg-amber-900/20 border border-amber-500/30 rounded-lg p-4">
+              <div className="font-semibold text-amber-300 mb-2">💡 Use Both Together</div>
+              <p className="text-slate-300 text-sm">
+                An agent uses <strong>MCP</strong> to access its tools (database, files, APIs). 
+                It uses <strong>A2A</strong> to delegate tasks to specialized agents (research agent, coding agent, analysis agent).
+              </p>
+            </div>
+          </div>
+
+          {/* Architecture Overview */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">A2A Architecture</h3>
+            <div className="flex items-center justify-center gap-4 flex-wrap mb-4">
+              <div className="bg-blue-900/50 border border-blue-500 rounded-lg p-4 text-center">
+                <div className="text-2xl mb-1">🤖</div>
+                <div className="font-bold text-blue-300">Client Agent</div>
+                <div className="text-xs text-slate-400">Requests work</div>
+              </div>
+              <div className="text-slate-500 flex flex-col items-center">
+                <span>— Task →</span>
+                <span>← Artifact —</span>
+              </div>
+              <div className="bg-green-900/50 border border-green-500 rounded-lg p-4 text-center">
+                <div className="text-2xl mb-1">🤖</div>
+                <div className="font-bold text-green-300">Server Agent</div>
+                <div className="text-xs text-slate-400">Executes work</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-3 text-center text-sm">
+              <div className="bg-purple-900/30 rounded p-2">
+                <div className="text-purple-300 font-semibold">1. Discover</div>
+                <div className="text-xs text-slate-500">Find agent via Card</div>
+              </div>
+              <div className="bg-blue-900/30 rounded p-2">
+                <div className="text-blue-300 font-semibold">2. Create Task</div>
+                <div className="text-xs text-slate-500">Send work request</div>
+              </div>
+              <div className="bg-green-900/30 rounded p-2">
+                <div className="text-green-300 font-semibold">3. Execute</div>
+                <div className="text-xs text-slate-500">Server processes</div>
+              </div>
+              <div className="bg-orange-900/30 rounded p-2">
+                <div className="text-orange-300 font-semibold">4. Return</div>
+                <div className="text-xs text-slate-500">Artifacts back</div>
+              </div>
+            </div>
+          </div>
         </div>
       );
 
-      return (
-        <div className="min-h-screen bg-black text-white p-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-8">
-              <div className="inline-block px-4 py-1 bg-blue-900/50 border border-blue-500 rounded-full mb-4">
-                <span className="text-blue-300 font-bold text-sm">AGENT INTEROP</span>
+      // ============== SECTION: AGENT CARD ==============
+      const AgentCardSection = () => (
+        <div className="space-y-6">
+          {/* What is Agent Card */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">🪪 Agent Card</h3>
+            <p className="text-slate-300 mb-4">
+              JSON metadata describing an agent's capabilities. Published at <code className="text-purple-400">/.well-known/agent.json</code>. 
+              Like a business card for agents—tells others what you can do and how to reach you.
+            </p>
+
+            <button 
+              onClick={() => toggleCode('agent-card')}
+              className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300 mb-3"
+            >
+              {showCode['agent-card'] ? 'Hide' : 'Show'} Agent Card Example
+            </button>
+            
+            {showCode['agent-card'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// GET https://research-agent.example.com/.well-known/agent.json
+
+{
+  "name": "Research Agent",
+  "description": "Performs deep research on any topic using multiple sources",
+  "version": "1.0.0",
+  "url": "https://research-agent.example.com",
+  
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransitionHistory": true
+  },
+  
+  "skills": [
+    {
+      "id": "web-research",
+      "name": "Web Research",
+      "description": "Search and synthesize information from the web",
+      "inputModes": ["text"],
+      "outputModes": ["text", "file"]
+    },
+    {
+      "id": "paper-analysis",
+      "name": "Academic Paper Analysis",
+      "description": "Find and analyze academic papers on a topic",
+      "inputModes": ["text"],
+      "outputModes": ["text", "file"]
+    }
+  ],
+  
+  "authentication": {
+    "schemes": ["oauth2", "apiKey"],
+    "oauth2": {
+      "authorizationUrl": "https://auth.example.com/authorize",
+      "tokenUrl": "https://auth.example.com/token",
+      "scopes": ["research:read", "research:write"]
+    }
+  },
+  
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  
+  "provider": {
+    "organization": "Example Corp",
+    "url": "https://example.com"
+  }
+}`}
+              </pre>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">Required Fields</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li><code className="text-purple-400">name</code> - Agent's display name</li>
+                  <li><code className="text-purple-400">description</code> - What agent does</li>
+                  <li><code className="text-purple-400">url</code> - Base URL for API calls</li>
+                  <li><code className="text-purple-400">version</code> - Protocol version</li>
+                </ul>
               </div>
-              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-500">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-pink-300 mb-2">Key Sections</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li><code className="text-pink-400">skills</code> - What tasks it can perform</li>
+                  <li><code className="text-pink-400">capabilities</code> - Protocol features supported</li>
+                  <li><code className="text-pink-400">authentication</code> - How to authenticate</li>
+                  <li><code className="text-pink-400">inputModes/outputModes</code> - Data types</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Discovery */}
+          <div className="bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-cyan-300 mb-4">🔍 Agent Discovery</h3>
+            <p className="text-slate-300 mb-4">
+              Agents discover each other via Agent Cards. Query capabilities, check compatibility, 
+              then establish communication.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-cyan-300 mb-2">1. Well-Known URL</div>
+                <p className="text-slate-400 text-sm mb-2">Standard location for agent metadata</p>
+                <code className="text-xs text-cyan-400 block">GET /.well-known/agent.json</code>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">2. Registry</div>
+                <p className="text-slate-400 text-sm mb-2">Central directory of agents</p>
+                <code className="text-xs text-blue-400 block">GET /registry/agents?skill=research</code>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-indigo-300 mb-2">3. Referral</div>
+                <p className="text-slate-400 text-sm mb-2">Agents recommend other agents</p>
+                <code className="text-xs text-indigo-400 block">"Try agent X for this task"</code>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('discovery')}
+              className="mt-4 text-sm bg-cyan-900/50 hover:bg-cyan-900/70 px-3 py-1 rounded text-cyan-300"
+            >
+              {showCode['discovery'] ? 'Hide' : 'Show'} Discovery Flow
+            </button>
+            
+            {showCode['discovery'] && (
+              <pre className="mt-3 bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// 1. Client agent wants to find a research agent
+const agentUrl = "https://research-agent.example.com";
+
+// 2. Fetch the Agent Card
+const response = await fetch(\`\${agentUrl}/.well-known/agent.json\`);
+const agentCard = await response.json();
+
+// 3. Check capabilities
+if (agentCard.skills.some(s => s.id === "web-research")) {
+  console.log("Agent can do web research!");
+  
+  // 4. Check auth requirements
+  const authScheme = agentCard.authentication.schemes[0];
+  
+  // 5. Now ready to create tasks
+  const taskUrl = \`\${agentCard.url}/tasks\`;
+}`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: TASK MODEL ==============
+      const TaskModelSection = () => (
+        <div className="space-y-6">
+          {/* Task Lifecycle */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">📋 Task Lifecycle</h3>
+            <p className="text-slate-300 mb-4">
+              A Task is the unit of work between agents. It has a well-defined lifecycle with states 
+              that enable long-running operations, human-in-the-loop, and streaming updates.
+            </p>
+
+            <div className="flex items-center justify-center gap-2 flex-wrap mb-6">
+              {[
+                { state: 'submitted', color: 'blue', desc: 'Task received' },
+                { state: 'working', color: 'yellow', desc: 'Processing' },
+                { state: 'input-required', color: 'orange', desc: 'Needs more info' },
+                { state: 'completed', color: 'green', desc: 'Success' },
+                { state: 'failed', color: 'red', desc: 'Error' },
+                { state: 'canceled', color: 'slate', desc: 'Aborted' }
+              ].map((s, i) => (
+                <React.Fragment key={s.state}>
+                  <div className={`bg-${s.color}-900/50 border border-${s.color}-500 rounded-lg p-3 text-center min-w-[100px]`}>
+                    <div className={`font-bold text-${s.color}-300 text-sm`}>{s.state}</div>
+                    <div className="text-xs text-slate-400">{s.desc}</div>
+                  </div>
+                  {i < 2 && <div className="text-slate-500">→</div>}
+                  {i === 2 && <div className="text-slate-500">↗↘</div>}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => toggleCode('task')}
+              className="text-sm bg-green-900/50 hover:bg-green-900/70 px-3 py-1 rounded text-green-300 mb-3"
+            >
+              {showCode['task'] ? 'Hide' : 'Show'} Task Object Structure
+            </button>
+            
+            {showCode['task'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Task object structure
+{
+  "id": "task_abc123",
+  "sessionId": "session_xyz",  // Groups related tasks
+  "status": {
+    "state": "working",
+    "message": "Researching topic...",
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "history": [  // State transition history
+    { "state": "submitted", "timestamp": "2024-01-15T10:29:55Z" },
+    { "state": "working", "timestamp": "2024-01-15T10:30:00Z" }
+  ],
+  "artifacts": [  // Outputs produced so far
+    {
+      "id": "artifact_001",
+      "type": "text/markdown",
+      "name": "Initial Findings",
+      "data": "## Research Results\\n..."
+    }
+  ],
+  "metadata": {
+    "createdAt": "2024-01-15T10:29:55Z",
+    "updatedAt": "2024-01-15T10:30:00Z"
+  }
+}`}
+              </pre>
+            )}
+          </div>
+
+          {/* Creating Tasks */}
+          <div className="bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-blue-300 mb-4">🚀 Creating & Managing Tasks</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Create Task</div>
+                <code className="text-xs text-blue-400 block mb-2">POST /tasks</code>
+                <p className="text-slate-400 text-sm">Send initial message to start work</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-cyan-300 mb-2">Get Task Status</div>
+                <code className="text-xs text-cyan-400 block mb-2">GET /tasks/{'{taskId}'}</code>
+                <p className="text-slate-400 text-sm">Check current state and artifacts</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-indigo-300 mb-2">Send Message</div>
+                <code className="text-xs text-indigo-400 block mb-2">POST /tasks/{'{taskId}'}/messages</code>
+                <p className="text-slate-400 text-sm">Continue conversation</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">Cancel Task</div>
+                <code className="text-xs text-purple-400 block mb-2">POST /tasks/{'{taskId}'}/cancel</code>
+                <p className="text-slate-400 text-sm">Abort if no longer needed</p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('create-task')}
+              className="text-sm bg-blue-900/50 hover:bg-blue-900/70 px-3 py-1 rounded text-blue-300 mb-3"
+            >
+              {showCode['create-task'] ? 'Hide' : 'Show'} Create Task Example
+            </button>
+            
+            {showCode['create-task'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// POST https://research-agent.example.com/tasks
+// Authorization: Bearer <token>
+// Content-Type: application/json
+
+{
+  "id": "task_" + crypto.randomUUID(),  // Client-generated ID
+  "sessionId": "session_research_001",   // Optional grouping
+  "message": {
+    "role": "user",
+    "parts": [
+      {
+        "type": "text",
+        "text": "Research the latest developments in quantum computing for 2024"
+      }
+    ]
+  },
+  "metadata": {
+    "priority": "high",
+    "deadline": "2024-01-16T00:00:00Z"
+  }
+}
+
+// Response: 201 Created
+{
+  "id": "task_abc123",
+  "status": { "state": "submitted" },
+  "artifacts": []
+}`}
+              </pre>
+            )}
+          </div>
+
+          {/* Messages */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">💬 Messages</h3>
+            <p className="text-slate-300 mb-4">
+              Bidirectional communication within a task. Supports text, files, and structured data.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-orange-300 mb-2">Text Parts</div>
+                <pre className="text-xs bg-black/50 p-2 rounded">
+{`{
+  "type": "text",
+  "text": "Your question..."
+}`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-amber-300 mb-2">File Parts</div>
+                <pre className="text-xs bg-black/50 p-2 rounded">
+{`{
+  "type": "file",
+  "file": {
+    "name": "data.csv",
+    "mimeType": "text/csv",
+    "bytes": "base64..."
+  }
+}`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-yellow-300 mb-2">Data Parts</div>
+                <pre className="text-xs bg-black/50 p-2 rounded">
+{`{
+  "type": "data",
+  "data": {
+    "format": "json",
+    "value": { ... }
+  }
+}`}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          {/* Artifacts */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">📦 Artifacts</h3>
+            <p className="text-slate-300 mb-4">
+              Outputs from task execution. Files, data, generated content. Typed and structured for downstream processing.
+            </p>
+
+            <button 
+              onClick={() => toggleCode('artifact')}
+              className="text-sm bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded text-slate-300 mb-3"
+            >
+              {showCode['artifact'] ? 'Hide' : 'Show'} Artifact Examples
+            </button>
+            
+            {showCode['artifact'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Artifacts array in task response
+"artifacts": [
+  // Text artifact
+  {
+    "id": "artifact_001",
+    "type": "text/markdown",
+    "name": "Research Summary",
+    "description": "Summary of quantum computing developments",
+    "parts": [
+      { "type": "text", "text": "## Key Findings\\n\\n1. ..." }
+    ]
+  },
+  
+  // File artifact
+  {
+    "id": "artifact_002",
+    "type": "application/pdf",
+    "name": "Full Report",
+    "description": "Detailed research report",
+    "parts": [
+      { 
+        "type": "file", 
+        "file": { 
+          "name": "report.pdf",
+          "mimeType": "application/pdf",
+          "bytes": "base64encoded..." 
+        }
+      }
+    ]
+  },
+  
+  // Structured data artifact
+  {
+    "id": "artifact_003",
+    "type": "application/json",
+    "name": "Source Links",
+    "parts": [
+      {
+        "type": "data",
+        "data": {
+          "sources": [
+            { "title": "Paper 1", "url": "..." },
+            { "title": "Paper 2", "url": "..." }
+          ]
+        }
+      }
+    ]
+  }
+]`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: STREAMING ==============
+      const StreamingSection = () => (
+        <div className="space-y-6">
+          {/* Push Updates */}
+          <div className="bg-gradient-to-br from-cyan-900/40 to-teal-900/40 border border-cyan-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-cyan-300 mb-4">📡 Streaming & Push Updates</h3>
+            <p className="text-slate-300 mb-4">
+              A2A supports real-time updates via Server-Sent Events (SSE) or webhooks. 
+              See progress as the agent works, not just final results.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-cyan-300 mb-2">SSE Streaming</div>
+                <code className="text-xs text-cyan-400 block mb-2">GET /tasks/{'{taskId}'}/stream</code>
+                <p className="text-slate-400 text-sm">Real-time event stream. Good for interactive UIs.</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-teal-300 mb-2">Webhooks</div>
+                <code className="text-xs text-teal-400 block mb-2">POST to callback URL</code>
+                <p className="text-slate-400 text-sm">Push notifications. Good for background processing.</p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('sse')}
+              className="text-sm bg-cyan-900/50 hover:bg-cyan-900/70 px-3 py-1 rounded text-cyan-300 mb-3"
+            >
+              {showCode['sse'] ? 'Hide' : 'Show'} SSE Stream Example
+            </button>
+            
+            {showCode['sse'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// Client subscribes to task updates
+const eventSource = new EventSource(
+  \`https://agent.example.com/tasks/\${taskId}/stream\`,
+  { headers: { Authorization: \`Bearer \${token}\` } }
+);
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  switch (data.type) {
+    case 'status':
+      console.log('Status:', data.status.state);
+      break;
+      
+    case 'artifact':
+      console.log('New artifact:', data.artifact.name);
+      break;
+      
+    case 'message':
+      console.log('Agent says:', data.message.parts[0].text);
+      break;
+      
+    case 'done':
+      console.log('Task complete!');
+      eventSource.close();
+      break;
+  }
+};
+
+// Example SSE events:
+// data: {"type":"status","status":{"state":"working","message":"Searching..."}}
+// data: {"type":"message","message":{"role":"agent","parts":[{"type":"text","text":"Found 15 sources"}]}}
+// data: {"type":"artifact","artifact":{"id":"a1","name":"Preliminary findings"}}
+// data: {"type":"status","status":{"state":"completed"}}
+// data: {"type":"done"}`}
+              </pre>
+            )}
+          </div>
+
+          {/* Webhook Configuration */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">🔔 Webhook Configuration</h3>
+
+            <button 
+              onClick={() => toggleCode('webhook')}
+              className="text-sm bg-orange-900/50 hover:bg-orange-900/70 px-3 py-1 rounded text-orange-300 mb-3"
+            >
+              {showCode['webhook'] ? 'Hide' : 'Show'} Webhook Setup
+            </button>
+            
+            {showCode['webhook'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`// When creating task, specify webhook callback
+POST /tasks
+{
+  "id": "task_123",
+  "message": { ... },
+  "pushNotification": {
+    "url": "https://my-app.com/webhooks/a2a",
+    "authentication": {
+      "scheme": "bearer",
+      "token": "my-webhook-secret"
+    },
+    "events": ["status", "artifact", "message"]
+  }
+}
+
+// Your webhook receives events like:
+POST https://my-app.com/webhooks/a2a
+Authorization: Bearer my-webhook-secret
+Content-Type: application/json
+
+{
+  "taskId": "task_123",
+  "type": "artifact",
+  "artifact": {
+    "id": "artifact_001",
+    "name": "Research Summary",
+    "type": "text/markdown"
+  }
+}`}
+              </pre>
+            )}
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: IMPLEMENTATION ==============
+      const ImplementationSection = () => (
+        <div className="space-y-6">
+          {/* Python Client */}
+          <div className="bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-blue-300 mb-4">🐍 Python A2A Client</h3>
+
+            <button 
+              onClick={() => toggleCode('python-client')}
+              className="text-sm bg-blue-900/50 hover:bg-blue-900/70 px-3 py-1 rounded text-blue-300 mb-3"
+            >
+              {showCode['python-client'] ? 'Hide' : 'Show'} Python Client Implementation
+            </button>
+            
+            {showCode['python-client'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+{`import httpx
+import asyncio
+from typing import AsyncGenerator
+
+class A2AClient:
+    def __init__(self, base_url: str, api_key: str):
+        self.base_url = base_url.rstrip('/')
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+    
+    async def get_agent_card(self) -> dict:
+        """Fetch the agent's capabilities"""
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/.well-known/agent.json"
+            )
+            return resp.json()
+    
+    async def create_task(self, message: str, session_id: str = None) -> dict:
+        """Create a new task"""
+        import uuid
+        
+        payload = {
+            "id": f"task_{uuid.uuid4().hex[:12]}",
+            "message": {
+                "role": "user",
+                "parts": [{"type": "text", "text": message}]
+            }
+        }
+        if session_id:
+            payload["sessionId"] = session_id
+        
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.base_url}/tasks",
+                json=payload,
+                headers=self.headers
+            )
+            return resp.json()
+    
+    async def get_task(self, task_id: str) -> dict:
+        """Get task status and artifacts"""
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/tasks/{task_id}",
+                headers=self.headers
+            )
+            return resp.json()
+    
+    async def send_message(self, task_id: str, message: str) -> dict:
+        """Send follow-up message"""
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.base_url}/tasks/{task_id}/messages",
+                json={
+                    "message": {
+                        "role": "user",
+                        "parts": [{"type": "text", "text": message}]
+                    }
+                },
+                headers=self.headers
+            )
+            return resp.json()
+    
+    async def stream_task(self, task_id: str) -> AsyncGenerator[dict, None]:
+        """Stream task updates via SSE"""
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "GET",
+                f"{self.base_url}/tasks/{task_id}/stream",
+                headers=self.headers
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        import json
+                        yield json.loads(line[6:])
+
+
+# Usage example
+async def main():
+    client = A2AClient(
+        "https://research-agent.example.com",
+        "your-api-key"
+    )
+    
+    # Check capabilities
+    card = await client.get_agent_card()
+    print(f"Agent: {card['name']}")
+    print(f"Skills: {[s['name'] for s in card['skills']]}")
+    
+    # Create task
+    task = await client.create_task(
+        "Research quantum computing breakthroughs in 2024"
+    )
+    print(f"Task created: {task['id']}")
+    
+    # Stream updates
+    async for event in client.stream_task(task['id']):
+        if event['type'] == 'status':
+            print(f"Status: {event['status']['state']}")
+        elif event['type'] == 'artifact':
+            print(f"Artifact: {event['artifact']['name']}")
+        elif event['type'] == 'done':
+            break
+    
+    # Get final results
+    result = await client.get_task(task['id'])
+    for artifact in result['artifacts']:
+        print(f"Output: {artifact['name']}")
+
+asyncio.run(main())`}
+              </pre>
+            )}
+          </div>
+
+          {/* Python Server */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">🖥️ Python A2A Server</h3>
+
+            <button 
+              onClick={() => toggleCode('python-server')}
+              className="text-sm bg-green-900/50 hover:bg-green-900/70 px-3 py-1 rounded text-green-300 mb-3"
+            >
+              {showCode['python-server'] ? 'Hide' : 'Show'} FastAPI Server Implementation
+            </button>
+            
+            {showCode['python-server'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-96">
+{`from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import List, Optional
+import asyncio
+import json
+
+app = FastAPI()
+
+# In-memory task storage (use DB in production)
+tasks = {}
+
+# Agent Card
+AGENT_CARD = {
+    "name": "Research Agent",
+    "description": "Performs deep research on any topic",
+    "version": "1.0.0",
+    "url": "https://research-agent.example.com",
+    "capabilities": {"streaming": True},
+    "skills": [
+        {
+            "id": "research",
+            "name": "Topic Research",
+            "description": "Research any topic using web sources"
+        }
+    ]
+}
+
+class MessagePart(BaseModel):
+    type: str
+    text: Optional[str] = None
+
+class Message(BaseModel):
+    role: str
+    parts: List[MessagePart]
+
+class CreateTaskRequest(BaseModel):
+    id: str
+    sessionId: Optional[str] = None
+    message: Message
+
+@app.get("/.well-known/agent.json")
+async def get_agent_card():
+    return AGENT_CARD
+
+@app.post("/tasks")
+async def create_task(request: CreateTaskRequest):
+    task = {
+        "id": request.id,
+        "sessionId": request.sessionId,
+        "status": {"state": "submitted"},
+        "messages": [request.message.dict()],
+        "artifacts": [],
+        "history": [{"state": "submitted"}]
+    }
+    tasks[request.id] = task
+    
+    # Start async processing
+    asyncio.create_task(process_task(request.id))
+    
+    return task
+
+@app.get("/tasks/{task_id}")
+async def get_task(task_id: str):
+    if task_id not in tasks:
+        raise HTTPException(404, "Task not found")
+    return tasks[task_id]
+
+@app.get("/tasks/{task_id}/stream")
+async def stream_task(task_id: str):
+    if task_id not in tasks:
+        raise HTTPException(404, "Task not found")
+    
+    async def event_generator():
+        while True:
+            task = tasks[task_id]
+            yield f"data: {json.dumps({'type': 'status', 'status': task['status']})}\\n\\n"
+            
+            if task['status']['state'] in ['completed', 'failed']:
+                yield f"data: {json.dumps({'type': 'done'})}\\n\\n"
+                break
+            
+            await asyncio.sleep(1)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream"
+    )
+
+async def process_task(task_id: str):
+    """Simulate task processing"""
+    task = tasks[task_id]
+    
+    # Update to working
+    task['status'] = {"state": "working", "message": "Researching..."}
+    task['history'].append({"state": "working"})
+    
+    await asyncio.sleep(2)  # Simulate work
+    
+    # Add artifact
+    task['artifacts'].append({
+        "id": "artifact_001",
+        "type": "text/markdown",
+        "name": "Research Summary",
+        "parts": [{"type": "text", "text": "## Findings\\n\\n..."}]
+    })
+    
+    # Complete
+    task['status'] = {"state": "completed"}
+    task['history'].append({"state": "completed"})`}
+              </pre>
+            )}
+          </div>
+
+          {/* Ecosystem */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">🌐 Ecosystem & Integrations</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                <div className="font-bold text-blue-300 mb-2">Google ADK</div>
+                <p className="text-slate-400 text-sm">Official Agent Development Kit with A2A support</p>
+              </div>
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4">
+                <div className="font-bold text-green-300 mb-2">LangChain</div>
+                <p className="text-slate-400 text-sm">A2A integration for LangGraph agents</p>
+              </div>
+              <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
+                <div className="font-bold text-purple-300 mb-2">CrewAI</div>
+                <p className="text-slate-400 text-sm">Multi-agent framework with A2A support</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: SECURITY ==============
+      const SecuritySection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Authentication */}
+            <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-red-300 mb-4">🔐 Authentication</h3>
+              <p className="text-slate-300 mb-4">
+                A2A supports multiple auth schemes. Agent Cards declare requirements, clients must comply.
+              </p>
+              
+              <div className="space-y-3">
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-red-300 mb-1">OAuth 2.0</div>
+                  <p className="text-slate-400 text-sm">Enterprise standard. Supports scopes, refresh tokens.</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-orange-300 mb-1">API Keys</div>
+                  <p className="text-slate-400 text-sm">Simple bearer tokens. Good for server-to-server.</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-3">
+                  <div className="font-semibold text-yellow-300 mb-1">mTLS</div>
+                  <p className="text-slate-400 text-sm">Mutual TLS for high-security environments.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Enterprise Features */}
+            <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-green-300 mb-4">🏢 Enterprise Features</h3>
+              
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">✓</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Audit Logging</div>
+                    <p className="text-slate-400 text-sm">Track all task operations for compliance</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">✓</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Access Control</div>
+                    <p className="text-slate-400 text-sm">Fine-grained permissions per skill/resource</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">✓</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Rate Limiting</div>
+                    <p className="text-slate-400 text-sm">Prevent abuse and manage capacity</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg">✓</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Data Residency</div>
+                    <p className="text-slate-400 text-sm">Control where data is processed</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Best Practices */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Security Best Practices</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">1.</span>
+                  <span className="text-slate-300">Always validate Agent Cards before trusting</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">2.</span>
+                  <span className="text-slate-300">Use short-lived tokens, rotate regularly</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">3.</span>
+                  <span className="text-slate-300">Encrypt artifacts at rest and in transit</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">4.</span>
+                  <span className="text-slate-300">Implement request signing for webhooks</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">5.</span>
+                  <span className="text-slate-300">Scope permissions to minimum necessary</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-green-400">6.</span>
+                  <span className="text-slate-300">Monitor for anomalous task patterns</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: COMPARISON ==============
+      const ComparisonSection = () => (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4">Protocol Comparison</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Aspect</th>
+                    <th className="text-left p-3 text-blue-300">A2A (Google)</th>
+                    <th className="text-left p-3 text-violet-300">MCP (Anthropic)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Purpose</td>
+                    <td className="p-3">Agent ↔ Agent communication</td>
+                    <td className="p-3">Agent ↔ Tool connectivity</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Discovery</td>
+                    <td className="p-3">Agent Cards at /.well-known/</td>
+                    <td className="p-3">Config file, capabilities exchange</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Transport</td>
+                    <td className="p-3">HTTP/JSON (REST)</td>
+                    <td className="p-3">stdio, HTTP/SSE</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">State</td>
+                    <td className="p-3">Task lifecycle (stateful)</td>
+                    <td className="p-3">Request/response (stateless)</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Long-running</td>
+                    <td className="p-3">✓ Native support</td>
+                    <td className="p-3">△ Via sampling</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-400">Human-in-loop</td>
+                    <td className="p-3">✓ input-required state</td>
+                    <td className="p-3">△ Host-controlled</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-400">Best for</td>
+                    <td className="p-3">Multi-agent workflows</td>
+                    <td className="p-3">Tool integration</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* When to Use */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-blue-300 mb-4">Use A2A When</h3>
+              <ul className="space-y-2 text-slate-300 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400">●</span>
+                  <span>Building multi-agent systems</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400">●</span>
+                  <span>Delegating tasks to specialized agents</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400">●</span>
+                  <span>Cross-vendor agent collaboration</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400">●</span>
+                  <span>Long-running async workflows</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-400">●</span>
+                  <span>Enterprise agent orchestration</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-violet-300 mb-4">Use MCP When</h3>
+              <ul className="space-y-2 text-slate-300 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-violet-400">●</span>
+                  <span>Connecting LLM to tools/APIs</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-violet-400">●</span>
+                  <span>Local tool integration (files, DBs)</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-violet-400">●</span>
+                  <span>Single agent with many tools</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-violet-400">●</span>
+                  <span>Synchronous tool execution</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-violet-400">●</span>
+                  <span>Developer workstation integration</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Using Both */}
+          <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-amber-300 mb-4">💡 Using A2A + MCP Together</h3>
+            <div className="bg-black/30 rounded-lg p-4">
+              <pre className="text-xs text-slate-300">
+{`                         ┌─────────────────────────────────┐
+                         │      Your Agent (Orchestrator)   │
+                         └─────────────────────────────────┘
+                                       │
+                    ┌──────────────────┼──────────────────┐
+                    │                  │                  │
+                    ▼                  ▼                  ▼
+            ┌───────────┐      ┌───────────┐      ┌───────────┐
+            │ MCP: Files│      │A2A: Research│     │A2A: Code  │
+            │ MCP: DB   │      │   Agent     │     │   Agent   │
+            │ MCP: APIs │      └─────────────┘     └───────────┘
+            └───────────┘             │                  │
+                  │                   ▼                  ▼
+                  │            ┌───────────┐      ┌───────────┐
+                  │            │ MCP: Web  │      │ MCP: Git  │
+                  │            │ MCP: Docs │      │ MCP: Tests│
+                  ▼            └───────────┘      └───────────┘
+           Local Tools           External           External
+                               Specialized        Specialized`}
+              </pre>
+            </div>
+            <p className="text-slate-300 text-sm mt-4">
+              Your orchestrator agent uses <strong>MCP</strong> for its local tools, and <strong>A2A</strong> to 
+              delegate specialized tasks to other agents. Those agents may themselves use MCP for their tools.
+            </p>
+          </div>
+        </div>
+      );
+
+      // Navigation
+      const sections = [
+        { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'agentcard', label: 'Agent Card', icon: '🪪' },
+        { id: 'taskmodel', label: 'Task Model', icon: '📋' },
+        { id: 'streaming', label: 'Streaming', icon: '📡' },
+        { id: 'implementation', label: 'Implementation', icon: '💻' },
+        { id: 'security', label: 'Security', icon: '🔒' },
+        { id: 'comparison', label: 'Comparison', icon: '⚖️' }
+      ];
+
+      const renderSection = () => {
+        switch(activeSection) {
+          case 'overview': return <OverviewSection />;
+          case 'agentcard': return <AgentCardSection />;
+          case 'taskmodel': return <TaskModelSection />;
+          case 'streaming': return <StreamingSection />;
+          case 'implementation': return <ImplementationSection />;
+          case 'security': return <SecuritySection />;
+          case 'comparison': return <ComparisonSection />;
+          default: return <OverviewSection />;
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-black text-white">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-900/50 to-cyan-900/50 border-b border-blue-500/30 p-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-blue-500/20 border border-blue-500 rounded-full text-blue-300 text-sm font-bold">
+                  AGENT INTEROP
+                </span>
+                <span className="px-3 py-1 bg-green-500/20 border border-green-500 rounded-full text-green-300 text-sm">
+                  Google Protocol
+                </span>
+              </div>
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">
                 A2A: Agent-to-Agent Protocol
               </h1>
-              <p className="text-slate-400">Google's standard for agent communication. Hover for details.</p>
-            </div>
-
-            {/* Overview */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-blue-300">1. Overview</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="what" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="What is A2A?" sub="Agent interoperability protocol"/>
-                <Card id="why" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Why A2A?" sub="Break agent silos"/>
-                <Card id="vs-mcp" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="A2A vs MCP" sub="Horizontal vs vertical"/>
-              </div>
-            </div>
-
-            {/* Discovery */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-purple-300">2. Discovery</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="card" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Agent Card" sub="/.well-known/agent.json"/>
-                <Card id="discover" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Discovery" sub="Find compatible agents"/>
-              </div>
-            </div>
-
-            {/* Task Model */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-green-300">3. Task Model</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="task" bg="bg-green-900/50 border-green-500 text-green-200" title="Task" sub="Unit of work"/>
-                <Card id="lifecycle" bg="bg-green-900/50 border-green-500 text-green-200" title="Lifecycle" sub="submitted -> completed"/>
-                <Card id="message" bg="bg-green-900/50 border-green-500 text-green-200" title="Messages" sub="Bidirectional comms"/>
-              </div>
-              <div className="mt-3 p-3 bg-slate-900/50 border border-slate-700 rounded-lg text-center text-sm">
-                <span className="text-blue-300">Client Agent</span>
-                <span className="text-slate-500 mx-2">--task--></span>
-                <span className="text-green-300">Server Agent</span>
-                <span className="text-slate-500 mx-2">--artifact--></span>
-                <span className="text-blue-300">Client Agent</span>
-              </div>
-            </div>
-
-            {/* Communication */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Communication</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="artifact" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Artifacts" sub="Task outputs"/>
-                <Card id="push" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Push Updates" sub="SSE, streaming"/>
-                <Card id="http" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="HTTP/JSON" sub="Standard protocols"/>
-              </div>
-            </div>
-
-            {/* Enterprise */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-red-300">5. Enterprise</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Card id="auth" bg="bg-red-900/50 border-red-500 text-red-200" title="Auth" sub="OAuth, API keys"/>
-                <Card id="enterprise" bg="bg-red-900/50 border-red-500 text-red-200" title="Enterprise Ready" sub="Audit, compliance"/>
-                <Card id="ecosystem" bg="bg-red-900/50 border-red-500 text-red-200" title="Ecosystem" sub="Growing adoption"/>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-900/50 border border-blue-500/30 rounded-xl p-6 text-center">
-              <div className="text-xl font-bold text-white mb-2">A2A Summary</div>
-              <p className="text-slate-400 text-sm mb-4">
-                Agent Cards for discovery, Tasks for work, HTTP for transport. MCP for tools, A2A for agents.
+              <p className="text-slate-400 mt-2">
+                Google's standard for agent discovery, communication, and collaboration. The HTTP of agent interoperability.
               </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Agent Cards</span>
-                <span className="px-3 py-1 bg-green-900/50 rounded text-green-300 text-sm">Tasks</span>
-                <span className="px-3 py-1 bg-orange-900/50 rounded text-orange-300 text-sm">Artifacts</span>
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">HTTP/JSON</span>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex gap-1 overflow-x-auto py-2">
+                {sections.map(section => (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeSection === section.id
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {section.icon} {section.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="max-w-7xl mx-auto p-6">
+            {renderSection()}
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-900/50 border-t border-slate-700 p-6 mt-8">
+            <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
+              <div className="flex justify-center gap-4 flex-wrap">
+                <span className="px-3 py-1 bg-purple-900/30 rounded">Agent Cards</span>
+                <span className="px-3 py-1 bg-green-900/30 rounded">Task Lifecycle</span>
+                <span className="px-3 py-1 bg-orange-900/30 rounded">Artifacts</span>
+                <span className="px-3 py-1 bg-blue-900/30 rounded">HTTP/JSON</span>
               </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>

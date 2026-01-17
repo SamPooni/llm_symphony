@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Multi-Agent Systems</title>
+  <title>Multi-Agent Systems & Orchestration Deep Dive</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,124 +12,1068 @@
   <div id="root"></div>
   <script type="text/babel">
     function App() {
-      const [hover, setHover] = React.useState(null);
-      
-      const tips = {
-        'why': 'Single agents hit limits. Multiple specialized agents can divide work, bring diverse expertise, and handle complex multi-step tasks.',
-        'patterns': 'Supervisor: One agent coordinates others. Peer: Agents collaborate as equals. Hierarchical: Multi-level management. Pipeline: Sequential handoffs.',
-        'crewai': 'Framework for role-based agents. Define crews with agents, tasks, and processes. Popular for business workflows. Sequential or hierarchical.',
-        'autogen': 'Microsoft framework. Conversational agents that chat with each other. Good for debate, refinement, code review. Flexible conversation patterns.',
-        'langgraph': 'LangChain extension for cyclic graphs. Nodes are agents/functions, edges are transitions. State machine for agent workflows. Production-ready.',
-        'swarm': 'OpenAI experimental framework. Lightweight, handoff-based. Agents transfer control to each other. Minimalist approach.',
-        'supervisor': 'Central coordinator routes tasks to specialist agents. Decides who handles what. Aggregates results. Single point of control.',
-        'debate': 'Agents argue different positions. Critic challenges, defender responds. Improves reasoning through adversarial discussion.',
-        'pipeline': 'Linear chain: Agent A -> Agent B -> Agent C. Each agent transforms/refines output. Good for staged workflows.',
-        'collab': 'Agents work on shared artifact. Editor, reviewer, fact-checker all contribute. Requires coordination protocol.',
-        'comms': 'How agents talk: Direct messages, shared blackboard, broadcast, request-response. Protocol determines coordination style.',
-        'state': 'Shared state vs isolated. Shared: agents see same context. Isolated: agents have private memory. Tradeoffs in coordination.',
-        'handoff': 'Transfer control between agents. Pass context, task, and authority. Clean boundaries between responsibilities.',
-        'tools': 'Agents can share tools or have exclusive access. Tool conflicts need arbitration. Some tools are agent-specific.',
-        'eval': 'Hard to evaluate. End-to-end task success, per-agent metrics, coordination efficiency. No standard benchmarks yet.',
-        'cost': 'Multiple agents = multiple LLM calls. Can be expensive. Optimize by caching, routing simple tasks to smaller models.'
+      const [activeSection, setActiveSection] = React.useState('overview');
+      const [showCode, setShowCode] = React.useState({});
+
+      const toggleCode = (id) => {
+        setShowCode(prev => ({...prev, [id]: !prev[id]}));
       };
 
-      const Card = ({id, bg, title, sub}) => (
-        <div 
-          className={`p-4 rounded-xl border-2 ${bg} cursor-pointer hover:scale-105 transition-transform relative`}
-          onMouseEnter={() => setHover(id)}
-          onMouseLeave={() => setHover(null)}
-        >
-          <div className="font-bold">{title}</div>
-          <div className="text-sm opacity-60">{sub}</div>
-          {hover === id && (
-            <div className="absolute left-0 top-full mt-2 z-50 w-72 p-3 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl">
-              {tips[id]}
+      // ============== SECTION: OVERVIEW ==============
+      const OverviewSection = () => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-br from-emerald-900/50 to-teal-900/50 border border-emerald-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-emerald-300 mb-3">🤝 Why Multi-Agent?</h3>
+              <p className="text-slate-300 mb-4">
+                Single agents hit limits. Multiple specialized agents can <span className="text-emerald-400 font-semibold">divide work, 
+                bring diverse expertise, and handle complex multi-step tasks</span>.
+              </p>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">Benefits:</div>
+                <ul className="space-y-2 text-sm text-slate-300">
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✓</span>
+                    <span><strong>Specialization:</strong> Each agent masters one domain</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✓</span>
+                    <span><strong>Parallelization:</strong> Agents work simultaneously</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✓</span>
+                    <span><strong>Robustness:</strong> Failure of one doesn't stop all</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-green-400">✓</span>
+                    <span><strong>Scalability:</strong> Add agents for more capacity</span>
+                  </li>
+                </ul>
+              </div>
             </div>
-          )}
+
+            <div className="bg-gradient-to-br from-blue-900/50 to-indigo-900/50 border border-blue-500 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-blue-300 mb-3">⚠️ When NOT to Use Multi-Agent</h3>
+              <ul className="space-y-3 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">✗</span>
+                  <span><strong>Simple tasks:</strong> One good agent often suffices</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">✗</span>
+                  <span><strong>Cost-sensitive:</strong> Multiple agents = multiple API calls</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">✗</span>
+                  <span><strong>Latency-critical:</strong> Coordination adds overhead</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-red-400">✗</span>
+                  <span><strong>Unclear division:</strong> If you can't split the task cleanly</span>
+                </li>
+              </ul>
+              <div className="mt-4 bg-amber-900/30 rounded-lg p-3 text-sm">
+                <span className="text-amber-300">💡 Rule of thumb:</span>
+                <span className="text-slate-300"> Start with one agent. Add more only when you hit clear limits.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Architecture Patterns */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Common Architecture Patterns</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-purple-900/30 border border-purple-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">👔</div>
+                <div className="font-bold text-purple-300">Supervisor</div>
+                <div className="text-xs text-slate-400 mt-2">One agent coordinates all others</div>
+              </div>
+              <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">🔄</div>
+                <div className="font-bold text-blue-300">Peer/Swarm</div>
+                <div className="text-xs text-slate-400 mt-2">Agents collaborate as equals</div>
+              </div>
+              <div className="bg-green-900/30 border border-green-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">📊</div>
+                <div className="font-bold text-green-300">Hierarchical</div>
+                <div className="text-xs text-slate-400 mt-2">Multi-level management</div>
+              </div>
+              <div className="bg-orange-900/30 border border-orange-500/30 rounded-lg p-4 text-center">
+                <div className="text-3xl mb-2">➡️</div>
+                <div className="font-bold text-orange-300">Pipeline</div>
+                <div className="text-xs text-slate-400 mt-2">Sequential handoffs</div>
+              </div>
+            </div>
+          </div>
         </div>
       );
 
+      // ============== SECTION: PATTERNS ==============
+      const PatternsSection = () => (
+        <div className="space-y-6">
+          {/* Supervisor */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-violet-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">👔 Supervisor Pattern</h3>
+            <p className="text-slate-300 mb-4">
+              Central coordinator routes tasks to specialist agents. Decides who handles what. 
+              Aggregates results. Single point of control and visibility.
+            </p>
+
+            <div className="bg-black/30 rounded-lg p-4 mb-4">
+              <pre className="text-xs text-slate-300 overflow-x-auto">
+{`                          ┌─────────────┐
+                          │  Supervisor │
+                          │   Agent     │
+                          └──────┬──────┘
+                                 │
+            ┌────────────────────┼────────────────────┐
+            │                    │                    │
+            ▼                    ▼                    ▼
+     ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+     │  Research   │      │   Writer    │      │   Coder     │
+     │   Agent     │      │   Agent     │      │   Agent     │
+     └─────────────┘      └─────────────┘      └─────────────┘`}
+              </pre>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('supervisor')}
+              className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300 mb-3"
+            >
+              {showCode['supervisor'] ? 'Hide' : 'Show'} Implementation Example
+            </button>
+            
+            {showCode['supervisor'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`# LangGraph Supervisor Pattern
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage
+
+# Define the state
+class AgentState(TypedDict):
+    messages: list
+    next_agent: str
+
+# Supervisor decides routing
+def supervisor(state: AgentState) -> AgentState:
+    response = supervisor_llm.invoke([
+        SystemMessage("You coordinate research, writing, and coding agents."),
+        *state["messages"],
+        HumanMessage("Which agent should handle this? Reply: research/writer/coder/FINISH")
+    ])
+    return {"next_agent": response.content.strip().lower()}
+
+# Specialist agents
+def research_agent(state): ...
+def writer_agent(state): ...
+def coder_agent(state): ...
+
+# Build the graph
+graph = StateGraph(AgentState)
+graph.add_node("supervisor", supervisor)
+graph.add_node("research", research_agent)
+graph.add_node("writer", writer_agent)
+graph.add_node("coder", coder_agent)
+
+# Routing edges
+graph.add_conditional_edges("supervisor", lambda s: s["next_agent"], {
+    "research": "research",
+    "writer": "writer", 
+    "coder": "coder",
+    "finish": END
+})
+
+# All agents return to supervisor
+for agent in ["research", "writer", "coder"]:
+    graph.add_edge(agent, "supervisor")
+
+graph.set_entry_point("supervisor")
+app = graph.compile()`}
+              </pre>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="bg-black/30 rounded-lg p-3">
+                <div className="text-green-400 font-semibold text-sm mb-1">✓ Pros</div>
+                <ul className="text-xs text-slate-400 space-y-1">
+                  <li>• Clear control flow</li>
+                  <li>• Easy to debug</li>
+                  <li>• Central logging</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3">
+                <div className="text-red-400 font-semibold text-sm mb-1">✗ Cons</div>
+                <ul className="text-xs text-slate-400 space-y-1">
+                  <li>• Bottleneck at supervisor</li>
+                  <li>• Single point of failure</li>
+                  <li>• Extra LLM calls for routing</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Pipeline */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">➡️ Pipeline Pattern</h3>
+            <p className="text-slate-300 mb-4">
+              Linear chain: Agent A → Agent B → Agent C. Each agent transforms/refines output. 
+              Good for staged workflows like: Research → Draft → Edit → Review.
+            </p>
+
+            <div className="bg-black/30 rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <div className="bg-blue-900/50 px-4 py-2 rounded text-blue-300">📚 Research</div>
+                <span className="text-slate-500">→</span>
+                <div className="bg-green-900/50 px-4 py-2 rounded text-green-300">✍️ Draft</div>
+                <span className="text-slate-500">→</span>
+                <div className="bg-orange-900/50 px-4 py-2 rounded text-orange-300">📝 Edit</div>
+                <span className="text-slate-500">→</span>
+                <div className="bg-purple-900/50 px-4 py-2 rounded text-purple-300">✅ Review</div>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('pipeline')}
+              className="text-sm bg-green-900/50 hover:bg-green-900/70 px-3 py-1 rounded text-green-300 mb-3"
+            >
+              {showCode['pipeline'] ? 'Hide' : 'Show'} Pipeline Example
+            </button>
+            
+            {showCode['pipeline'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`# Simple pipeline with LCEL (LangChain Expression Language)
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+
+research_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a researcher. Find key facts about the topic."),
+    ("human", "{topic}")
+])
+
+draft_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a writer. Create a draft from these research notes."),
+    ("human", "{research}")
+])
+
+edit_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an editor. Improve clarity and fix errors."),
+    ("human", "{draft}")
+])
+
+llm = ChatOpenAI(model="gpt-4")
+
+# Chain them together
+pipeline = (
+    {"topic": lambda x: x}
+    | research_prompt | llm | {"research": lambda x: x.content}
+    | draft_prompt | llm | {"draft": lambda x: x.content}
+    | edit_prompt | llm
+)
+
+result = pipeline.invoke("The history of quantum computing")`}
+              </pre>
+            )}
+          </div>
+
+          {/* Debate/Adversarial */}
+          <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-red-300 mb-4">⚔️ Debate/Adversarial Pattern</h3>
+            <p className="text-slate-300 mb-4">
+              Agents argue different positions. Critic challenges, defender responds. 
+              Improves reasoning through adversarial discussion.
+            </p>
+
+            <div className="bg-black/30 rounded-lg p-4 mb-4">
+              <pre className="text-xs text-slate-300">
+{`    ┌─────────────┐         ┌─────────────┐
+    │   Proposer  │◄───────►│   Critic    │
+    │   Agent     │ Debate  │   Agent     │
+    └─────────────┘         └─────────────┘
+           │                       │
+           └───────────┬───────────┘
+                       ▼
+              ┌─────────────┐
+              │    Judge    │
+              │   Agent     │
+              └─────────────┘`}
+              </pre>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div className="bg-black/30 rounded-lg p-3 text-center">
+                <div className="font-semibold text-blue-300 text-sm">Proposer</div>
+                <div className="text-xs text-slate-400">Generates initial solution</div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3 text-center">
+                <div className="font-semibold text-red-300 text-sm">Critic</div>
+                <div className="text-xs text-slate-400">Finds flaws, suggests improvements</div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3 text-center">
+                <div className="font-semibold text-green-300 text-sm">Judge</div>
+                <div className="text-xs text-slate-400">Decides when debate is resolved</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: FRAMEWORKS ==============
+      const FrameworksSection = () => (
+        <div className="space-y-6">
+          {/* LangGraph */}
+          <div className="bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-blue-300 mb-4">🔷 LangGraph</h3>
+            <p className="text-slate-300 mb-4">
+              LangChain extension for cyclic graphs. Nodes are agents/functions, edges are transitions. 
+              State machine for agent workflows. Production-ready.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Key Concepts</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• <strong>Nodes:</strong> Agent functions</li>
+                  <li>• <strong>Edges:</strong> Transitions between nodes</li>
+                  <li>• <strong>State:</strong> Shared across all nodes</li>
+                  <li>• <strong>Conditional edges:</strong> Dynamic routing</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-cyan-300 mb-2">Strengths</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>✓ Cycles and loops</li>
+                  <li>✓ Persistence built-in</li>
+                  <li>✓ Human-in-the-loop</li>
+                  <li>✓ LangSmith integration</li>
+                </ul>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => toggleCode('langgraph')}
+              className="text-sm bg-blue-900/50 hover:bg-blue-900/70 px-3 py-1 rounded text-blue-300 mb-3"
+            >
+              {showCode['langgraph'] ? 'Hide' : 'Show'} LangGraph Example
+            </button>
+            
+            {showCode['langgraph'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-80">
+{`from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+from typing import TypedDict, Annotated
+import operator
+
+# Define state with message accumulation
+class State(TypedDict):
+    messages: Annotated[list, operator.add]
+    current_agent: str
+
+# Agent nodes
+def researcher(state: State) -> dict:
+    # Research logic here
+    result = research_llm.invoke(state["messages"])
+    return {"messages": [result], "current_agent": "researcher"}
+
+def writer(state: State) -> dict:
+    result = writer_llm.invoke(state["messages"])
+    return {"messages": [result], "current_agent": "writer"}
+
+def router(state: State) -> str:
+    """Decide next step"""
+    last_message = state["messages"][-1].content
+    if "DONE" in last_message:
+        return END
+    elif state["current_agent"] == "researcher":
+        return "writer"
+    else:
+        return "researcher"
+
+# Build graph
+builder = StateGraph(State)
+builder.add_node("researcher", researcher)
+builder.add_node("writer", writer)
+
+builder.add_conditional_edges("researcher", router)
+builder.add_conditional_edges("writer", router)
+builder.set_entry_point("researcher")
+
+# Add persistence
+memory = SqliteSaver.from_conn_string(":memory:")
+graph = builder.compile(checkpointer=memory)
+
+# Run with thread_id for persistence
+config = {"configurable": {"thread_id": "research-1"}}
+result = graph.invoke({"messages": [HumanMessage("Research AI trends")]}, config)`}
+              </pre>
+            )}
+          </div>
+
+          {/* CrewAI */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">👥 CrewAI</h3>
+            <p className="text-slate-300 mb-4">
+              Framework for role-based agents. Define crews with agents, tasks, and processes. 
+              Popular for business workflows. Supports sequential and hierarchical processes.
+            </p>
+
+            <button 
+              onClick={() => toggleCode('crewai')}
+              className="text-sm bg-purple-900/50 hover:bg-purple-900/70 px-3 py-1 rounded text-purple-300 mb-3"
+            >
+              {showCode['crewai'] ? 'Hide' : 'Show'} CrewAI Example
+            </button>
+            
+            {showCode['crewai'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-80">
+{`from crewai import Agent, Task, Crew, Process
+
+# Define agents with roles
+researcher = Agent(
+    role="Senior Research Analyst",
+    goal="Uncover cutting-edge developments in AI",
+    backstory="Expert at finding and analyzing emerging trends",
+    tools=[search_tool, scrape_tool],
+    llm=ChatOpenAI(model="gpt-4")
+)
+
+writer = Agent(
+    role="Tech Content Writer",
+    goal="Write engaging content about AI discoveries",
+    backstory="Skilled at making complex topics accessible",
+    llm=ChatOpenAI(model="gpt-4")
+)
+
+editor = Agent(
+    role="Editor",
+    goal="Ensure content is polished and accurate",
+    backstory="Meticulous attention to detail",
+    llm=ChatOpenAI(model="gpt-4")
+)
+
+# Define tasks
+research_task = Task(
+    description="Research the latest AI developments in 2024",
+    expected_output="A detailed report with key findings",
+    agent=researcher
+)
+
+writing_task = Task(
+    description="Write a blog post based on the research",
+    expected_output="A 1000-word engaging blog post",
+    agent=writer,
+    context=[research_task]  # Gets output from research
+)
+
+editing_task = Task(
+    description="Edit and polish the blog post",
+    expected_output="A publication-ready blog post",
+    agent=editor,
+    context=[writing_task]
+)
+
+# Create crew
+crew = Crew(
+    agents=[researcher, writer, editor],
+    tasks=[research_task, writing_task, editing_task],
+    process=Process.sequential,  # or Process.hierarchical
+    verbose=True
+)
+
+# Run!
+result = crew.kickoff()`}
+              </pre>
+            )}
+          </div>
+
+          {/* AutoGen */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">🤖 AutoGen (Microsoft)</h3>
+            <p className="text-slate-300 mb-4">
+              Conversational agents that chat with each other. Good for debate, refinement, code review. 
+              Flexible conversation patterns.
+            </p>
+
+            <button 
+              onClick={() => toggleCode('autogen')}
+              className="text-sm bg-green-900/50 hover:bg-green-900/70 px-3 py-1 rounded text-green-300 mb-3"
+            >
+              {showCode['autogen'] ? 'Hide' : 'Show'} AutoGen Example
+            </button>
+            
+            {showCode['autogen'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto max-h-80">
+{`from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
+
+# Create agents
+coder = AssistantAgent(
+    name="Coder",
+    system_message="You are a Python expert. Write clean, efficient code.",
+    llm_config={"model": "gpt-4"}
+)
+
+reviewer = AssistantAgent(
+    name="Reviewer", 
+    system_message="You review code for bugs, style, and improvements.",
+    llm_config={"model": "gpt-4"}
+)
+
+tester = AssistantAgent(
+    name="Tester",
+    system_message="You write unit tests and verify code correctness.",
+    llm_config={"model": "gpt-4"}
+)
+
+user_proxy = UserProxyAgent(
+    name="User",
+    human_input_mode="NEVER",
+    code_execution_config={"work_dir": "coding"}
+)
+
+# Group chat
+group_chat = GroupChat(
+    agents=[user_proxy, coder, reviewer, tester],
+    messages=[],
+    max_round=10
+)
+
+manager = GroupChatManager(groupchat=group_chat)
+
+# Start conversation
+user_proxy.initiate_chat(
+    manager,
+    message="Write a Python function to find prime numbers"
+)`}
+              </pre>
+            )}
+          </div>
+
+          {/* Swarm */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">🐝 Swarm (OpenAI)</h3>
+            <p className="text-slate-300 mb-4">
+              OpenAI's experimental framework. Lightweight, handoff-based. Agents transfer control to each other. 
+              Minimalist approach focused on simplicity.
+            </p>
+
+            <button 
+              onClick={() => toggleCode('swarm')}
+              className="text-sm bg-orange-900/50 hover:bg-orange-900/70 px-3 py-1 rounded text-orange-300 mb-3"
+            >
+              {showCode['swarm'] ? 'Hide' : 'Show'} Swarm Example
+            </button>
+            
+            {showCode['swarm'] && (
+              <pre className="bg-black/50 rounded-lg p-4 text-xs overflow-x-auto">
+{`from swarm import Swarm, Agent
+
+client = Swarm()
+
+def transfer_to_sales():
+    return sales_agent
+
+def transfer_to_support():
+    return support_agent
+
+triage_agent = Agent(
+    name="Triage",
+    instructions="Route customers to sales or support based on their needs.",
+    functions=[transfer_to_sales, transfer_to_support]
+)
+
+sales_agent = Agent(
+    name="Sales",
+    instructions="Help customers with purchases and pricing."
+)
+
+support_agent = Agent(
+    name="Support", 
+    instructions="Help customers with technical issues."
+)
+
+# Run - agent can hand off to others
+response = client.run(
+    agent=triage_agent,
+    messages=[{"role": "user", "content": "I need help with my order"}]
+)
+# If triage returns transfer_to_support, conversation continues with support_agent`}
+              </pre>
+            )}
+          </div>
+
+          {/* Comparison */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Framework Comparison</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">Framework</th>
+                    <th className="text-left p-3 text-slate-400">Style</th>
+                    <th className="text-left p-3 text-slate-400">Best For</th>
+                    <th className="text-left p-3 text-slate-400">Learning Curve</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-blue-300">LangGraph</td>
+                    <td className="p-3">State machine graphs</td>
+                    <td className="p-3">Complex workflows, cycles</td>
+                    <td className="p-3 text-yellow-400">Medium</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-purple-300">CrewAI</td>
+                    <td className="p-3">Role-based crews</td>
+                    <td className="p-3">Business workflows</td>
+                    <td className="p-3 text-green-400">Easy</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-green-300">AutoGen</td>
+                    <td className="p-3">Conversational</td>
+                    <td className="p-3">Debate, code review</td>
+                    <td className="p-3 text-yellow-400">Medium</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-orange-300">Swarm</td>
+                    <td className="p-3">Handoff-based</td>
+                    <td className="p-3">Simple routing</td>
+                    <td className="p-3 text-green-400">Easy</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: COORDINATION ==============
+      const CoordinationSection = () => (
+        <div className="space-y-6">
+          {/* Communication */}
+          <div className="bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-cyan-300 mb-4">💬 Communication Patterns</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-cyan-300 mb-2">Direct Messages</div>
+                <p className="text-slate-400 text-sm mb-2">Agent A sends directly to Agent B</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>+ Simple, low latency</li>
+                  <li>- Tight coupling</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-blue-300 mb-2">Shared Blackboard</div>
+                <p className="text-slate-400 text-sm mb-2">Agents read/write to shared state</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>+ Loose coupling</li>
+                  <li>- Coordination complexity</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-indigo-300 mb-2">Broadcast</div>
+                <p className="text-slate-400 text-sm mb-2">Agent sends to all others</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>+ Good for announcements</li>
+                  <li>- Can be noisy</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">Request-Response</div>
+                <p className="text-slate-400 text-sm mb-2">Agent asks, gets answer back</p>
+                <ul className="text-xs text-slate-500 space-y-1">
+                  <li>+ Clear flow</li>
+                  <li>- Synchronous blocking</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* State Management */}
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">📦 State Management</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">Shared State</div>
+                <p className="text-slate-400 text-sm mb-2">All agents see same context</p>
+                <div className="mt-3">
+                  <div className="text-green-400 text-xs mb-1">Good for:</div>
+                  <ul className="text-xs text-slate-500 space-y-1">
+                    <li>• Collaborative editing</li>
+                    <li>• Real-time sync needed</li>
+                    <li>• Small number of agents</li>
+                  </ul>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-emerald-300 mb-2">Isolated State</div>
+                <p className="text-slate-400 text-sm mb-2">Agents have private memory</p>
+                <div className="mt-3">
+                  <div className="text-emerald-400 text-xs mb-1">Good for:</div>
+                  <ul className="text-xs text-slate-500 space-y-1">
+                    <li>• Independent tasks</li>
+                    <li>• Parallel processing</li>
+                    <li>• Privacy/security</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Handoffs */}
+          <div className="bg-gradient-to-br from-orange-900/40 to-amber-900/40 border border-orange-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-orange-300 mb-4">🤝 Handoff Strategies</h3>
+            
+            <div className="space-y-3">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-orange-300 mb-2">1. Explicit Handoff</div>
+                <p className="text-slate-400 text-sm">Agent decides to transfer control and calls handoff function</p>
+                <pre className="text-xs bg-black/50 p-2 rounded mt-2">
+{`def transfer_to_specialist():
+    return specialist_agent  # Control transfers`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-amber-300 mb-2">2. Condition-Based</div>
+                <p className="text-slate-400 text-sm">Router evaluates conditions and routes accordingly</p>
+                <pre className="text-xs bg-black/50 p-2 rounded mt-2">
+{`def router(state):
+    if "code" in state.task: return "coder"
+    if "research" in state.task: return "researcher"`}
+                </pre>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-yellow-300 mb-2">3. Completion-Based</div>
+                <p className="text-slate-400 text-sm">Agent works until done, then passes result to next</p>
+                <pre className="text-xs bg-black/50 p-2 rounded mt-2">
+{`agent1_result = await agent1.run(task)
+agent2_result = await agent2.run(agent1_result)`}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: CHALLENGES ==============
+      const ChallengesSection = () => (
+        <div className="space-y-6">
+          {/* Cost */}
+          <div className="bg-gradient-to-br from-red-900/40 to-orange-900/40 border border-red-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-red-300 mb-4">💰 Cost Management</h3>
+            <p className="text-slate-300 mb-4">
+              Multiple agents = multiple LLM calls. Can get expensive quickly. Need strategies to optimize.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-red-300 mb-2">Cost Drivers</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>• N agents × M steps = N×M API calls</li>
+                  <li>• Large contexts get expensive</li>
+                  <li>• Retries multiply costs</li>
+                  <li>• Verbose agents waste tokens</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-green-300 mb-2">Optimization Strategies</div>
+                <ul className="text-sm text-slate-300 space-y-1">
+                  <li>✓ Use smaller models for simple tasks</li>
+                  <li>✓ Cache repeated queries</li>
+                  <li>✓ Batch similar requests</li>
+                  <li>✓ Limit max steps/iterations</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Evaluation */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-purple-300 mb-4">📊 Evaluation Challenges</h3>
+            <p className="text-slate-300 mb-4">
+              Hard to evaluate multi-agent systems. What metrics matter? How to attribute success/failure?
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-purple-300 mb-2">End-to-End</div>
+                <p className="text-slate-400 text-sm">Did the task succeed?</p>
+                <ul className="text-xs text-slate-500 mt-2 space-y-1">
+                  <li>• Task completion rate</li>
+                  <li>• Output quality score</li>
+                  <li>• User satisfaction</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-pink-300 mb-2">Per-Agent</div>
+                <p className="text-slate-400 text-sm">How did each agent perform?</p>
+                <ul className="text-xs text-slate-500 mt-2 space-y-1">
+                  <li>• Individual accuracy</li>
+                  <li>• Response quality</li>
+                  <li>• Error rate</li>
+                </ul>
+              </div>
+              <div className="bg-black/30 rounded-lg p-4">
+                <div className="font-semibold text-violet-300 mb-2">Coordination</div>
+                <p className="text-slate-400 text-sm">How well did they work together?</p>
+                <ul className="text-xs text-slate-500 mt-2 space-y-1">
+                  <li>• Handoff success rate</li>
+                  <li>• Communication efficiency</li>
+                  <li>• Conflict resolution</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Failure Modes */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">⚠️ Common Failure Modes</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <div>
+                    <div className="font-semibold text-white text-sm">Infinite Loops</div>
+                    <p className="text-slate-400 text-xs">Agents keep handing off to each other</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <div>
+                    <div className="font-semibold text-white text-sm">Context Loss</div>
+                    <p className="text-slate-400 text-xs">Important info lost in handoffs</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <div>
+                    <div className="font-semibold text-white text-sm">Contradictions</div>
+                    <p className="text-slate-400 text-xs">Agents produce conflicting outputs</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <div>
+                    <div className="font-semibold text-white text-sm">Cascade Failures</div>
+                    <p className="text-slate-400 text-xs">One agent's error propagates</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <div>
+                    <div className="font-semibold text-white text-sm">Resource Contention</div>
+                    <p className="text-slate-400 text-xs">Agents compete for same tools</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-red-400">●</span>
+                  <div>
+                    <div className="font-semibold text-white text-sm">Deadlocks</div>
+                    <p className="text-slate-400 text-xs">Agents waiting on each other</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // ============== SECTION: BEST PRACTICES ==============
+      const BestPracticesSection = () => (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-500 rounded-xl p-6">
+            <h3 className="text-xl font-bold text-green-300 mb-4">✅ Best Practices</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">1</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Start Simple</div>
+                    <p className="text-slate-400 text-sm">Begin with one agent. Add more only when needed.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">2</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Clear Responsibilities</div>
+                    <p className="text-slate-400 text-sm">Each agent should have a well-defined role.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">3</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Explicit Handoffs</div>
+                    <p className="text-slate-400 text-sm">Make transitions clear with structured formats.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">4</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Set Limits</div>
+                    <p className="text-slate-400 text-sm">Max iterations, timeouts, budget caps.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">5</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Observability</div>
+                    <p className="text-slate-400 text-sm">Log all agent actions. Use tracing tools.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">6</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Human Checkpoints</div>
+                    <p className="text-slate-400 text-sm">Add approval steps for critical decisions.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">7</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Graceful Degradation</div>
+                    <p className="text-slate-400 text-sm">Fall back if an agent fails.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-green-400 text-lg font-bold">8</span>
+                  <div>
+                    <div className="font-semibold text-green-200">Test Individually</div>
+                    <p className="text-slate-400 text-sm">Test each agent alone before integrating.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Architecture Decision */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">🎯 Choosing an Architecture</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left p-3 text-slate-400">If you need...</th>
+                    <th className="text-left p-3 text-slate-400">Consider...</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-300">Central control & visibility</td>
+                    <td className="p-3 text-purple-300">Supervisor pattern</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-300">Staged processing</td>
+                    <td className="p-3 text-green-300">Pipeline pattern</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-300">Quality through critique</td>
+                    <td className="p-3 text-red-300">Debate pattern</td>
+                  </tr>
+                  <tr className="border-b border-slate-800">
+                    <td className="p-3 text-slate-300">Flexible routing</td>
+                    <td className="p-3 text-orange-300">Swarm/handoff pattern</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-slate-300">Complex state flows</td>
+                    <td className="p-3 text-blue-300">LangGraph with cycles</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+
+      // Navigation
+      const sections = [
+        { id: 'overview', label: 'Overview', icon: '📋' },
+        { id: 'patterns', label: 'Patterns', icon: '📐' },
+        { id: 'frameworks', label: 'Frameworks', icon: '🛠️' },
+        { id: 'coordination', label: 'Coordination', icon: '🔄' },
+        { id: 'challenges', label: 'Challenges', icon: '⚠️' },
+        { id: 'best', label: 'Best Practices', icon: '✅' }
+      ];
+
+      const renderSection = () => {
+        switch(activeSection) {
+          case 'overview': return <OverviewSection />;
+          case 'patterns': return <PatternsSection />;
+          case 'frameworks': return <FrameworksSection />;
+          case 'coordination': return <CoordinationSection />;
+          case 'challenges': return <ChallengesSection />;
+          case 'best': return <BestPracticesSection />;
+          default: return <OverviewSection />;
+        }
+      };
+
       return (
-        <div className="min-h-screen bg-black text-white p-8">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-8">
-              <div className="inline-block px-4 py-1 bg-emerald-900/50 border border-emerald-500 rounded-full mb-4">
-                <span className="text-emerald-300 font-bold text-sm">AGENT ORCHESTRATION</span>
+        <div className="min-h-screen bg-black text-white">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-emerald-900/50 to-teal-900/50 border-b border-emerald-500/30 p-6">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-emerald-500/20 border border-emerald-500 rounded-full text-emerald-300 text-sm font-bold">
+                  AGENT ORCHESTRATION
+                </span>
+                <span className="px-3 py-1 bg-blue-500/20 border border-blue-500 rounded-full text-blue-300 text-sm">
+                  Multi-Agent
+                </span>
               </div>
-              <h1 className="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-500">
-                Multi-Agent Systems
+              <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400">
+                Multi-Agent Systems & Orchestration
               </h1>
-              <p className="text-slate-400">Coordinating multiple AI agents. Hover for details.</p>
-            </div>
-
-            {/* Why Multi-Agent */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-emerald-300">1. Why Multi-Agent?</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="why" bg="bg-emerald-900/50 border-emerald-500 text-emerald-200" title="Why Multiple Agents?" sub="Divide work, diverse expertise"/>
-                <Card id="patterns" bg="bg-emerald-900/50 border-emerald-500 text-emerald-200" title="Patterns" sub="Supervisor, peer, pipeline"/>
-              </div>
-            </div>
-
-            {/* Frameworks */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-blue-300">2. Frameworks</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="crewai" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="CrewAI" sub="Role-based crews"/>
-                <Card id="autogen" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="AutoGen" sub="Conversational agents"/>
-                <Card id="langgraph" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="LangGraph" sub="State machine graphs"/>
-                <Card id="swarm" bg="bg-blue-900/50 border-blue-500 text-blue-200" title="Swarm" sub="OpenAI handoffs"/>
-              </div>
-            </div>
-
-            {/* Collaboration Patterns */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-purple-300">3. Collaboration Patterns</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="supervisor" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Supervisor" sub="Central coordinator"/>
-                <Card id="debate" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Debate" sub="Adversarial refinement"/>
-                <Card id="pipeline" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Pipeline" sub="Sequential handoffs"/>
-                <Card id="collab" bg="bg-purple-900/50 border-purple-500 text-purple-200" title="Collaborative" sub="Shared artifact"/>
-              </div>
-            </div>
-
-            {/* Coordination */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-orange-300">4. Coordination</h2>
-              <div className="grid grid-cols-4 gap-3">
-                <Card id="comms" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Communication" sub="Messages, blackboard"/>
-                <Card id="state" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="State" sub="Shared vs isolated"/>
-                <Card id="handoff" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Handoffs" sub="Transfer control"/>
-                <Card id="tools" bg="bg-orange-900/50 border-orange-500 text-orange-200" title="Tools" sub="Shared or exclusive"/>
-              </div>
-            </div>
-
-            {/* Challenges */}
-            <div className="mb-8">
-              <h2 className="text-lg font-bold mb-3 text-red-300">5. Challenges</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Card id="eval" bg="bg-red-900/50 border-red-500 text-red-200" title="Evaluation" sub="Hard to measure"/>
-                <Card id="cost" bg="bg-red-900/50 border-red-500 text-red-200" title="Cost" sub="Multiple LLM calls"/>
-              </div>
-            </div>
-
-            {/* Summary */}
-            <div className="bg-slate-900/50 border border-emerald-500/30 rounded-xl p-6 text-center">
-              <div className="text-xl font-bold text-white mb-2">Multi-Agent Summary</div>
-              <p className="text-slate-400 text-sm mb-4">
-                Multiple specialized agents coordinate via supervisor, debate, or pipeline patterns.
+              <p className="text-slate-400 mt-2">
+                Coordinating multiple AI agents for complex tasks. Patterns, frameworks, and best practices.
               </p>
-              <div className="flex justify-center gap-3 flex-wrap">
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">CrewAI</span>
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">AutoGen</span>
-                <span className="px-3 py-1 bg-blue-900/50 rounded text-blue-300 text-sm">LangGraph</span>
-                <span className="px-3 py-1 bg-purple-900/50 rounded text-purple-300 text-sm">Supervisor</span>
+            </div>
+          </div>
+
+          {/* Navigation */}
+          <div className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700">
+            <div className="max-w-7xl mx-auto px-6">
+              <div className="flex gap-1 overflow-x-auto py-2">
+                {sections.map(section => (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                      activeSection === section.id
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {section.icon} {section.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="max-w-7xl mx-auto p-6">
+            {renderSection()}
+          </div>
+
+          {/* Footer */}
+          <div className="bg-slate-900/50 border-t border-slate-700 p-6 mt-8">
+            <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
+              <div className="flex justify-center gap-4 flex-wrap">
+                <span className="px-3 py-1 bg-purple-900/30 rounded">Supervisor</span>
+                <span className="px-3 py-1 bg-green-900/30 rounded">Pipeline</span>
+                <span className="px-3 py-1 bg-blue-900/30 rounded">LangGraph</span>
+                <span className="px-3 py-1 bg-orange-900/30 rounded">CrewAI</span>
               </div>
             </div>
           </div>
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
