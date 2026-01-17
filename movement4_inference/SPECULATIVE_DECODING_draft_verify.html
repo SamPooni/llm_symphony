@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speculative Decoding - Fast LLM Inference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function SpeculativeDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHY SPECULATIVE
+        'why-spec': {
+          title: '🚀 WHY SPECULATIVE DECODING?',
+          content: 'LLM inference is slow because it\'s sequential and memory-bound.',
+          problem: 'Standard decoding:\n• 1 token per forward pass\n• Memory bandwidth limited\n• GPU underutilized\n• Latency = O(sequence length)',
+          solution: 'Speculative decoding:\n• Generate multiple tokens at once\n• Verify in parallel\n• Same output distribution!\n• 2-3x speedup typical'
+        },
+        'why-memory': {
+          title: '💾 MEMORY-BOUND PROBLEM',
+          content: 'Inference is limited by memory bandwidth, not compute.',
+          explanation: 'Each forward pass:\n• Load entire model weights\n• Do minimal compute per weight\n• GPU compute is underutilized\n• Arithmetic intensity very low',
+          implication: 'More tokens per forward = better efficiency\nBatch multiple tokens together\nSpeculative decoding does this!'
+        },
+
+        // CORE CONCEPT
+        'spec-concept': {
+          title: '🎯 SPECULATIVE DECODING CONCEPT',
+          content: 'Draft quickly, verify in parallel.',
+          process: '1. Draft model generates K tokens fast\n2. Target model verifies all K in one pass\n3. Accept matching tokens\n4. Reject and resample at first mismatch\n5. Repeat',
+          key: 'Verification is parallel!\nK tokens checked in time of ~1 token\nSpeedup when draft is accurate'
+        },
+        'spec-guarantee': {
+          title: '✅ MATHEMATICAL GUARANTEE',
+          content: 'Output distribution is EXACTLY the same as target model.',
+          why: 'Rejection sampling ensures correctness\nAccept if draft matches target distribution\nReject and resample otherwise\nNo quality degradation!',
+          important: 'This is not an approximation\nExact same outputs as vanilla decoding\nJust faster'
+        },
+
+        // DRAFT MODELS
+        'draft-overview': {
+          title: '📝 DRAFT MODELS',
+          content: 'Small, fast models that propose tokens.',
+          requirements: 'Much faster than target (5-10x)\nSame vocabulary\nReasonably aligned with target\nCan be same architecture, smaller',
+          options: '• Smaller version (7B drafts for 70B)\n• Quantized version\n• Distilled student\n• Same model, early exit\n• n-gram model'
+        },
+        'draft-choice': {
+          title: '🎯 CHOOSING DRAFT MODEL',
+          content: 'Balance between speed and acceptance rate.',
+          tradeoff: 'Faster draft:\n+ More candidates per second\n- Lower acceptance rate\n\nSlower draft:\n+ Higher acceptance rate\n- Fewer candidates per second',
+          sweet: 'Sweet spot: ~10x faster than target\n70-80% acceptance rate typical\n2-3x overall speedup'
+        },
+        'draft-selfdraft': {
+          title: '🔄 SELF-DRAFTING',
+          content: 'Use the same model for drafting with tricks.',
+          methods: 'Early exit: Stop at layer N\nLayer skipping: Use every 2nd layer\nShallow decoder: First few layers only',
+          benefit: 'No separate model needed\nKV cache shared\nSimpler deployment'
+        },
+
+        // VERIFICATION
+        'verify-parallel': {
+          title: '⚡ PARALLEL VERIFICATION',
+          content: 'Check all K draft tokens in one forward pass.',
+          how: 'Concatenate draft tokens as input\nRun single forward pass\nGet probabilities for all positions\nCompare with draft choices',
+          cost: 'Time: ~1 forward pass\nVerifying K tokens ≈ generating 1 token\nThis is where speedup comes from!'
+        },
+        'verify-accept': {
+          title: '✓ ACCEPTANCE CRITERION',
+          content: 'When to accept a draft token.',
+          rule: 'Accept token x with probability:\nmin(1, p_target(x) / p_draft(x))\n\nIf p_target ≥ p_draft: Always accept\nIf p_target < p_draft: Sometimes reject',
+          intuition: 'Draft overconfident? Might reject\nDraft underconfident? Always accept\nMatches target distribution exactly'
+        },
+        'verify-reject': {
+          title: '✗ REJECTION & RESAMPLE',
+          content: 'What happens when we reject.',
+          process: '1. Find first rejected position i\n2. Discard tokens i and beyond\n3. Resample token i from adjusted distribution\n4. Continue from position i+1',
+          adjusted: 'Adjusted dist = normalize(max(0, p_target - p_draft))\nEnsures overall distribution correct'
+        },
+
+        // ALGORITHM
+        'algo-steps': {
+          title: '📋 ALGORITHM STEPS',
+          content: 'Complete speculative decoding procedure.',
+          steps: '1. Generate K tokens with draft model\n2. Run target model on all K tokens (parallel)\n3. For each position i = 1 to K:\n   a. Compute acceptance prob\n   b. Accept or reject with that prob\n   c. If reject: resample, break\n4. Append accepted tokens to sequence\n5. Repeat until done',
+          output: 'Minimum 1 token per iteration\nMaximum K+1 tokens (all accepted + bonus)'
+        },
+        'algo-lookahead': {
+          title: '🔮 LOOKAHEAD (K)',
+          content: 'How many tokens to draft ahead.',
+          typical: 'K = 4-8 tokens typical\nToo small: Overhead dominates\nToo large: More rejections',
+          adaptive: 'Can be adaptive:\n• Increase K when acceptance high\n• Decrease K when acceptance low'
+        },
+        'algo-tree': {
+          title: '🌳 TREE DRAFTING',
+          content: 'Draft multiple alternative sequences.',
+          idea: 'Instead of single sequence:\nDraft a tree of possibilities\nVerify all branches in parallel\nPick best accepted path',
+          benefit: 'Higher chance of acceptance\nMore tokens per iteration\nMore complex implementation'
+        },
+
+        // SPEEDUP
+        'speedup-factors': {
+          title: '📈 SPEEDUP FACTORS',
+          content: 'What determines the speedup.',
+          formula: 'Speedup ≈ E[accepted] / (1 + c)\n\nE[accepted] = expected accepted tokens\nc = draft cost relative to target',
+          factors: '• Draft model speed (faster = better)\n• Acceptance rate (higher = better)\n• Lookahead K (sweet spot)\n• Task difficulty (easier = higher acceptance)'
+        },
+        'speedup-typical': {
+          title: '🎯 TYPICAL SPEEDUPS',
+          content: 'What to expect in practice.',
+          numbers: 'Code generation: 2-3x\nGeneral text: 2-2.5x\nCreative writing: 1.5-2x\nMath/reasoning: 1.5-2x',
+          why: 'Predictable text = higher acceptance\nCreative = lower acceptance\nCode often follows patterns'
+        },
+        'speedup-batch': {
+          title: '📦 BATCH SIZE INTERACTION',
+          content: 'Speculative decoding vs batching.',
+          tradeoff: 'Large batches: Already efficient\nSpeculative: Best for small batches\n\nBatch size 1: Max speedup\nBatch size 32+: Less benefit',
+          usecase: 'Best for: Real-time, low-latency\nLess useful for: High-throughput batch'
+        },
+
+        // VARIANTS
+        'variant-medusa': {
+          title: '🐍 MEDUSA',
+          content: 'Multiple decoding heads instead of draft model.',
+          method: 'Add extra LM heads to target model\nEach head predicts future token\nVerify all predictions in parallel',
+          benefit: 'No separate draft model\nShared computation\nFine-tune heads on target data',
+          heads: 'Head 1: Next token (normal)\nHead 2: Token +2\nHead 3: Token +3\n...'
+        },
+        'variant-eagle': {
+          title: '🦅 EAGLE',
+          content: 'Extrapolation-based drafting.',
+          method: 'Use hidden states to extrapolate\nPredict future hidden states\nDecode from extrapolated states',
+          benefit: 'Very fast drafting\nLeverages existing computation\nState-of-the-art speedups'
+        },
+        'variant-lookahead': {
+          title: '👀 LOOKAHEAD DECODING',
+          content: 'Use n-gram patterns from the generation.',
+          idea: 'Track n-grams during generation\nWhen pattern matches, predict continuation\nNo separate model needed!',
+          benefit: 'Zero additional parameters\nWorks with any model\nGood for repetitive text'
+        },
+        'variant-staged': {
+          title: '📊 STAGED SPECULATION',
+          content: 'Multiple draft models in sequence.',
+          idea: 'Draft 1: Very fast, rough\nDraft 2: Medium speed, better\nTarget: Final verification',
+          benefit: 'Better accuracy-speed tradeoff\nMore complex pipeline\nResearch direction'
+        },
+
+        // IMPLEMENTATION
+        'impl-kv': {
+          title: '🗄️ KV CACHE MANAGEMENT',
+          content: 'Handle key-value cache correctly.',
+          challenge: 'Draft and target may diverge\nNeed to rollback on rejection\nKV cache must stay consistent',
+          solution: 'Save cache state before drafting\nRollback to saved state on reject\nOr: Recompute from accepted prefix'
+        },
+        'impl-memory': {
+          title: '💾 MEMORY OVERHEAD',
+          content: 'Additional memory requirements.',
+          overhead: 'Draft model weights (if separate)\nDraft KV cache\nVerification buffers\nTree structures (if tree draft)',
+          typical: 'Draft = 10% of target size\nOverall: 10-20% more memory'
+        },
+        'impl-vllm': {
+          title: '🚀 VLLM SUPPORT',
+          content: 'Speculative decoding in vLLM.',
+          usage: 'llm = LLM(\n  model="meta-llama/Llama-70b",\n  speculative_model="meta-llama/Llama-7b",\n  num_speculative_tokens=5\n)',
+          support: 'Built-in support\nAutomatic KV management\nPagedAttention compatible'
+        },
+        'impl-trt': {
+          title: '⚡ TENSORRT-LLM',
+          content: 'NVIDIA\'s optimized implementation.',
+          features: 'Medusa support\nDraft model speculation\nKV cache optimization\nFused kernels',
+          perf: 'Additional speedup from fusion\nGPU-optimized verification'
+        },
+
+        // COMPARISON
+        'compare-batch': {
+          title: '📊 VS BATCHING',
+          content: 'Speculative decoding vs continuous batching.',
+          batching: 'Batching: Throughput optimization\n• Process many requests\n• Share compute across batch\n• Latency may increase',
+          speculative: 'Speculative: Latency optimization\n• Single request faster\n• Best for real-time\n• Complements batching'
+        },
+        'compare-quant': {
+          title: '📊 VS QUANTIZATION',
+          content: 'Speculative decoding vs quantization.',
+          complementary: 'They\'re complementary!\n• Quantize target model\n• Quantize draft model\n• Use speculative decoding\n• Get benefits of both',
+          combine: '4-bit target + 4-bit draft\nMaximum efficiency'
+        },
+
+        // WHEN TO USE
+        'when-good': {
+          title: '✅ WHEN TO USE',
+          content: 'Ideal scenarios for speculative decoding.',
+          scenarios: '• Real-time applications\n• Single request latency matters\n• Predictable output (code, structured)\n• Small batch sizes\n• Draft model available',
+          benefit: 'Latency reduction without quality loss'
+        },
+        'when-bad': {
+          title: '❌ WHEN NOT TO USE',
+          content: 'When speculative decoding helps less.',
+          scenarios: '• High-throughput batch serving\n• Very creative/unpredictable output\n• No good draft model available\n• Memory constrained\n• Already at GPU compute limit',
+          note: 'Still works, just less speedup'
+        },
+
+        // PRACTICAL
+        'practical-measure': {
+          title: '📏 MEASURING PERFORMANCE',
+          content: 'How to evaluate speculative decoding.',
+          metrics: 'Acceptance rate: % tokens accepted\nTokens per second: End-to-end speed\nLatency: Time to first token, total time\nSpeedup: vs vanilla decoding',
+          monitor: 'Track acceptance rate over time\nTune K based on acceptance\nProfile bottlenecks'
+        },
+        'practical-tune': {
+          title: '🎛️ TUNING',
+          content: 'Optimizing speculative decoding.',
+          knobs: '• Lookahead K: Start with 4-5\n• Draft model: Smaller = faster\n• Tree width: If using tree draft\n• Temperature: Affects acceptance',
+          tips: 'Profile your specific workload\nAdaptive K can help\nMonitor acceptance rate'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.process && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PROCESS</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.process}</pre>
+              </div>
+            )}
+            {t.steps && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STEPS</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.steps}</pre>
+              </div>
+            )}
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.method && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">METHOD</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.method}</pre>
+              </div>
+            )}
+            {t.usage && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">USAGE</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.usage}</pre>
+              </div>
+            )}
+            {t.numbers && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TYPICAL NUMBERS</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.numbers}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.important && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⚠️ </span>{t.important}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-teal-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-cyan-600/30 border border-cyan-400 rounded-full mb-6">
+                <span className="text-cyan-300 font-bold">SPECULATIVE DECODING</span>
+                <span className="text-white">•</span>
+                <span className="text-cyan-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-teal-400">
+                Speculative Decoding
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-cyan-300 font-bold">Draft fast, verify in parallel</span> — 2-3x faster inference with no quality loss.
+              </p>
+            </header>
+
+            {/* Core Concept Visual */}
+            <div className="bg-gradient-to-r from-cyan-900/50 to-blue-900/50 border-2 border-cyan-500/50 rounded-xl p-8 mb-12">
+              <Hoverable id="spec-concept">
+                <div className="text-center mb-6">
+                  <div className="text-2xl font-black text-white">🚀 SPECULATIVE DECODING FLOW</div>
+                </div>
+              </Hoverable>
+              <div className="flex items-center justify-center gap-3 flex-wrap">
+                <div className="px-4 py-3 rounded-lg bg-green-900/50 border border-green-500 text-center">
+                  <div className="text-green-300 text-sm font-bold">Draft Model</div>
+                  <div className="text-green-200 text-xs mt-1">Generate K tokens fast</div>
+                </div>
+                <div className="text-cyan-400 text-xl">→</div>
+                <div className="px-4 py-3 rounded-lg bg-blue-900/50 border border-blue-500 text-center">
+                  <div className="text-blue-300 text-sm font-bold">Target Model</div>
+                  <div className="text-blue-200 text-xs mt-1">Verify all K in parallel</div>
+                </div>
+                <div className="text-cyan-400 text-xl">→</div>
+                <div className="px-4 py-3 rounded-lg bg-purple-900/50 border border-purple-500 text-center">
+                  <div className="text-purple-300 text-sm font-bold">Accept/Reject</div>
+                  <div className="text-purple-200 text-xs mt-1">Keep matching tokens</div>
+                </div>
+                <div className="text-cyan-400 text-xl">→</div>
+                <div className="px-4 py-3 rounded-lg bg-cyan-900/50 border border-cyan-500 text-center">
+                  <div className="text-cyan-300 text-sm font-bold">2-3x Speedup</div>
+                  <div className="text-cyan-200 text-xs mt-1">Same quality!</div>
+                </div>
+              </div>
+            </div>
+
+            {/* WHY */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Why Speculative Decoding?" 
+                subtitle="The memory-bound problem"
+                color="from-cyan-500 to-blue-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="why-spec">
+                  <div className="p-5 rounded-xl bg-cyan-900/40 border-2 border-cyan-500">
+                    <div className="text-xl font-black text-cyan-200 mb-2">🚀 The Solution</div>
+                    <div className="text-cyan-100/70 text-sm">
+                      Draft multiple tokens quickly<br/>
+                      Verify all in one forward pass<br/>
+                      Same output distribution guaranteed
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="why-memory">
+                  <div className="p-5 rounded-xl bg-blue-900/40 border-2 border-blue-500">
+                    <div className="text-xl font-black text-blue-200 mb-2">💾 The Problem</div>
+                    <div className="text-blue-100/70 text-sm">
+                      1 token per forward pass<br/>
+                      Memory bandwidth limited<br/>
+                      GPU compute underutilized
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <Hoverable id="spec-guarantee">
+                <div className="mt-4 p-4 rounded-lg bg-green-900/30 border border-green-500/50 text-center">
+                  <div className="text-green-300 font-bold">✅ Mathematical Guarantee: EXACT same outputs as standard decoding</div>
+                </div>
+              </Hoverable>
+            </section>
+
+            {/* DRAFT MODELS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Draft Models" 
+                subtitle="Fast proposal generation"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="draft-overview">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">📝 Overview</div>
+                    <div className="text-green-100/70 text-sm">Small, fast model</div>
+                    <div className="text-green-300 text-xs mt-2">5-10x faster than target</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="draft-choice">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🎯 Choosing</div>
+                    <div className="text-emerald-100/70 text-sm">Speed vs acceptance rate</div>
+                    <div className="text-emerald-300 text-xs mt-2">70-80% acceptance typical</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="draft-selfdraft">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">🔄 Self-Draft</div>
+                    <div className="text-teal-100/70 text-sm">Early exit, layer skip</div>
+                    <div className="text-teal-300 text-xs mt-2">No separate model</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* VERIFICATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Verification" 
+                subtitle="Parallel checking with target model"
+                color="from-purple-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="verify-parallel">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">⚡ Parallel Check</div>
+                    <div className="text-purple-100/70 text-sm">K tokens in 1 forward</div>
+                    <div className="text-purple-300 text-xs mt-2">Where speedup comes from!</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="verify-accept">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">✓ Acceptance</div>
+                    <div className="text-violet-100/70 text-sm">min(1, p_target/p_draft)</div>
+                    <div className="text-violet-300 text-xs mt-2">Rejection sampling</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="verify-reject">
+                  <div className="p-4 rounded-xl bg-fuchsia-900/50 border-2 border-fuchsia-400">
+                    <div className="text-lg font-black text-fuchsia-200 mb-2">✗ Rejection</div>
+                    <div className="text-fuchsia-100/70 text-sm">Resample at mismatch</div>
+                    <div className="text-fuchsia-300 text-xs mt-2">Adjusted distribution</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* ALGORITHM */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Algorithm" 
+                subtitle="Steps and parameters"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="algo-steps">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">📋 Steps</div>
+                    <div className="text-blue-100/70 text-sm">Draft → Verify → Accept</div>
+                    <div className="text-blue-300 text-xs mt-2">1 to K+1 tokens/iter</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="algo-lookahead">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">🔮 Lookahead K</div>
+                    <div className="text-indigo-100/70 text-sm">4-8 tokens typical</div>
+                    <div className="text-indigo-300 text-xs mt-2">Can be adaptive</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="algo-tree">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🌳 Tree Draft</div>
+                    <div className="text-violet-100/70 text-sm">Multiple branches</div>
+                    <div className="text-violet-300 text-xs mt-2">Higher acceptance</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SPEEDUP */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Speedup" 
+                subtitle="What to expect"
+                color="from-amber-500 to-orange-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="speedup-factors">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">📈 Factors</div>
+                    <div className="text-amber-100/70 text-sm">Draft speed × acceptance</div>
+                    <div className="text-amber-300 text-xs mt-2">Task predictability</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="speedup-typical">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🎯 Typical</div>
+                    <div className="text-orange-100/70 text-sm">Code: 2-3x, Text: 2x</div>
+                    <div className="text-orange-300 text-xs mt-2">Creative: 1.5-2x</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="speedup-batch">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">📦 Batch Size</div>
+                    <div className="text-yellow-100/70 text-sm">Best for batch=1</div>
+                    <div className="text-yellow-300 text-xs mt-2">Less benefit large batch</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* VARIANTS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Variants" 
+                subtitle="Alternative approaches"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="variant-medusa">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">🐍 Medusa</div>
+                    <div className="text-pink-100/60 text-xs">Multiple LM heads</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="variant-eagle">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">🦅 EAGLE</div>
+                    <div className="text-rose-100/60 text-xs">Extrapolate states</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="variant-lookahead">
+                  <div className="p-3 rounded-lg bg-red-900/50 border border-red-400 text-center">
+                    <div className="text-red-200 font-bold text-sm">👀 Lookahead</div>
+                    <div className="text-red-100/60 text-xs">N-gram patterns</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="variant-staged">
+                  <div className="p-3 rounded-lg bg-orange-900/50 border border-orange-400 text-center">
+                    <div className="text-orange-200 font-bold text-sm">📊 Staged</div>
+                    <div className="text-orange-100/60 text-xs">Multiple drafts</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* IMPLEMENTATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Implementation" 
+                subtitle="Practical considerations"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="impl-kv">
+                  <div className="p-3 rounded-lg bg-slate-800 border border-slate-500 text-center">
+                    <div className="text-slate-200 font-bold text-sm">🗄️ KV Cache</div>
+                    <div className="text-slate-400 text-xs">Rollback on reject</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="impl-memory">
+                  <div className="p-3 rounded-lg bg-zinc-800 border border-zinc-500 text-center">
+                    <div className="text-zinc-200 font-bold text-sm">💾 Memory</div>
+                    <div className="text-zinc-400 text-xs">10-20% overhead</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="impl-vllm">
+                  <div className="p-3 rounded-lg bg-stone-800 border border-stone-500 text-center">
+                    <div className="text-stone-200 font-bold text-sm">🚀 vLLM</div>
+                    <div className="text-stone-400 text-xs">Built-in support</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="impl-trt">
+                  <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-500 text-center">
+                    <div className="text-neutral-200 font-bold text-sm">⚡ TensorRT</div>
+                    <div className="text-neutral-400 text-xs">Fused kernels</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* WHEN TO USE */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="When to Use" 
+                subtitle="Best and worst cases"
+                color="from-green-500 to-red-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="when-good">
+                  <div className="p-5 rounded-xl bg-green-900/40 border-2 border-green-500">
+                    <div className="text-xl font-black text-green-200 mb-2">✅ Best For</div>
+                    <ul className="text-green-100/70 text-sm space-y-1">
+                      <li>• Real-time applications</li>
+                      <li>• Small batch sizes</li>
+                      <li>• Predictable output (code)</li>
+                      <li>• Latency-sensitive</li>
+                    </ul>
+                  </div>
+                </Hoverable>
+                <Hoverable id="when-bad">
+                  <div className="p-5 rounded-xl bg-red-900/40 border-2 border-red-500">
+                    <div className="text-xl font-black text-red-200 mb-2">❌ Less Useful</div>
+                    <ul className="text-red-100/70 text-sm space-y-1">
+                      <li>• High-throughput batch</li>
+                      <li>• Very creative output</li>
+                      <li>• No draft model available</li>
+                      <li>• Memory constrained</li>
+                    </ul>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* COMPARISON */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Comparison" 
+                subtitle="vs other optimizations"
+                color="from-indigo-500 to-purple-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="compare-batch">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">📊 vs Batching</div>
+                    <div className="text-indigo-100/70 text-sm">Complementary!</div>
+                    <div className="text-indigo-300 text-xs mt-2">Spec=latency, Batch=throughput</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="compare-quant">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">📊 vs Quantization</div>
+                    <div className="text-purple-100/70 text-sm">Use both together!</div>
+                    <div className="text-purple-300 text-xs mt-2">4-bit + speculative = max speed</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="10" 
+                title="Practical Tips" 
+                subtitle="Measuring and tuning"
+                color="from-teal-500 to-cyan-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="practical-measure">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">📏 Metrics</div>
+                    <div className="text-teal-100/70 text-sm">Acceptance rate, tokens/sec</div>
+                    <div className="text-teal-300 text-xs mt-2">Profile your workload</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-tune">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">🎛️ Tuning</div>
+                    <div className="text-cyan-100/70 text-sm">K=4-5 start, adaptive</div>
+                    <div className="text-cyan-300 text-xs mt-2">Monitor acceptance rate</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-cyan-900/50 to-blue-900/50 border-2 border-cyan-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🚀 SPECULATIVE DECODING SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Draft K tokens fast, verify all in parallel. Same output distribution, 2-3x faster.<br/>
+                Best for latency-sensitive, small-batch, predictable generation.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">Draft</div>
+                  <div className="text-slate-400">5-10x faster</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">Verify</div>
+                  <div className="text-slate-400">Parallel check</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">K = 4-8</div>
+                  <div className="text-slate-400">Lookahead</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">2-3x</div>
+                  <div className="text-slate-400">Speedup</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">Exact</div>
+                  <div className="text-slate-400">Same quality</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Speculative Decoding • Draft & Verify • Fast Inference</p>
+              <p className="text-xs mt-1 text-slate-600">2-3x speedup with no quality loss</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SpeculativeDiagram />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RLHF & Constitutional AI - Alignment Deep Dive</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function AlignmentDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHY ALIGNMENT
+        'why-alignment': {
+          title: '🎯 WHY ALIGNMENT?',
+          content: 'Make AI systems behave according to human values and intentions.',
+          problem: 'Pre-trained LLMs:\n• Predict next token, not "be helpful"\n• May generate harmful content\n• Don\'t follow instructions well\n• Lack safety awareness',
+          goal: 'Aligned LLMs:\n• Helpful, harmless, honest (HHH)\n• Follow user intent\n• Refuse harmful requests\n• Acknowledge uncertainty'
+        },
+        'why-rlhf': {
+          title: '🤔 WHY RLHF?',
+          content: 'Supervised fine-tuning alone isn\'t enough.',
+          limitation: 'SFT limitations:\n• Need "perfect" demonstrations\n• Hard to demonstrate preferences\n• Can\'t easily say "this is better than that"\n• Expensive to get ideal outputs',
+          solution: 'RLHF advantage:\n• Learn from comparisons (easier!)\n• Optimize for human preference\n• Can express nuanced preferences\n• Scales better with data'
+        },
+
+        // RLHF PIPELINE
+        'rlhf-overview': {
+          title: '🔄 RLHF PIPELINE',
+          content: 'Three-stage process to align language models.',
+          stages: 'Stage 1: Supervised Fine-Tuning (SFT)\n→ Train on demonstrations\n\nStage 2: Reward Model (RM)\n→ Learn human preferences\n\nStage 3: RL Optimization (PPO)\n→ Optimize policy against RM',
+          origin: 'InstructGPT (OpenAI, 2022)\nUsed by ChatGPT, Claude, etc.'
+        },
+        'rlhf-stage1': {
+          title: '1️⃣ STAGE 1: SFT',
+          content: 'Supervised fine-tuning on high-quality demonstrations.',
+          process: '1. Collect prompt-response pairs\n2. Human experts write ideal responses\n3. Fine-tune base model on this data\n4. Creates "SFT model"',
+          data: '~10K-100K demonstrations\nHigh quality > quantity\nDiverse prompts important',
+          output: 'Model that can follow instructions\nBut not yet optimized for preferences'
+        },
+        'rlhf-stage2': {
+          title: '2️⃣ STAGE 2: REWARD MODEL',
+          content: 'Train a model to predict human preferences.',
+          process: '1. Generate multiple responses per prompt\n2. Humans rank/compare responses\n3. Train RM to predict rankings\n4. RM outputs scalar reward score',
+          data: '~100K-1M comparisons\nPairwise: "A is better than B"\nOr rankings: A > B > C > D',
+          architecture: 'Usually same architecture as LLM\nRemove final layer, add scalar head\nOutput: reward score (float)'
+        },
+        'rlhf-stage3': {
+          title: '3️⃣ STAGE 3: PPO',
+          content: 'Optimize language model using RL against reward model.',
+          process: '1. Sample prompts from dataset\n2. Generate responses with policy\n3. Score with reward model\n4. Update policy with PPO\n5. KL penalty to stay near SFT',
+          components: 'Policy: Current LLM being trained\nReward: Frozen reward model\nValue: Estimates expected reward\nReference: Frozen SFT model (for KL)',
+          iterations: 'Thousands of PPO steps\nCareful hyperparameter tuning\nMonitor for reward hacking'
+        },
+
+        // REWARD MODEL
+        'rm-training': {
+          title: '🏆 REWARD MODEL TRAINING',
+          content: 'Learn to score responses by human preference.',
+          loss: 'Bradley-Terry model:\nL = -log(σ(r(chosen) - r(rejected)))\n\nMaximize: P(chosen > rejected)\nMinimize: Score difference when wrong',
+          tips: 'Larger RM = better signal\nDiverse comparison data\nBalance easy/hard comparisons'
+        },
+        'rm-data': {
+          title: '📊 PREFERENCE DATA',
+          content: 'Human comparisons that train the reward model.',
+          format: '{\n  "prompt": "Explain quantum computing",\n  "chosen": "Quantum computing uses...",\n  "rejected": "It\'s like magic..."\n}',
+          collection: 'Paid annotators\nCrowdsourcing (careful quality!)\nAI-assisted (RLAIF)\nSynthetic generation',
+          quality: 'Inter-annotator agreement\nClear guidelines essential\nDomain expertise for technical'
+        },
+        'rm-challenges': {
+          title: '⚠️ RM CHALLENGES',
+          content: 'Reward models are imperfect proxies.',
+          issues: '• Reward hacking: Exploit RM weaknesses\n• Distribution shift: OOD inputs\n• Annotation noise: Humans disagree\n• Verbosity bias: Longer = higher score?\n• Sycophancy: Agrees with user too much',
+          mitigations: 'Ensemble RMs\nAdversarial training\nRegular RM updates\nKL penalty (stay near SFT)'
+        },
+
+        // PPO
+        'ppo-overview': {
+          title: '🎮 PPO (Proximal Policy Optimization)',
+          content: 'RL algorithm for stable policy updates.',
+          why: 'RL is unstable with large updates\nPPO clips updates to safe range\nWidely used, well-understood\nWorks well for LLMs',
+          alternative: 'Could use other RL algorithms\nPPO most common for RLHF\nTRPO (predecessor, more complex)'
+        },
+        'ppo-objective': {
+          title: '📐 PPO OBJECTIVE',
+          content: 'What PPO optimizes for.',
+          formula: 'L = E[min(r(θ)Â, clip(r(θ), 1-ε, 1+ε)Â)]\n\nr(θ) = π(a|s) / π_old(a|s)  (ratio)\nÂ = advantage estimate\nε = clip range (typically 0.2)',
+          intuition: 'Don\'t change policy too much per step\nClipping prevents catastrophic updates\nAdvantage: How much better than expected'
+        },
+        'ppo-kl': {
+          title: '🔗 KL PENALTY',
+          content: 'Prevent policy from drifting too far from SFT.',
+          formula: 'Total reward = RM(response) - β × KL(π || π_ref)\n\nβ = KL coefficient (0.01-0.2 typical)\nπ_ref = reference (SFT) policy',
+          purpose: 'Without KL: Model may "hack" RM\nWith KL: Stay coherent, don\'t degrade\nBalance: Improve while staying grounded'
+        },
+        'ppo-value': {
+          title: '📊 VALUE FUNCTION',
+          content: 'Estimates expected reward for a state.',
+          role: 'Critic in actor-critic setup\nPredicts: "How good is this prompt?"\nUsed to compute advantages',
+          architecture: 'Often separate head on LLM\nOr separate smaller model\nTrained alongside policy'
+        },
+
+        // CONSTITUTIONAL AI
+        'cai-overview': {
+          title: '📜 CONSTITUTIONAL AI',
+          content: 'Anthropic\'s approach: AI self-improvement with principles.',
+          idea: 'Instead of human labels for everything:\n1. Write a "constitution" (principles)\n2. AI critiques its own outputs\n3. AI revises based on critique\n4. Train on self-improved data',
+          benefit: 'Less human labeling needed\nMore scalable\nPrinciples are explicit\nAI helps enforce AI safety'
+        },
+        'cai-constitution': {
+          title: '📋 THE CONSTITUTION',
+          content: 'Set of principles the AI should follow.',
+          examples: '• Be helpful, harmless, and honest\n• Don\'t help with illegal activities\n• Acknowledge uncertainty\n• Respect privacy\n• Be balanced on controversial topics\n• Avoid deception',
+          usage: 'AI reads principles\nApplies them to critique responses\nSelf-improves accordingly'
+        },
+        'cai-critique': {
+          title: '🔍 SELF-CRITIQUE',
+          content: 'AI evaluates its own responses against constitution.',
+          process: '1. Generate initial response\n2. Ask AI: "Does this follow principle X?"\n3. AI provides critique\n4. Ask AI to revise response\n5. Use revised response for training',
+          example: 'Response: "Here\'s how to pick a lock..."\nCritique: "This could enable burglary"\nRevision: "I can\'t help with that..."'
+        },
+        'cai-rlaif': {
+          title: '🤖 RLAIF',
+          content: 'RL from AI Feedback (instead of human feedback).',
+          process: '1. AI generates comparison pairs\n2. AI labels which is better (using constitution)\n3. Train RM on AI labels\n4. Run PPO as usual',
+          benefit: 'Massive scale (no human bottleneck)\nConsistent labeling\nCan cover rare scenarios',
+          caution: 'AI biases may propagate\nHumans still needed for oversight\nNot fully autonomous safety'
+        },
+
+        // DPO
+        'dpo-overview': {
+          title: '🎯 DPO (Direct Preference Optimization)',
+          content: 'Skip the reward model entirely!',
+          insight: 'The RL objective has a closed-form solution\nCan directly optimize preferences\nNo separate RM training\nNo PPO complexity',
+          paper: 'Rafailov et al. 2023\n"Direct Preference Optimization:\nYour Language Model is Secretly a Reward Model"'
+        },
+        'dpo-method': {
+          title: '📐 DPO METHOD',
+          content: 'Directly optimize policy on preference pairs.',
+          formula: 'L = -log σ(β(log π(y_w|x)/π_ref(y_w|x)\n           - log π(y_l|x)/π_ref(y_l|x)))\n\ny_w = preferred response\ny_l = rejected response\nβ = temperature parameter',
+          intuition: 'Increase prob of preferred response\nDecrease prob of rejected response\nRelative to reference model'
+        },
+        'dpo-benefits': {
+          title: '✅ DPO BENEFITS',
+          content: 'Why DPO is popular.',
+          pros: '• No reward model training\n• No RL instability\n• Simpler pipeline\n• Faster training\n• Comparable results to RLHF\n• Easy to implement',
+          adoption: 'Widely adopted for fine-tuning\nWorks with LoRA\nStandard in open-source'
+        },
+        'dpo-variants': {
+          title: '🔀 DPO VARIANTS',
+          content: 'Improvements on basic DPO.',
+          variants: 'IPO: Identity Preference Optimization\n• Better theoretical grounding\n\nKTO: Kahneman-Tversky Optimization\n• Uses single examples, not pairs\n\nORPO: Odds Ratio Preference\n• Combines SFT and alignment\n\nSimPO: Simple Preference Optimization\n• Removes reference model'
+        },
+
+        // OTHER METHODS
+        'other-sft': {
+          title: '📝 INSTRUCTION FINE-TUNING',
+          content: 'Simpler alternative: Just do SFT on good data.',
+          approach: 'Skip RL entirely\nCollect high-quality instruction data\nFine-tune with standard loss\nCan work surprisingly well!',
+          when: 'Limited compute\nGood demonstration data available\nSimpler requirements'
+        },
+        'other-rejection': {
+          title: '🚫 REJECTION SAMPLING',
+          content: 'Generate many, keep the best.',
+          process: '1. Generate N responses per prompt\n2. Score all with reward model\n3. Keep only top response\n4. Fine-tune on best responses',
+          benefit: 'Simpler than PPO\nNo RL training\nUses RM for filtering only'
+        },
+        'other-debate': {
+          title: '💬 AI DEBATE',
+          content: 'Multiple AIs argue, human judges.',
+          idea: 'Two AIs debate a question\nEach tries to convince human\nTruth should be more convincing\nScalable oversight method',
+          status: 'Research direction\nNot yet widely deployed\nPromising for complex questions'
+        },
+
+        // SAFETY
+        'safety-redteam': {
+          title: '🔴 RED TEAMING',
+          content: 'Adversarial testing to find failures.',
+          process: 'Humans try to break the model\nFind harmful outputs\nJailbreaks, edge cases\nUse failures to improve',
+          techniques: 'Prompt injection\nRoleplay scenarios\nMulti-turn manipulation\nUnusual formatting'
+        },
+        'safety-jailbreak': {
+          title: '🔓 JAILBREAKS',
+          content: 'Prompts that bypass safety training.',
+          types: 'DAN: "Do Anything Now"\nRoleplay: "Pretend you\'re evil AI"\nEncoding: Base64, pig latin\nMulti-turn: Gradual escalation\nInjection: Hidden instructions',
+          defense: 'Diverse training data\nRobust RLHF\nInput/output filtering\nContinuous red-teaming'
+        },
+        'safety-overfit': {
+          title: '⚠️ ALIGNMENT TAX',
+          content: 'Alignment can reduce capabilities.',
+          concern: 'Refusals on benign requests\nReduced creativity\nOverly cautious responses\n"I cannot help with that"',
+          balance: 'Helpful AND harmless\nMinimize false positives\nContext-dependent safety'
+        },
+
+        // EVALUATION
+        'eval-helpfulness': {
+          title: '🤝 HELPFULNESS',
+          content: 'Does the model actually help users?',
+          metrics: 'Task completion rate\nUser satisfaction scores\nPreference vs baseline\nMT-Bench, AlpacaEval',
+          tension: 'More helpful = more risk?\nBalance with harmlessness'
+        },
+        'eval-harmlessness': {
+          title: '🛡️ HARMLESSNESS',
+          content: 'Does the model avoid causing harm?',
+          metrics: 'Refusal rate on harmful prompts\nToxicity scores (ToxiGen)\nBias measurements (BOLD)\nRed team success rate',
+          challenge: 'Define "harmful"\nContext matters\nIntentional vs accidental'
+        },
+        'eval-honesty': {
+          title: '✅ HONESTY',
+          content: 'Does the model tell the truth?',
+          metrics: 'TruthfulQA scores\nCalibration (confidence vs accuracy)\nAcknowledges uncertainty?\nAdmits mistakes?',
+          aspects: 'Factual accuracy\nNo hallucination\nNo deception\nTransparency about limitations'
+        },
+
+        // PRACTICAL
+        'practical-data': {
+          title: '📊 ALIGNMENT DATA',
+          content: 'What data do you need?',
+          sft: 'SFT: 10K-100K demonstrations\nInstruction-response pairs\nHigh quality essential',
+          preference: 'Preference: 50K-500K comparisons\nPairwise rankings\nDiverse prompts',
+          sources: 'Anthropic HH-RLHF\nOpenAssistant\nUltraFeedback\nNectar'
+        },
+        'practical-compute': {
+          title: '💻 COMPUTE REQUIREMENTS',
+          content: 'How much does alignment cost?',
+          breakdown: 'SFT: Standard fine-tuning cost\nRM Training: ~Same as SFT\nPPO: 2-4x SFT (policy + value + ref)\nDPO: ~Same as SFT',
+          tip: 'DPO much cheaper than RLHF\nUse QLoRA for all stages\n70B alignment possible on 1 GPU'
+        },
+        'practical-tools': {
+          title: '🔧 TOOLS & FRAMEWORKS',
+          content: 'Libraries for alignment training.',
+          tools: 'TRL (HuggingFace):\n• SFTTrainer, RewardTrainer\n• PPOTrainer, DPOTrainer\n\nDeepSpeed-Chat:\n• Full RLHF pipeline\n\nOpenRLHF:\n• Distributed RLHF\n\nAxolotl:\n• Config-driven, includes DPO',
+          code: 'from trl import DPOTrainer\ntrainer = DPOTrainer(\n  model, ref_model,\n  train_dataset=prefs\n)'
+        },
+
+        // FUTURE
+        'future-scalable': {
+          title: '📈 SCALABLE OVERSIGHT',
+          content: 'How to align superhuman AI?',
+          challenge: 'Humans can\'t evaluate superhuman outputs\nNeed AI to help oversee AI\nConstitutional AI is one approach',
+          research: 'Debate\nRecursive reward modeling\nIterated amplification\nWeak-to-strong generalization'
+        },
+        'future-multimodal': {
+          title: '🖼️ MULTIMODAL ALIGNMENT',
+          content: 'Aligning vision-language models.',
+          challenges: 'Harmful images\nDeceptive visual content\nHallucinated image descriptions\nOCR of harmful text',
+          approach: 'Similar RLHF pipeline\nMultimodal reward models\nImage-specific safety'
+        },
+        'future-agents': {
+          title: '🤖 AGENT ALIGNMENT',
+          content: 'Aligning AI that takes actions.',
+          risks: 'Actions have real consequences\nHarder to undo mistakes\nComplex multi-step plans\nReward hacking with tools',
+          approach: 'Sandboxed testing\nHuman-in-the-loop\nAction-level safety checks\nLimited capabilities first'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.process && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PROCESS</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.process}</pre>
+              </div>
+            )}
+            {t.stages && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STAGES</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.stages}</pre>
+              </div>
+            )}
+            {t.examples && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.examples}</pre>
+              </div>
+            )}
+            {t.tools && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TOOLS</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.tools}</pre>
+              </div>
+            )}
+            {t.variants && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">VARIANTS</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.variants}</pre>
+              </div>
+            )}
+            {t.pros && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.pros}
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.caution && (
+              <div className="text-xs text-orange-400 mt-2">
+                <span className="font-bold">⚠️ </span>{t.caution}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-violet-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-purple-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-fuchsia-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600/30 border border-violet-400 rounded-full mb-6">
+                <span className="text-violet-300 font-bold">ALIGNMENT</span>
+                <span className="text-white">•</span>
+                <span className="text-violet-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-purple-400 to-fuchsia-400">
+                RLHF & Constitutional AI
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-violet-300 font-bold">Helpful, Harmless, Honest</span> — How we align LLMs with human values.
+              </p>
+            </header>
+
+            {/* RLHF Pipeline Overview */}
+            <div className="bg-gradient-to-r from-violet-900/50 to-purple-900/50 border-2 border-violet-500/50 rounded-xl p-8 mb-12">
+              <Hoverable id="rlhf-overview">
+                <div className="text-center mb-6">
+                  <div className="text-2xl font-black text-white">🔄 RLHF PIPELINE</div>
+                </div>
+              </Hoverable>
+              <div className="flex items-center justify-center gap-4">
+                <Hoverable id="rlhf-stage1">
+                  <div className="px-6 py-4 rounded-lg bg-blue-900/50 border-2 border-blue-500 text-center">
+                    <div className="text-blue-300 text-sm font-bold">Stage 1</div>
+                    <div className="text-blue-200 font-black text-lg">SFT</div>
+                    <div className="text-blue-400 text-xs mt-1">Demonstrations</div>
+                  </div>
+                </Hoverable>
+                <div className="text-violet-400 text-2xl">→</div>
+                <Hoverable id="rlhf-stage2">
+                  <div className="px-6 py-4 rounded-lg bg-purple-900/50 border-2 border-purple-500 text-center">
+                    <div className="text-purple-300 text-sm font-bold">Stage 2</div>
+                    <div className="text-purple-200 font-black text-lg">Reward Model</div>
+                    <div className="text-purple-400 text-xs mt-1">Preferences</div>
+                  </div>
+                </Hoverable>
+                <div className="text-violet-400 text-2xl">→</div>
+                <Hoverable id="rlhf-stage3">
+                  <div className="px-6 py-4 rounded-lg bg-fuchsia-900/50 border-2 border-fuchsia-500 text-center">
+                    <div className="text-fuchsia-300 text-sm font-bold">Stage 3</div>
+                    <div className="text-fuchsia-200 font-black text-lg">PPO</div>
+                    <div className="text-fuchsia-400 text-xs mt-1">RL Optimization</div>
+                  </div>
+                </Hoverable>
+                <div className="text-violet-400 text-2xl">→</div>
+                <div className="px-6 py-4 rounded-lg bg-green-900/50 border-2 border-green-500 text-center">
+                  <div className="text-green-300 text-sm font-bold">Output</div>
+                  <div className="text-green-200 font-black text-lg">Aligned LLM</div>
+                  <div className="text-green-400 text-xs mt-1">HHH</div>
+                </div>
+              </div>
+            </div>
+
+            {/* WHY ALIGNMENT */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Why Alignment?" 
+                subtitle="The need for aligned AI"
+                color="from-violet-500 to-purple-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="why-alignment">
+                  <div className="p-5 rounded-xl bg-violet-900/40 border-2 border-violet-500">
+                    <div className="text-xl font-black text-violet-200 mb-2">🎯 The Problem</div>
+                    <div className="text-violet-100/70 text-sm">
+                      Pre-trained LLMs predict tokens<br/>
+                      Not optimized to be helpful<br/>
+                      May generate harmful content
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="why-rlhf">
+                  <div className="p-5 rounded-xl bg-purple-900/40 border-2 border-purple-500">
+                    <div className="text-xl font-black text-purple-200 mb-2">🤔 Why RLHF?</div>
+                    <div className="text-purple-100/70 text-sm">
+                      Learn from comparisons (easier!)<br/>
+                      Express nuanced preferences<br/>
+                      Scales better than demonstrations
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* REWARD MODEL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Reward Model" 
+                subtitle="Learning human preferences"
+                color="from-purple-500 to-fuchsia-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="rm-training">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">🏆 Training</div>
+                    <div className="text-purple-100/70 text-sm">Bradley-Terry model</div>
+                    <div className="text-purple-300 text-xs mt-2">P(chosen {'>'} rejected)</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="rm-data">
+                  <div className="p-4 rounded-xl bg-fuchsia-900/50 border-2 border-fuchsia-400">
+                    <div className="text-lg font-black text-fuchsia-200 mb-2">📊 Data</div>
+                    <div className="text-fuchsia-100/70 text-sm">Pairwise comparisons</div>
+                    <div className="text-fuchsia-300 text-xs mt-2">50K-500K pairs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="rm-challenges">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">⚠️ Challenges</div>
+                    <div className="text-pink-100/70 text-sm">Reward hacking</div>
+                    <div className="text-pink-300 text-xs mt-2">Verbosity bias</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PPO */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="PPO Optimization" 
+                subtitle="Reinforcement learning for LLMs"
+                color="from-fuchsia-500 to-pink-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="ppo-overview">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🎮 PPO</div>
+                    <div className="text-fuchsia-100/60 text-xs">Stable policy updates</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ppo-objective">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">📐 Objective</div>
+                    <div className="text-pink-100/60 text-xs">Clipped advantage</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ppo-kl">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">🔗 KL Penalty</div>
+                    <div className="text-rose-100/60 text-xs">Stay near SFT</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ppo-value">
+                  <div className="p-3 rounded-lg bg-red-900/50 border border-red-400 text-center">
+                    <div className="text-red-200 font-bold text-sm">📊 Value Fn</div>
+                    <div className="text-red-100/60 text-xs">Critic network</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CONSTITUTIONAL AI */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Constitutional AI" 
+                subtitle="Anthropic's principle-based approach"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <Hoverable id="cai-overview">
+                <div className="bg-orange-900/30 rounded-xl p-6 mb-4 border border-orange-500/30">
+                  <div className="text-center">
+                    <div className="text-orange-300 font-bold text-lg mb-2">📜 Constitutional AI Idea</div>
+                    <div className="text-orange-100/70 text-sm">Write principles → AI self-critiques → AI revises → Train on improvements</div>
+                  </div>
+                </div>
+              </Hoverable>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="cai-constitution">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">📋 Constitution</div>
+                    <div className="text-orange-100/70 text-sm">Explicit principles</div>
+                    <div className="text-orange-300 text-xs mt-2">Helpful, harmless, honest</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="cai-critique">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">🔍 Self-Critique</div>
+                    <div className="text-amber-100/70 text-sm">AI evaluates itself</div>
+                    <div className="text-amber-300 text-xs mt-2">Against constitution</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="cai-rlaif">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">🤖 RLAIF</div>
+                    <div className="text-yellow-100/70 text-sm">AI Feedback at scale</div>
+                    <div className="text-yellow-300 text-xs mt-2">No human bottleneck</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* DPO */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="DPO" 
+                subtitle="Direct Preference Optimization"
+                color="from-cyan-500 to-blue-600"
+              />
+              
+              <Hoverable id="dpo-overview">
+                <div className="bg-cyan-900/30 rounded-xl p-6 mb-4 border border-cyan-500/30">
+                  <div className="text-center">
+                    <div className="text-cyan-300 font-bold text-lg mb-2">🎯 DPO: Skip the Reward Model!</div>
+                    <div className="text-cyan-100/70 text-sm">Closed-form solution to RLHF objective • No PPO needed • Much simpler</div>
+                  </div>
+                </div>
+              </Hoverable>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="dpo-method">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">📐 Method</div>
+                    <div className="text-cyan-100/70 text-sm">Direct optimization</div>
+                    <div className="text-cyan-300 text-xs mt-2">On preference pairs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="dpo-benefits">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">✅ Benefits</div>
+                    <div className="text-blue-100/70 text-sm">Simpler, faster, stable</div>
+                    <div className="text-blue-300 text-xs mt-2">Works with LoRA</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="dpo-variants">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">🔀 Variants</div>
+                    <div className="text-indigo-100/70 text-sm">IPO, KTO, ORPO</div>
+                    <div className="text-indigo-300 text-xs mt-2">Improvements on DPO</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* OTHER METHODS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Other Methods" 
+                subtitle="Alternative alignment approaches"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="other-sft">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-lg font-black text-slate-200 mb-2">📝 Just SFT</div>
+                    <div className="text-slate-400 text-sm">Skip RL entirely</div>
+                    <div className="text-slate-500 text-xs mt-2">Good data is enough</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="other-rejection">
+                  <div className="p-4 rounded-xl bg-zinc-800 border-2 border-zinc-500">
+                    <div className="text-lg font-black text-zinc-200 mb-2">🚫 Rejection Sampling</div>
+                    <div className="text-zinc-400 text-sm">Generate many, keep best</div>
+                    <div className="text-zinc-500 text-xs mt-2">Simpler than PPO</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="other-debate">
+                  <div className="p-4 rounded-xl bg-stone-800 border-2 border-stone-500">
+                    <div className="text-lg font-black text-stone-200 mb-2">💬 AI Debate</div>
+                    <div className="text-stone-400 text-sm">AIs argue, human judges</div>
+                    <div className="text-stone-500 text-xs mt-2">Research direction</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SAFETY */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Safety" 
+                subtitle="Testing and hardening"
+                color="from-red-500 to-orange-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="safety-redteam">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">🔴 Red Teaming</div>
+                    <div className="text-red-100/70 text-sm">Adversarial testing</div>
+                    <div className="text-red-300 text-xs mt-2">Find failures to fix</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="safety-jailbreak">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🔓 Jailbreaks</div>
+                    <div className="text-orange-100/70 text-sm">Bypass attempts</div>
+                    <div className="text-orange-300 text-xs mt-2">DAN, roleplay, encoding</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="safety-overfit">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">⚠️ Alignment Tax</div>
+                    <div className="text-amber-100/70 text-sm">Capability tradeoffs</div>
+                    <div className="text-amber-300 text-xs mt-2">Over-refusal problem</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* EVALUATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="HHH Evaluation" 
+                subtitle="Helpful, Harmless, Honest"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="eval-helpfulness">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🤝 Helpful</div>
+                    <div className="text-green-100/70 text-sm">Actually helps users</div>
+                    <div className="text-green-300 text-xs mt-2">MT-Bench, AlpacaEval</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-harmlessness">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🛡️ Harmless</div>
+                    <div className="text-emerald-100/70 text-sm">Avoids causing harm</div>
+                    <div className="text-emerald-300 text-xs mt-2">ToxiGen, red team rate</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-honesty">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">✅ Honest</div>
+                    <div className="text-teal-100/70 text-sm">Tells the truth</div>
+                    <div className="text-teal-300 text-xs mt-2">TruthfulQA, calibration</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Practical" 
+                subtitle="Data, compute, tools"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="practical-data">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">📊 Data</div>
+                    <div className="text-blue-100/70 text-sm">SFT: 10K-100K demos</div>
+                    <div className="text-blue-300 text-xs mt-2">Prefs: 50K-500K pairs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-compute">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">💻 Compute</div>
+                    <div className="text-indigo-100/70 text-sm">DPO much cheaper than PPO</div>
+                    <div className="text-indigo-300 text-xs mt-2">QLoRA for all stages</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-tools">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🔧 Tools</div>
+                    <div className="text-violet-100/70 text-sm">TRL, DeepSpeed-Chat</div>
+                    <div className="text-violet-300 text-xs mt-2">Axolotl, OpenRLHF</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* FUTURE */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="10" 
+                title="Future Directions" 
+                subtitle="Open research problems"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="future-scalable">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">📈 Scalable Oversight</div>
+                    <div className="text-pink-100/70 text-sm">Aligning superhuman AI</div>
+                    <div className="text-pink-300 text-xs mt-2">Debate, amplification</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="future-multimodal">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">🖼️ Multimodal</div>
+                    <div className="text-rose-100/70 text-sm">Vision-language safety</div>
+                    <div className="text-rose-300 text-xs mt-2">Harmful images, OCR</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="future-agents">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">🤖 Agents</div>
+                    <div className="text-red-100/70 text-sm">Actions have consequences</div>
+                    <div className="text-red-300 text-xs mt-2">Sandbox, human-in-loop</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-violet-900/50 to-purple-900/50 border-2 border-violet-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🎯 ALIGNMENT SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                RLHF trains models on human preferences via reward models and PPO.<br/>
+                DPO offers a simpler alternative. Constitutional AI uses principles for self-improvement.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">SFT</div>
+                  <div className="text-slate-400">Demonstrations</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">Reward Model</div>
+                  <div className="text-slate-400">Preferences</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-fuchsia-300 font-bold">PPO</div>
+                  <div className="text-slate-400">RL optimization</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">DPO</div>
+                  <div className="text-slate-400">Skip RM + PPO</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">CAI</div>
+                  <div className="text-slate-400">Self-critique</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>RLHF & Constitutional AI • Alignment Deep Dive</p>
+              <p className="text-xs mt-1 text-slate-600">Helpful, Harmless, Honest</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AlignmentDiagram />);
+  </script>
+</body>
+</html>

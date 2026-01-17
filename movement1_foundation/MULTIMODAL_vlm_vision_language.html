@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multimodal LLMs & Vision-Language Models</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function MultimodalDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHAT IS MULTIMODAL
+        'what-multimodal': {
+          title: '🖼️ WHAT IS MULTIMODAL?',
+          content: 'Models that understand multiple types of input: text, images, audio, video.',
+          modalities: 'Text: Natural language\nImages: Photos, diagrams, screenshots\nAudio: Speech, music, sounds\nVideo: Sequences of frames + audio',
+          examples: 'GPT-4V: Text + Images\nGemini: Text + Images + Audio + Video\nClaude 3: Text + Images'
+        },
+        'what-vlm': {
+          title: '👁️ VISION-LANGUAGE MODELS (VLMs)',
+          content: 'Models that combine vision and language understanding.',
+          capabilities: '• Image captioning\n• Visual question answering (VQA)\n• Image reasoning\n• OCR and document understanding\n• Chart/diagram interpretation',
+          key: 'Bridge visual perception with language reasoning'
+        },
+
+        // ARCHITECTURE PATTERNS
+        'arch-overview': {
+          title: '🏗️ VLM ARCHITECTURES',
+          content: 'Different ways to combine vision and language.',
+          patterns: '1. Contrastive (CLIP): Align embeddings\n2. Encoder-Decoder: Encode image, decode text\n3. LLM + Vision Encoder: Add vision to existing LLM\n4. Native Multimodal: Train from scratch',
+          trend: 'Pattern 3 dominates current VLMs\nLeverage existing strong LLMs'
+        },
+        'arch-vision-encoder': {
+          title: '👁️ VISION ENCODER',
+          content: 'Converts images to embeddings the LLM can understand.',
+          common: 'ViT (Vision Transformer):\n• Patch images into 16x16 or 14x14\n• Linear projection to embeddings\n• Transformer processes patches\n• Output: Sequence of patch embeddings',
+          pretrained: 'Often use CLIP ViT\nSigLIP, EVA-CLIP also popular\nPre-trained on image-text pairs'
+        },
+        'arch-projector': {
+          title: '🔗 PROJECTION LAYER',
+          content: 'Maps vision embeddings to LLM embedding space.',
+          types: 'Linear: Simple linear projection\nMLP: Multi-layer perceptron\nQ-Former: Learned queries (BLIP-2)\nResampler: Perceiver-style (Flamingo)',
+          purpose: 'Vision encoder dim ≠ LLM dim\nNeed to align representations\nCritical for performance'
+        },
+        'arch-llm': {
+          title: '🧠 LLM BACKBONE',
+          content: 'The language model that does reasoning.',
+          role: 'Receives: Text tokens + projected image tokens\nProcesses: Unified sequence\nOutputs: Text response',
+          common: 'LLaMA, Vicuna, Mistral\nOften frozen or LoRA fine-tuned\nLarger LLM = better reasoning'
+        },
+
+        // FOUNDATIONAL MODELS
+        'model-clip': {
+          title: '📎 CLIP (OpenAI)',
+          content: 'Contrastive Language-Image Pre-training. Foundation for many VLMs.',
+          method: 'Train image encoder + text encoder\nContrastive loss: Match pairs\n400M image-text pairs from web',
+          usage: 'Image embeddings for VLMs\nZero-shot classification\nImage-text retrieval',
+          impact: 'Enabled modern VLM revolution'
+        },
+        'model-siglip': {
+          title: '🔷 SigLIP (Google)',
+          content: 'Sigmoid Loss for Language-Image Pre-training.',
+          improvement: 'Better than CLIP contrastive loss\nSigmoid instead of softmax\nMore stable training\nBetter performance',
+          usage: 'Used in PaliGemma, many modern VLMs\nDrop-in CLIP replacement'
+        },
+        'model-blip2': {
+          title: '🔵 BLIP-2 (Salesforce)',
+          content: 'Bridging vision and language with Q-Former.',
+          architecture: 'Frozen image encoder (ViT)\nQ-Former: Learned queries extract features\nFrozen LLM (OPT or FlanT5)',
+          qformer: 'Q-Former: Lightweight transformer\n32 learnable query tokens\nCross-attention to image features\nOutputs fixed-size representation',
+          benefit: 'Efficient: Only train Q-Former\nWorks with any frozen LLM'
+        },
+        'model-flamingo': {
+          title: '🦩 FLAMINGO (DeepMind)',
+          content: 'Few-shot learning with interleaved image-text.',
+          architecture: 'Perceiver Resampler: Compress images\nGated cross-attention in LLM layers\nInterleave images in text sequence',
+          capability: 'Few-shot visual learning\nMultiple images in context\nIn-context learning for vision',
+          influence: 'Inspired OpenFlamingo, IDEFICS'
+        },
+
+        // CURRENT VLMS
+        'vlm-gpt4v': {
+          title: '🔷 GPT-4V (OpenAI)',
+          content: 'GPT-4 with vision capabilities.',
+          capabilities: '• Complex image reasoning\n• OCR and document analysis\n• Chart interpretation\n• Multi-image comparison\n• Spatial understanding',
+          architecture: 'Details not public\nLikely: Vision encoder + GPT-4\nMassive scale training',
+          status: 'State-of-the-art (closed)'
+        },
+        'vlm-gemini': {
+          title: '💎 GEMINI (Google)',
+          content: 'Natively multimodal from the ground up.',
+          unique: 'Not vision "added" to LLM\nTrained multimodal from start\nText, image, audio, video',
+          versions: 'Gemini Pro: Good all-around\nGemini Ultra: Best performance\nGemini Flash: Fast, efficient',
+          context: '1M-2M token context\nProcess long videos, many images'
+        },
+        'vlm-claude': {
+          title: '🟤 CLAUDE 3 (Anthropic)',
+          content: 'Claude with vision capabilities.',
+          capabilities: '• Image understanding\n• Document/chart analysis\n• Diagram interpretation\n• Screenshot understanding',
+          versions: 'Haiku: Fast, efficient\nSonnet: Balanced\nOpus: Most capable',
+          strength: 'Strong reasoning over images'
+        },
+        'vlm-llava': {
+          title: '🦙 LLAVA (Open Source)',
+          content: 'Large Language and Vision Assistant. Popular open VLM.',
+          architecture: 'CLIP ViT-L/14 vision encoder\nLinear projection layer\nVicuna/LLaMA LLM backbone',
+          training: 'Stage 1: Pretrain projector (CC3M)\nStage 2: Instruction tuning (150K)',
+          versions: 'LLaVA 1.5: Improved training\nLLaVA-NeXT: Higher resolution\nLLaVA-OneVision: Latest'
+        },
+        'vlm-qwen': {
+          title: '🔮 QWEN-VL (Alibaba)',
+          content: 'Qwen with vision. Strong open-source option.',
+          architecture: 'ViT-bigG vision encoder\nSingle-layer cross-attention\nQwen LLM backbone',
+          capability: 'Multi-image, multi-turn\nGrounding (bounding boxes)\nStrong OCR',
+          versions: 'Qwen-VL, Qwen-VL-Chat\nQwen2-VL: Latest, very strong'
+        },
+        'vlm-internvl': {
+          title: '🌐 INTERNVL (Shanghai AI Lab)',
+          content: 'Scaling up open-source VLMs.',
+          scale: 'InternVL-Chat-V1.5: 26B\nInternVL2: Up to 108B!\nLargest open VLM',
+          architecture: 'InternViT-6B vision encoder\nPixel shuffle for efficiency\nInternLM2 backbone',
+          performance: 'Competitive with GPT-4V on many benchmarks'
+        },
+        'vlm-paligemma': {
+          title: '💎 PALIGEMMA (Google)',
+          content: 'Open VLM from Google.',
+          architecture: 'SigLIP vision encoder\nGemma LLM backbone\nLinear projection',
+          sizes: '3B parameters\nFully open weights\nGood for fine-tuning',
+          usage: 'Strong base for custom VLMs'
+        },
+
+        // IMAGE PROCESSING
+        'image-patching': {
+          title: '🧩 IMAGE PATCHING',
+          content: 'How images become tokens.',
+          process: '1. Resize image (e.g., 336×336)\n2. Split into patches (14×14 or 16×16)\n3. Each patch → embedding vector\n4. Add position embeddings\n5. Process with vision transformer',
+          math: '336×336 image, 14×14 patches\n= 24×24 = 576 patch tokens\nEach token ~same cost as text token'
+        },
+        'image-resolution': {
+          title: '📐 RESOLUTION HANDLING',
+          content: 'How VLMs handle different image sizes.',
+          approaches: 'Fixed: Resize all to 336×336\nDynamic: Variable resolution\nTiling: Split large images into tiles',
+          tradeoff: 'Higher res = more tokens = better detail\nBut: More compute, longer context',
+          modern: 'LLaVA-NeXT: Up to 672×672\nQwen-VL: Dynamic resolution\nInternVL: Pixel shuffle compression'
+        },
+        'image-multiple': {
+          title: '🖼️🖼️ MULTIPLE IMAGES',
+          content: 'Handling multiple images in one conversation.',
+          methods: 'Concatenate: Stack all image tokens\nInterleave: Images between text\nSeparate: Process independently',
+          challenge: 'Many images = very long context\nNeed efficient attention\nImage-text alignment matters'
+        },
+
+        // TRAINING
+        'train-pretrain': {
+          title: '📚 PRETRAINING',
+          content: 'Large-scale vision-language pretraining.',
+          data: 'Image-caption pairs (LAION, CC)\nInterleaved image-text (web crawl)\nScale: Millions to billions of pairs',
+          objective: 'Next token prediction\nImage tokens + text tokens\nLearn visual-language alignment'
+        },
+        'train-instruct': {
+          title: '📝 INSTRUCTION TUNING',
+          content: 'Fine-tune for following visual instructions.',
+          data: 'Visual Q&A pairs\nImage-based conversations\nComplex reasoning examples',
+          sources: 'LLaVA-Instruct (GPT-4 generated)\nShareGPT4V\nALLaVA',
+          amount: '100K-1M examples typical'
+        },
+        'train-stages': {
+          title: '🎯 TRAINING STAGES',
+          content: 'Typical multi-stage training.',
+          stages: 'Stage 1: Align vision to LLM\n• Freeze vision encoder + LLM\n• Train only projector\n• Caption data\n\nStage 2: Instruction tuning\n• Unfreeze LLM (or LoRA)\n• Keep vision encoder frozen\n• Instruction data',
+          rationale: 'Stage 1: Learn alignment\nStage 2: Learn to follow instructions'
+        },
+
+        // EVALUATION
+        'eval-vqa': {
+          title: '❓ VQA BENCHMARKS',
+          content: 'Visual Question Answering evaluation.',
+          benchmarks: 'VQAv2: General VQA\nGQA: Compositional questions\nTextVQA: Text in images\nDocVQA: Document understanding\nChartQA: Chart interpretation',
+          format: 'Image + Question → Answer\nMultiple choice or open-ended'
+        },
+        'eval-mmmu': {
+          title: '📊 MMMU',
+          content: 'Massive Multi-discipline Multimodal Understanding.',
+          scope: '11.5K questions, 30 subjects\nCollege-level difficulty\nRequires both vision + knowledge',
+          scores: 'GPT-4V: 56.8%\nGemini Ultra: 59.4%\nInternVL2-76B: 58.3%'
+        },
+        'eval-mmvet': {
+          title: '🔬 MM-VET',
+          content: 'Evaluates integrated capabilities.',
+          tests: 'Recognition + OCR + knowledge\nSpatial awareness\nMath with images\nComplex reasoning',
+          format: 'Open-ended generation\nGPT-4 as judge'
+        },
+        'eval-realworld': {
+          title: '🌍 REALWORLD-QA',
+          content: 'Real-world image understanding.',
+          focus: 'Practical scenarios\nEveryday images\nUseful visual assistance',
+          examples: 'What\'s in my fridge?\nRead this receipt\nIdentify this plant'
+        },
+
+        // CHALLENGES
+        'challenge-hallucination': {
+          title: '👻 HALLUCINATION',
+          content: 'VLMs making up visual details.',
+          types: 'Object hallucination: Seeing things not there\nAttribute hallucination: Wrong colors, sizes\nRelation hallucination: Wrong spatial relations',
+          mitigation: 'Better training data\nGround truth verification\nHALO, LRV-Instruction datasets'
+        },
+        'challenge-ocr': {
+          title: '📝 OCR LIMITATIONS',
+          content: 'Reading text in images.',
+          issues: 'Small text hard to read\nUnusual fonts/styles\nHandwriting challenging\nMulti-language text',
+          improving: 'Higher resolution helps\nSpecialized OCR training\nDocument-focused models'
+        },
+        'challenge-spatial': {
+          title: '📍 SPATIAL REASONING',
+          content: 'Understanding positions and relationships.',
+          hard: 'Left/right confusion\nCounting objects\nSize comparisons\nOcclusion understanding',
+          research: 'Active research area\nSpatial prompting helps\nBetter training data needed'
+        },
+        'challenge-safety': {
+          title: '🛡️ SAFETY',
+          content: 'Multimodal-specific safety concerns.',
+          risks: 'Harmful image generation requests\nJailbreaks via images\nPrivacy (face recognition)\nDeceptive image interpretation',
+          approach: 'Image content filtering\nRefuse harmful requests\nCareful about identifying people'
+        },
+
+        // APPLICATIONS
+        'app-document': {
+          title: '📄 DOCUMENT AI',
+          content: 'Understanding documents, forms, receipts.',
+          tasks: 'Extract information\nAnswer questions about docs\nSummarize documents\nFill forms',
+          models: 'DocVLM, LayoutLM\nGeneral VLMs also work\nOCR + reasoning combined'
+        },
+        'app-assistant': {
+          title: '🤖 VISUAL ASSISTANT',
+          content: 'Help users understand images.',
+          tasks: 'Describe images\nAnswer visual questions\nExplain diagrams\nHelp with accessibility',
+          examples: 'What\'s in this photo?\nExplain this error message\nWhat does this chart show?'
+        },
+        'app-code': {
+          title: '💻 CODE FROM UI',
+          content: 'Generate code from screenshots.',
+          tasks: 'Screenshot → HTML/CSS\nUI mockup → code\nConvert designs',
+          challenge: 'Exact reproduction hard\nStyle matching\nResponsive design'
+        },
+
+        // PRACTICAL
+        'practical-api': {
+          title: '🔌 API USAGE',
+          content: 'Using VLM APIs.',
+          format: 'messages = [\n  {"role": "user", "content": [\n    {"type": "image_url", "image_url": {"url": "..."}},\n    {"type": "text", "text": "What is this?"}\n  ]}\n]',
+          providers: 'OpenAI: GPT-4V, GPT-4o\nAnthropic: Claude 3\nGoogle: Gemini Pro Vision'
+        },
+        'practical-local': {
+          title: '🏠 LOCAL DEPLOYMENT',
+          content: 'Running VLMs locally.',
+          options: 'LLaVA: Most accessible\nQwen-VL: Strong performance\nPaliGemma: Efficient',
+          requirements: '7B VLM: ~16GB VRAM\n13B VLM: ~28GB VRAM\nQuantization helps!'
+        },
+        'practical-finetune': {
+          title: '🎯 FINE-TUNING',
+          content: 'Customizing VLMs for your task.',
+          approaches: 'Full fine-tune: Expensive\nLoRA: Efficient, recommended\nProjector only: Cheapest',
+          data: 'Image + instruction + response\nJSON format typically\n1K-10K examples can help'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.architecture && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">ARCHITECTURE</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.architecture}</pre>
+              </div>
+            )}
+            {t.capabilities && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">CAPABILITIES</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.capabilities}</pre>
+              </div>
+            )}
+            {t.stages && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STAGES</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.stages}</pre>
+              </div>
+            )}
+            {t.benchmarks && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">BENCHMARKS</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.benchmarks}</pre>
+              </div>
+            )}
+            {t.format && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMAT</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.format}</pre>
+              </div>
+            )}
+            {t.scores && (
+              <div className="text-xs text-orange-400 mt-2">
+                <span className="font-bold">📊 </span>{t.scores}
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.impact && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⭐ </span>{t.impact}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-pink-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-purple-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-rose-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-pink-600/30 border border-pink-400 rounded-full mb-6">
+                <span className="text-pink-300 font-bold">MULTIMODAL</span>
+                <span className="text-white">•</span>
+                <span className="text-pink-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-rose-400">
+                Multimodal LLMs & VLMs
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-pink-300 font-bold">Vision + Language</span> — Models that see and understand images.
+              </p>
+            </header>
+
+            {/* Architecture Overview */}
+            <div className="bg-gradient-to-r from-pink-900/50 to-purple-900/50 border-2 border-pink-500/50 rounded-xl p-8 mb-12">
+              <Hoverable id="arch-overview">
+                <div className="text-center mb-6">
+                  <div className="text-2xl font-black text-white">🏗️ VLM ARCHITECTURE</div>
+                </div>
+              </Hoverable>
+              <div className="flex items-center justify-center gap-4">
+                <Hoverable id="arch-vision-encoder">
+                  <div className="px-5 py-4 rounded-lg bg-blue-900/50 border-2 border-blue-500 text-center">
+                    <div className="text-3xl mb-2">👁️</div>
+                    <div className="text-blue-200 font-bold">Vision Encoder</div>
+                    <div className="text-blue-300 text-xs mt-1">ViT / CLIP</div>
+                  </div>
+                </Hoverable>
+                <div className="text-pink-400 text-2xl">→</div>
+                <Hoverable id="arch-projector">
+                  <div className="px-5 py-4 rounded-lg bg-purple-900/50 border-2 border-purple-500 text-center">
+                    <div className="text-3xl mb-2">🔗</div>
+                    <div className="text-purple-200 font-bold">Projector</div>
+                    <div className="text-purple-300 text-xs mt-1">MLP / Q-Former</div>
+                  </div>
+                </Hoverable>
+                <div className="text-pink-400 text-2xl">→</div>
+                <Hoverable id="arch-llm">
+                  <div className="px-5 py-4 rounded-lg bg-pink-900/50 border-2 border-pink-500 text-center">
+                    <div className="text-3xl mb-2">🧠</div>
+                    <div className="text-pink-200 font-bold">LLM Backbone</div>
+                    <div className="text-pink-300 text-xs mt-1">LLaMA / Mistral</div>
+                  </div>
+                </Hoverable>
+                <div className="text-pink-400 text-2xl">→</div>
+                <div className="px-5 py-4 rounded-lg bg-green-900/50 border-2 border-green-500 text-center">
+                  <div className="text-3xl mb-2">💬</div>
+                  <div className="text-green-200 font-bold">Text Output</div>
+                  <div className="text-green-300 text-xs mt-1">Response</div>
+                </div>
+              </div>
+            </div>
+
+            {/* WHAT IS MULTIMODAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="What is Multimodal?" 
+                subtitle="Beyond text-only models"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="what-multimodal">
+                  <div className="p-5 rounded-xl bg-pink-900/40 border-2 border-pink-500">
+                    <div className="text-xl font-black text-pink-200 mb-2">🖼️ Multimodal</div>
+                    <div className="text-pink-100/70 text-sm">
+                      Text + Images + Audio + Video<br/>
+                      Multiple input modalities<br/>
+                      Unified understanding
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="what-vlm">
+                  <div className="p-5 rounded-xl bg-rose-900/40 border-2 border-rose-500">
+                    <div className="text-xl font-black text-rose-200 mb-2">👁️ VLMs</div>
+                    <div className="text-rose-100/70 text-sm">
+                      Vision + Language specifically<br/>
+                      Image understanding<br/>
+                      Visual reasoning
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* FOUNDATIONAL MODELS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Foundation Models" 
+                subtitle="Building blocks for VLMs"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="model-clip">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">📎 CLIP</div>
+                    <div className="text-blue-100/70 text-sm">Contrastive learning</div>
+                    <div className="text-blue-300 text-xs mt-2">400M pairs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-siglip">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">🔷 SigLIP</div>
+                    <div className="text-indigo-100/70 text-sm">Sigmoid loss</div>
+                    <div className="text-indigo-300 text-xs mt-2">Better than CLIP</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-blip2">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🔵 BLIP-2</div>
+                    <div className="text-violet-100/70 text-sm">Q-Former bridge</div>
+                    <div className="text-violet-300 text-xs mt-2">Efficient training</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-flamingo">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">🦩 Flamingo</div>
+                    <div className="text-purple-100/70 text-sm">Few-shot vision</div>
+                    <div className="text-purple-300 text-xs mt-2">Interleaved</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CURRENT VLMS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Current VLMs" 
+                subtitle="State-of-the-art models"
+                color="from-purple-500 to-fuchsia-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <Hoverable id="vlm-gpt4v">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🔷 GPT-4V</div>
+                    <div className="text-green-100/70 text-sm">OpenAI, closed</div>
+                    <div className="text-green-300 text-xs mt-2">Best reasoning</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="vlm-gemini">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">💎 Gemini</div>
+                    <div className="text-blue-100/70 text-sm">Google, native multimodal</div>
+                    <div className="text-blue-300 text-xs mt-2">1M+ context</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="vlm-claude">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">🟤 Claude 3</div>
+                    <div className="text-amber-100/70 text-sm">Anthropic</div>
+                    <div className="text-amber-300 text-xs mt-2">Strong reasoning</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="vlm-llava">
+                  <div className="p-3 rounded-lg bg-purple-900/40 border border-purple-500">
+                    <div className="text-purple-200 font-bold text-sm">🦙 LLaVA</div>
+                    <div className="text-purple-100/60 text-xs">Popular open VLM</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="vlm-qwen">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/40 border border-fuchsia-500">
+                    <div className="text-fuchsia-200 font-bold text-sm">🔮 Qwen-VL</div>
+                    <div className="text-fuchsia-100/60 text-xs">Alibaba, strong OCR</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="vlm-internvl">
+                  <div className="p-3 rounded-lg bg-pink-900/40 border border-pink-500">
+                    <div className="text-pink-200 font-bold text-sm">🌐 InternVL</div>
+                    <div className="text-pink-100/60 text-xs">Up to 108B!</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="vlm-paligemma">
+                  <div className="p-3 rounded-lg bg-rose-900/40 border border-rose-500">
+                    <div className="text-rose-200 font-bold text-sm">💎 PaliGemma</div>
+                    <div className="text-rose-100/60 text-xs">Google, open</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* IMAGE PROCESSING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Image Processing" 
+                subtitle="How images become tokens"
+                color="from-cyan-500 to-teal-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="image-patching">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">🧩 Patching</div>
+                    <div className="text-cyan-100/70 text-sm">14×14 or 16×16 patches</div>
+                    <div className="text-cyan-300 text-xs mt-2">336×336 → 576 tokens</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="image-resolution">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">📐 Resolution</div>
+                    <div className="text-teal-100/70 text-sm">Fixed vs dynamic</div>
+                    <div className="text-teal-300 text-xs mt-2">Higher = more detail</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="image-multiple">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🖼️🖼️ Multiple</div>
+                    <div className="text-emerald-100/70 text-sm">Concat or interleave</div>
+                    <div className="text-emerald-300 text-xs mt-2">Long context needed</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* TRAINING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Training" 
+                subtitle="How VLMs are trained"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="train-pretrain">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">📚 Pretrain</div>
+                    <div className="text-orange-100/70 text-sm">Image-caption pairs</div>
+                    <div className="text-orange-300 text-xs mt-2">Millions of pairs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-instruct">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">📝 Instruct Tune</div>
+                    <div className="text-amber-100/70 text-sm">Visual instructions</div>
+                    <div className="text-amber-300 text-xs mt-2">100K-1M examples</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-stages">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">🎯 Stages</div>
+                    <div className="text-yellow-100/70 text-sm">1: Align, 2: Instruct</div>
+                    <div className="text-yellow-300 text-xs mt-2">Freeze then unfreeze</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* EVALUATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Evaluation" 
+                subtitle="Benchmarks for VLMs"
+                color="from-red-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="eval-vqa">
+                  <div className="p-3 rounded-lg bg-red-900/50 border border-red-400 text-center">
+                    <div className="text-red-200 font-bold text-sm">❓ VQA</div>
+                    <div className="text-red-100/60 text-xs">Visual QA benchmarks</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-mmmu">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">📊 MMMU</div>
+                    <div className="text-rose-100/60 text-xs">College-level multimodal</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-mmvet">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">🔬 MM-VET</div>
+                    <div className="text-pink-100/60 text-xs">Integrated capabilities</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-realworld">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🌍 RealWorld</div>
+                    <div className="text-fuchsia-100/60 text-xs">Practical scenarios</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CHALLENGES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Challenges" 
+                subtitle="Known limitations"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="challenge-hallucination">
+                  <div className="p-3 rounded-lg bg-slate-800 border border-slate-500 text-center">
+                    <div className="text-slate-200 font-bold text-sm">👻 Hallucination</div>
+                    <div className="text-slate-400 text-xs">Making up details</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="challenge-ocr">
+                  <div className="p-3 rounded-lg bg-zinc-800 border border-zinc-500 text-center">
+                    <div className="text-zinc-200 font-bold text-sm">📝 OCR</div>
+                    <div className="text-zinc-400 text-xs">Small text hard</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="challenge-spatial">
+                  <div className="p-3 rounded-lg bg-stone-800 border border-stone-500 text-center">
+                    <div className="text-stone-200 font-bold text-sm">📍 Spatial</div>
+                    <div className="text-stone-400 text-xs">Position confusion</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="challenge-safety">
+                  <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-500 text-center">
+                    <div className="text-neutral-200 font-bold text-sm">🛡️ Safety</div>
+                    <div className="text-neutral-400 text-xs">Visual jailbreaks</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* APPLICATIONS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="Applications" 
+                subtitle="What VLMs can do"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="app-document">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">📄 Document AI</div>
+                    <div className="text-green-100/70 text-sm">Forms, receipts, docs</div>
+                    <div className="text-green-300 text-xs mt-2">Extract, summarize, Q&A</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="app-assistant">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🤖 Visual Assistant</div>
+                    <div className="text-emerald-100/70 text-sm">Help understand images</div>
+                    <div className="text-emerald-300 text-xs mt-2">Describe, explain, answer</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="app-code">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">💻 UI to Code</div>
+                    <div className="text-teal-100/70 text-sm">Screenshot → HTML</div>
+                    <div className="text-teal-300 text-xs mt-2">Design conversion</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Practical" 
+                subtitle="Using VLMs"
+                color="from-indigo-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="practical-api">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">🔌 API</div>
+                    <div className="text-indigo-100/70 text-sm">GPT-4V, Claude 3, Gemini</div>
+                    <div className="text-indigo-300 text-xs mt-2">Easy integration</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-local">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🏠 Local</div>
+                    <div className="text-violet-100/70 text-sm">LLaVA, Qwen-VL</div>
+                    <div className="text-violet-300 text-xs mt-2">~16GB for 7B</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-finetune">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">🎯 Fine-tune</div>
+                    <div className="text-purple-100/70 text-sm">LoRA recommended</div>
+                    <div className="text-purple-300 text-xs mt-2">1K-10K examples</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-pink-900/50 to-purple-900/50 border-2 border-pink-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🖼️ MULTIMODAL SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Vision Encoder → Projector → LLM. See and understand images.<br/>
+                GPT-4V/Gemini lead closed, LLaVA/Qwen-VL lead open source.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">CLIP/SigLIP</div>
+                  <div className="text-slate-400">Vision encoder</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">Projector</div>
+                  <div className="text-slate-400">MLP or Q-Former</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">GPT-4V</div>
+                  <div className="text-slate-400">Best closed</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">LLaVA</div>
+                  <div className="text-slate-400">Popular open</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-pink-300 font-bold">576 tokens</div>
+                  <div className="text-slate-400">Per 336² image</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Multimodal LLMs & VLMs • Vision + Language</p>
+              <p className="text-xs mt-1 text-slate-600">See, understand, reason about images</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<MultimodalDiagram />);
+  </script>
+</body>
+</html>

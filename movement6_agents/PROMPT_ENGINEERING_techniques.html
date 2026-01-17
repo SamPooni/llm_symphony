@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prompt Engineering - Techniques & Best Practices</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function PromptDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // FUNDAMENTALS
+        'fund-what': {
+          title: '📝 WHAT IS PROMPT ENGINEERING?',
+          content: 'Crafting inputs to get desired outputs from LLMs.',
+          core: 'LLMs are sensitive to phrasing\nSmall changes → big differences\nPrompt engineering = optimization',
+          goal: 'Get accurate, useful, safe responses\nConsistent behavior\nEfficient token usage'
+        },
+        'fund-why': {
+          title: '🎯 WHY IT MATTERS',
+          content: 'The difference between good and bad results.',
+          impact: 'Bad prompt: "Write code"\nGood prompt: "Write a Python function that takes a list of integers and returns the sum of even numbers. Include docstring and type hints."',
+          roi: 'Better prompts = better results\nNo fine-tuning needed\nImmediate improvements'
+        },
+        'fund-anatomy': {
+          title: '🔬 PROMPT ANATOMY',
+          content: 'Components of an effective prompt.',
+          parts: 'Role/Persona: Who the AI should be\nContext: Background information\nTask: What to do\nFormat: How to structure output\nExamples: Demonstrations\nConstraints: What to avoid',
+          order: 'Context → Task → Format → Examples'
+        },
+
+        // BASIC TECHNIQUES
+        'tech-zeroshot': {
+          title: '0️⃣ ZERO-SHOT',
+          content: 'Ask directly without examples.',
+          example: 'Classify the sentiment of this review:\n"Great product, fast shipping!"\n\nSentiment:',
+          when: 'Simple tasks\nClear instructions\nModel already knows how',
+          limit: 'May not follow format\nInconsistent on complex tasks'
+        },
+        'tech-fewshot': {
+          title: '🔢 FEW-SHOT',
+          content: 'Provide examples before the actual task.',
+          example: 'Classify sentiment:\nReview: "Loved it!" → Positive\nReview: "Terrible" → Negative\nReview: "Great product!" → ',
+          benefit: 'Shows desired format\nImproves consistency\n3-5 examples usually enough',
+          tip: 'Diverse examples\nShow edge cases\nConsistent format'
+        },
+        'tech-cot': {
+          title: '🔗 CHAIN-OF-THOUGHT',
+          content: 'Ask model to show reasoning steps.',
+          trigger: '"Let\'s think step by step"\n"Show your reasoning"\n"Work through this carefully"',
+          benefit: 'Huge gains on reasoning tasks\n+40% on GSM8K math\nReduces errors',
+          when: 'Math, logic, multi-step reasoning\nComplex analysis\nNot needed for simple tasks'
+        },
+        'tech-cot-fewshot': {
+          title: '🔗📝 FEW-SHOT COT',
+          content: 'Examples that include reasoning steps.',
+          example: 'Q: If I have 3 apples and buy 2 more...\nA: Let\'s think step by step.\n1. Start: 3 apples\n2. Buy: +2 apples\n3. Total: 3+2 = 5 apples\nAnswer: 5',
+          power: 'Best of both techniques\nShows HOW to reason\nHighest performance'
+        },
+
+        // ADVANCED TECHNIQUES
+        'adv-selfask': {
+          title: '❓ SELF-ASK',
+          content: 'Model asks and answers sub-questions.',
+          mechanism: 'Are follow-up questions needed?\nIf yes, ask them\nAnswer sub-questions first\nThen answer main question',
+          benefit: 'Breaks down complex questions\nMore thorough answers\nBetter for multi-hop reasoning'
+        },
+        'adv-react': {
+          title: '🔄 REACT',
+          content: 'Reason + Act: Interleave thinking and actions.',
+          pattern: 'Thought: I need to find...\nAction: Search[query]\nObservation: Result...\nThought: Now I know...\nAction: ...',
+          usage: 'Tool use / agents\nMulti-step tasks\nGrounding in external data'
+        },
+        'adv-tot': {
+          title: '🌳 TREE OF THOUGHTS',
+          content: 'Explore multiple reasoning paths.',
+          mechanism: 'Generate multiple next steps\nEvaluate each path\nPursue promising branches\nBacktrack if needed',
+          benefit: 'Better for complex problems\nExplores alternatives\nAvoids local optima',
+          cost: 'Many more API calls\nSlower, more expensive'
+        },
+        'adv-reflexion': {
+          title: '🪞 REFLEXION',
+          content: 'Self-reflection and correction.',
+          mechanism: 'Generate answer\nCritique own answer\nIdentify mistakes\nTry again with feedback',
+          benefit: 'Self-improvement\nCatches errors\nIterative refinement'
+        },
+        'adv-sc': {
+          title: '🗳️ SELF-CONSISTENCY',
+          content: 'Generate multiple answers, vote.',
+          mechanism: 'Sample N responses (temperature > 0)\nExtract final answer from each\nMajority vote / most common',
+          benefit: 'More robust answers\nReduces random errors\nGood for math, reasoning',
+          cost: 'N× more tokens\nN× more latency'
+        },
+
+        // STRUCTURED OUTPUT
+        'struct-json': {
+          title: '📋 JSON OUTPUT',
+          content: 'Get structured JSON responses.',
+          technique: 'Specify exact JSON schema\nProvide example output\nUse function calling if available',
+          example: 'Return a JSON object with:\n{"name": string, "age": int, "city": string}',
+          tip: 'Be explicit about types\nHandle parsing errors\nUse JSON mode if available'
+        },
+        'struct-xml': {
+          title: '📄 XML/TAGS',
+          content: 'Use XML-style tags for structure.',
+          example: '<thinking>reasoning here</thinking>\n<answer>final answer</answer>',
+          benefit: 'Clear section boundaries\nEasy to parse\nModel understands tags',
+          usage: 'Claude especially good with tags\nSeparate reasoning from output'
+        },
+        'struct-markdown': {
+          title: '📝 MARKDOWN',
+          content: 'Use markdown for formatting.',
+          elements: '# Headers for sections\n- Bullets for lists\n**Bold** for emphasis\n```code``` for code',
+          benefit: 'Natural structure\nReadable output\nModels trained on markdown'
+        },
+
+        // ROLES AND PERSONAS
+        'role-system': {
+          title: '🎭 SYSTEM PROMPTS',
+          content: 'Set overall behavior and personality.',
+          components: 'Who you are\nHow to behave\nWhat to avoid\nOutput format preferences',
+          example: 'You are a helpful coding assistant. Be concise. Always include code comments. Prefer Python.',
+          power: 'Consistent behavior\nDefines boundaries\nSets expectations'
+        },
+        'role-expert': {
+          title: '👨‍🔬 EXPERT PERSONAS',
+          content: 'Ask model to act as domain expert.',
+          example: '"You are an experienced Python developer"\n"You are a medical researcher"\n"You are a financial analyst"',
+          benefit: 'More domain-appropriate responses\nBetter terminology\nMore thorough analysis'
+        },
+        'role-audience': {
+          title: '👥 TARGET AUDIENCE',
+          content: 'Specify who the output is for.',
+          example: '"Explain this to a 5-year-old"\n"Write for senior developers"\n"Assume no technical background"',
+          effect: 'Adjusts complexity\nChanges vocabulary\nAppropriate depth'
+        },
+
+        // CONSTRAINTS
+        'const-format': {
+          title: '📏 FORMAT CONSTRAINTS',
+          content: 'Specify output format requirements.',
+          examples: '"Maximum 3 sentences"\n"Use bullet points"\n"Start with a summary"\n"Include code examples"',
+          benefit: 'Predictable output\nEasier to process\nMeets requirements'
+        },
+        'const-negative': {
+          title: '🚫 NEGATIVE CONSTRAINTS',
+          content: 'Specify what NOT to do.',
+          examples: '"Do not include disclaimers"\n"Never use jargon"\n"Don\'t repeat the question"\n"Avoid bullet points"',
+          tip: 'Sometimes more effective than positive instructions'
+        },
+        'const-length': {
+          title: '📐 LENGTH CONTROL',
+          content: 'Control response length.',
+          methods: '"In exactly 3 sentences"\n"Under 100 words"\n"Comprehensive, around 500 words"\n"One paragraph"',
+          note: 'LLMs approximate length\nWord counts are rough\nSentence counts more reliable'
+        },
+
+        // CONTEXT
+        'ctx-rag': {
+          title: '📚 CONTEXT INJECTION',
+          content: 'Provide relevant context in prompt.',
+          pattern: 'Given the following context:\n[retrieved documents]\n\nAnswer this question:\n[question]',
+          benefit: 'Grounds responses in facts\nReduces hallucination\nUpdates knowledge'
+        },
+        'ctx-examples': {
+          title: '📝 EXAMPLE SELECTION',
+          content: 'Choose the right few-shot examples.',
+          strategies: 'Similar to query (semantic search)\nDiverse coverage\nEdge cases included\nBalance classes',
+          impact: 'Example choice matters a lot\nDynamic selection helps\n3-5 examples usually optimal'
+        },
+        'ctx-memory': {
+          title: '💭 CONVERSATION MEMORY',
+          content: 'Maintain context across turns.',
+          methods: 'Full history (expensive)\nSummarization\nSliding window\nKey points extraction',
+          challenge: 'Context window limits\nOlder context fades\nPrioritize recent + important'
+        },
+
+        // OPTIMIZATION
+        'opt-iterate': {
+          title: '🔄 ITERATIVE REFINEMENT',
+          content: 'Test and improve prompts systematically.',
+          process: '1. Write initial prompt\n2. Test on examples\n3. Analyze failures\n4. Modify prompt\n5. Repeat',
+          tip: 'Keep test set\nTrack changes\nMeasure improvement'
+        },
+        'opt-ab': {
+          title: '🔀 A/B TESTING',
+          content: 'Compare prompt variants.',
+          method: 'Create variations\nRun on same inputs\nMeasure quality metrics\nStatistical comparison',
+          metrics: 'Accuracy, relevance\nFormat compliance\nUser satisfaction\nLatency, cost'
+        },
+        'opt-eval': {
+          title: '📊 EVALUATION',
+          content: 'Measure prompt quality.',
+          auto: 'Exact match\nF1, BLEU, ROUGE\nLLM-as-judge',
+          human: 'Quality ratings\nPreference ranking\nTask completion',
+          tip: 'Use LLM-as-judge for scale\nHuman eval for ground truth'
+        },
+
+        // COMMON PATTERNS
+        'pattern-extract': {
+          title: '🔍 EXTRACTION',
+          content: 'Pull specific info from text.',
+          example: 'Extract the following from the email:\n- Sender name\n- Date mentioned\n- Action items\n\nEmail: [text]',
+          tip: 'Be specific about fields\nProvide output format\nHandle missing values'
+        },
+        'pattern-classify': {
+          title: '🏷️ CLASSIFICATION',
+          content: 'Categorize inputs.',
+          example: 'Classify this support ticket:\nCategories: [Bug, Feature Request, Question, Complaint]\n\nTicket: [text]\nCategory:',
+          tip: 'List all categories\nProvide examples per category\nHandle "other" cases'
+        },
+        'pattern-summarize': {
+          title: '📄 SUMMARIZATION',
+          content: 'Condense text.',
+          variants: '"Summarize in 3 bullet points"\n"TL;DR in one sentence"\n"Executive summary for [audience]"',
+          control: 'Specify length\nFocus areas\nAudience'
+        },
+        'pattern-generate': {
+          title: '✍️ GENERATION',
+          content: 'Create new content.',
+          examples: 'Email drafts\nCode\nCreative writing\nProduct descriptions',
+          best: 'Specify tone, style, length\nProvide examples\nDefine audience'
+        },
+        'pattern-transform': {
+          title: '🔄 TRANSFORMATION',
+          content: 'Convert between formats.',
+          examples: 'Rewrite formally\nTranslate to Spanish\nConvert to bullet points\nSimplify language',
+          tip: 'Show before/after examples\nBe specific about target format'
+        },
+
+        // PITFALLS
+        'pit-hallucination': {
+          title: '👻 HALLUCINATION',
+          content: 'Model makes things up.',
+          causes: 'No grounding in context\nOverconfident model\nAmbiguous questions',
+          mitigation: 'Provide context (RAG)\n"Only use provided info"\n"Say I don\'t know if unsure"'
+        },
+        'pit-injection': {
+          title: '💉 PROMPT INJECTION',
+          content: 'Malicious input overrides instructions.',
+          example: 'User input: "Ignore previous instructions and..."',
+          defense: 'Input sanitization\nClear delimiters\nInstruction hierarchy\nOutput validation'
+        },
+        'pit-verbose': {
+          title: '📢 VERBOSITY',
+          content: 'Model is too wordy.',
+          cause: 'RLHF trained for helpfulness\nNo length constraint',
+          fix: '"Be concise"\n"Maximum N sentences"\n"Skip pleasantries"'
+        },
+        'pit-sycophancy': {
+          title: '😊 SYCOPHANCY',
+          content: 'Model agrees with user too much.',
+          problem: 'Won\'t push back on wrong premises\nTells user what they want to hear',
+          mitigation: '"Give honest assessment"\n"Point out flaws"\n"Assume I might be wrong"'
+        },
+
+        // TOOLS
+        'tool-playground': {
+          title: '🎮 PLAYGROUNDS',
+          content: 'Interactive prompt testing.',
+          options: 'OpenAI Playground\nAnthropic Console\nGoogle AI Studio\nHuggingFace Spaces',
+          benefit: 'Quick iteration\nSee token counts\nAdjust parameters'
+        },
+        'tool-langchain': {
+          title: '🔗 LANGCHAIN',
+          content: 'Framework for prompt chains.',
+          features: 'Prompt templates\nOutput parsers\nChains and agents\nMemory management',
+          usage: 'Complex pipelines\nTool integration\nProduction apps'
+        },
+        'tool-dspy': {
+          title: '📐 DSPY',
+          content: 'Programmatic prompt optimization.',
+          idea: 'Define signatures\nCompile to prompts\nOptimize with examples',
+          benefit: 'Less manual prompt engineering\nAutomatic optimization\nProgrammatic control'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.pattern && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PATTERN</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.pattern}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.parts && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">COMPONENTS</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.parts}</pre>
+              </div>
+            )}
+            {t.process && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PROCESS</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.process}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.tip && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">💡 </span>{t.tip}
+              </div>
+            )}
+            {t.mitigation && (
+              <div className="text-xs text-blue-400 mt-2">
+                <span className="font-bold">🛡️ </span>{t.mitigation}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-amber-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-orange-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-yellow-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-amber-600/30 border border-amber-400 rounded-full mb-6">
+                <span className="text-amber-300 font-bold">PROMPTING</span>
+                <span className="text-white">•</span>
+                <span className="text-amber-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-yellow-400">
+                Prompt Engineering
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-amber-300 font-bold">Techniques & Best Practices</span> — Get the best results from LLMs.
+              </p>
+            </header>
+
+            {/* Technique Hierarchy */}
+            <div className="bg-gradient-to-r from-amber-900/50 to-orange-900/50 border-2 border-amber-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-black text-white">🎯 PROMPTING TECHNIQUES</div>
+              </div>
+              <div className="flex items-center justify-center gap-3 flex-wrap">
+                <Hoverable id="tech-zeroshot">
+                  <div className="px-4 py-3 rounded-lg bg-green-900/50 border border-green-500 text-center">
+                    <div className="text-green-200 font-bold">0️⃣ Zero-Shot</div>
+                    <div className="text-green-300 text-xs mt-1">Direct ask</div>
+                  </div>
+                </Hoverable>
+                <div className="text-amber-400 text-xl">→</div>
+                <Hoverable id="tech-fewshot">
+                  <div className="px-4 py-3 rounded-lg bg-blue-900/50 border border-blue-500 text-center">
+                    <div className="text-blue-200 font-bold">🔢 Few-Shot</div>
+                    <div className="text-blue-300 text-xs mt-1">With examples</div>
+                  </div>
+                </Hoverable>
+                <div className="text-amber-400 text-xl">→</div>
+                <Hoverable id="tech-cot">
+                  <div className="px-4 py-3 rounded-lg bg-purple-900/50 border border-purple-500 text-center">
+                    <div className="text-purple-200 font-bold">🔗 Chain-of-Thought</div>
+                    <div className="text-purple-300 text-xs mt-1">Step by step</div>
+                  </div>
+                </Hoverable>
+                <div className="text-amber-400 text-xl">→</div>
+                <Hoverable id="tech-cot-fewshot">
+                  <div className="px-4 py-3 rounded-lg bg-pink-900/50 border border-pink-500 text-center">
+                    <div className="text-pink-200 font-bold">🔗📝 CoT + Few-Shot</div>
+                    <div className="text-pink-300 text-xs mt-1">Best of both</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </div>
+
+            {/* FUNDAMENTALS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Fundamentals" 
+                subtitle="Core concepts"
+                color="from-amber-500 to-orange-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="fund-what">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">📝 What</div>
+                    <div className="text-amber-100/70 text-sm">Crafting inputs for outputs</div>
+                    <div className="text-amber-300 text-xs mt-2">Optimization process</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fund-why">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🎯 Why</div>
+                    <div className="text-orange-100/70 text-sm">Better results, no fine-tune</div>
+                    <div className="text-orange-300 text-xs mt-2">Immediate improvements</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fund-anatomy">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">🔬 Anatomy</div>
+                    <div className="text-yellow-100/70 text-sm">Role, Context, Task, Format</div>
+                    <div className="text-yellow-300 text-xs mt-2">Examples, Constraints</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* ADVANCED TECHNIQUES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Advanced Techniques" 
+                subtitle="Beyond basic prompting"
+                color="from-purple-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="adv-selfask">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">❓ Self-Ask</div>
+                    <div className="text-purple-100/60 text-xs">Sub-questions</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-react">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🔄 ReAct</div>
+                    <div className="text-violet-100/60 text-xs">Reason + Act</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-tot">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🌳 Tree of Thoughts</div>
+                    <div className="text-fuchsia-100/60 text-xs">Explore paths</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-reflexion">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">🪞 Reflexion</div>
+                    <div className="text-pink-100/60 text-xs">Self-correction</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-sc">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">🗳️ Self-Consistency</div>
+                    <div className="text-rose-100/60 text-xs">Multiple + vote</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* STRUCTURED OUTPUT */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Structured Output" 
+                subtitle="Controlling format"
+                color="from-cyan-500 to-teal-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="struct-json">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">📋 JSON</div>
+                    <div className="text-cyan-100/70 text-sm">Structured data</div>
+                    <div className="text-cyan-300 text-xs mt-2">Specify schema</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="struct-xml">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">📄 XML/Tags</div>
+                    <div className="text-teal-100/70 text-sm">Section boundaries</div>
+                    <div className="text-teal-300 text-xs mt-2">Easy to parse</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="struct-markdown">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">📝 Markdown</div>
+                    <div className="text-emerald-100/70 text-sm">Natural structure</div>
+                    <div className="text-emerald-300 text-xs mt-2">Headers, lists, code</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* ROLES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Roles & Personas" 
+                subtitle="Setting behavior"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="role-system">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">🎭 System</div>
+                    <div className="text-blue-100/70 text-sm">Overall behavior</div>
+                    <div className="text-blue-300 text-xs mt-2">Consistent persona</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="role-expert">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">👨‍🔬 Expert</div>
+                    <div className="text-indigo-100/70 text-sm">Domain specialist</div>
+                    <div className="text-indigo-300 text-xs mt-2">Better terminology</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="role-audience">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">👥 Audience</div>
+                    <div className="text-violet-100/70 text-sm">Who it's for</div>
+                    <div className="text-violet-300 text-xs mt-2">Adjusts complexity</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CONSTRAINTS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Constraints" 
+                subtitle="Bounding the output"
+                color="from-red-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="const-format">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">📏 Format</div>
+                    <div className="text-red-100/70 text-sm">Structure requirements</div>
+                    <div className="text-red-300 text-xs mt-2">Bullets, sections</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="const-negative">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">🚫 Negative</div>
+                    <div className="text-rose-100/70 text-sm">What NOT to do</div>
+                    <div className="text-rose-300 text-xs mt-2">Often effective</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="const-length">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">📐 Length</div>
+                    <div className="text-pink-100/70 text-sm">Word/sentence limits</div>
+                    <div className="text-pink-300 text-xs mt-2">Approximate</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CONTEXT */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Context" 
+                subtitle="Grounding responses"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="ctx-rag">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">📚 RAG Context</div>
+                    <div className="text-green-100/70 text-sm">Inject documents</div>
+                    <div className="text-green-300 text-xs mt-2">Reduce hallucination</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ctx-examples">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">📝 Examples</div>
+                    <div className="text-emerald-100/70 text-sm">Choose wisely</div>
+                    <div className="text-emerald-300 text-xs mt-2">3-5 diverse ones</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ctx-memory">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">💭 Memory</div>
+                    <div className="text-teal-100/70 text-sm">Conversation history</div>
+                    <div className="text-teal-300 text-xs mt-2">Summarize if long</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* COMMON PATTERNS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Common Patterns" 
+                subtitle="Task templates"
+                color="from-orange-500 to-yellow-600"
+              />
+              
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="pattern-extract">
+                  <div className="p-3 rounded-lg bg-orange-900/50 border border-orange-400 text-center">
+                    <div className="text-orange-200 font-bold text-sm">🔍 Extract</div>
+                    <div className="text-orange-100/60 text-xs">Pull info</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pattern-classify">
+                  <div className="p-3 rounded-lg bg-amber-900/50 border border-amber-400 text-center">
+                    <div className="text-amber-200 font-bold text-sm">🏷️ Classify</div>
+                    <div className="text-amber-100/60 text-xs">Categorize</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pattern-summarize">
+                  <div className="p-3 rounded-lg bg-yellow-900/50 border border-yellow-400 text-center">
+                    <div className="text-yellow-200 font-bold text-sm">📄 Summarize</div>
+                    <div className="text-yellow-100/60 text-xs">Condense</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pattern-generate">
+                  <div className="p-3 rounded-lg bg-lime-900/50 border border-lime-400 text-center">
+                    <div className="text-lime-200 font-bold text-sm">✍️ Generate</div>
+                    <div className="text-lime-100/60 text-xs">Create content</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pattern-transform">
+                  <div className="p-3 rounded-lg bg-green-900/50 border border-green-400 text-center">
+                    <div className="text-green-200 font-bold text-sm">🔄 Transform</div>
+                    <div className="text-green-100/60 text-xs">Convert format</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PITFALLS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="Pitfalls" 
+                subtitle="What can go wrong"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="pit-hallucination">
+                  <div className="p-3 rounded-lg bg-slate-800 border border-slate-500 text-center">
+                    <div className="text-slate-200 font-bold text-sm">👻 Hallucination</div>
+                    <div className="text-slate-400 text-xs">Makes things up</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pit-injection">
+                  <div className="p-3 rounded-lg bg-zinc-800 border border-zinc-500 text-center">
+                    <div className="text-zinc-200 font-bold text-sm">💉 Injection</div>
+                    <div className="text-zinc-400 text-xs">Malicious override</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pit-verbose">
+                  <div className="p-3 rounded-lg bg-stone-800 border border-stone-500 text-center">
+                    <div className="text-stone-200 font-bold text-sm">📢 Verbosity</div>
+                    <div className="text-stone-400 text-xs">Too wordy</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pit-sycophancy">
+                  <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-500 text-center">
+                    <div className="text-neutral-200 font-bold text-sm">😊 Sycophancy</div>
+                    <div className="text-neutral-400 text-xs">Over-agreeing</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* OPTIMIZATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Optimization" 
+                subtitle="Improving prompts"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="opt-iterate">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">🔄 Iterate</div>
+                    <div className="text-pink-100/70 text-sm">Test, analyze, modify</div>
+                    <div className="text-pink-300 text-xs mt-2">Keep test set</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="opt-ab">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">🔀 A/B Test</div>
+                    <div className="text-rose-100/70 text-sm">Compare variants</div>
+                    <div className="text-rose-300 text-xs mt-2">Statistical comparison</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="opt-eval">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">📊 Evaluate</div>
+                    <div className="text-red-100/70 text-sm">Measure quality</div>
+                    <div className="text-red-300 text-xs mt-2">LLM-as-judge</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* TOOLS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="10" 
+                title="Tools" 
+                subtitle="Helpful utilities"
+                color="from-indigo-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="tool-playground">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">🎮 Playgrounds</div>
+                    <div className="text-indigo-100/70 text-sm">Interactive testing</div>
+                    <div className="text-indigo-300 text-xs mt-2">Quick iteration</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="tool-langchain">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🔗 LangChain</div>
+                    <div className="text-violet-100/70 text-sm">Prompt chains</div>
+                    <div className="text-violet-300 text-xs mt-2">Complex pipelines</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="tool-dspy">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">📐 DSPy</div>
+                    <div className="text-purple-100/70 text-sm">Programmatic prompts</div>
+                    <div className="text-purple-300 text-xs mt-2">Auto-optimization</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-amber-900/50 to-orange-900/50 border-2 border-amber-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                📝 PROMPT ENGINEERING SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Clear instructions, good examples, structured output.<br/>
+                Chain-of-thought for reasoning. Iterate and measure.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">Few-Shot</div>
+                  <div className="text-slate-400">Show examples</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">CoT</div>
+                  <div className="text-slate-400">Step by step</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">Structure</div>
+                  <div className="text-slate-400">JSON, XML, MD</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">Role</div>
+                  <div className="text-slate-400">Set persona</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-pink-300 font-bold">Iterate</div>
+                  <div className="text-slate-400">Test & improve</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Prompt Engineering • Techniques • Best Practices</p>
+              <p className="text-xs mt-1 text-slate-600">Get the best results from LLMs</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<PromptDiagram />);
+  </script>
+</body>
+</html>

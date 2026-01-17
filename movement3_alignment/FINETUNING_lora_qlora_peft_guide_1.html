@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fine-Tuning Guide - LoRA, QLoRA, PEFT</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function FineTuningDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHY FINE-TUNE
+        'why-finetune': {
+          title: '🎯 WHY FINE-TUNE?',
+          content: 'Adapt a pre-trained model to your specific task or domain.',
+          reasons: '• Domain adaptation (legal, medical, code)\n• Task specialization (classification, extraction)\n• Style/format control\n• Proprietary knowledge\n• Reduced prompt length',
+          vs_prompting: 'Prompting: Instructions at inference\nFine-tuning: Baked into weights\nFine-tuning = more consistent, efficient'
+        },
+        'why-not': {
+          title: '⚠️ WHEN NOT TO FINE-TUNE',
+          content: 'Fine-tuning isn\'t always the answer.',
+          alternatives: '• RAG: For factual knowledge\n• Prompting: For simple tasks\n• Few-shot: For format guidance\n• Agents: For complex workflows',
+          consider: 'Fine-tune when:\n• Need consistent behavior\n• Have quality training data\n• Prompting is too long/expensive'
+        },
+
+        // FINE-TUNING APPROACHES
+        'approach-full': {
+          title: '🔄 FULL FINE-TUNING',
+          content: 'Update all model parameters. Maximum quality, maximum cost.',
+          requirements: '7B: ~56GB VRAM (FP16) + optimizer\n70B: ~560GB VRAM = multi-GPU\nActual: 2-4× model size for training',
+          pros: 'Best quality\nFull adaptation\nNo architectural constraints',
+          cons: 'Massive GPU requirements\nSlow training\nCatastrophic forgetting risk'
+        },
+        'approach-peft': {
+          title: '⚡ PEFT (Parameter-Efficient)',
+          content: 'Update only a small subset of parameters.',
+          methods: 'LoRA: Low-rank adapters\nQLoRA: Quantized LoRA\nPrefix Tuning: Learnable prefix\nAdapter Layers: Small bottleneck modules\nIA³: Learned vectors',
+          benefit: '~0.1-1% of parameters\n10-100× less memory\nOften 90%+ of full fine-tune quality'
+        },
+
+        // LORA
+        'lora-concept': {
+          title: '🔷 LORA (Low-Rank Adaptation)',
+          content: 'Add trainable low-rank matrices to frozen weights.',
+          intuition: 'Weight update ΔW is low-rank\nΔW = A × B where A is d×r, B is r×d\nr << d (rank much smaller than dimension)',
+          math: 'Original: y = Wx\nLoRA: y = Wx + (BA)x\nOnly A and B are trained\nW stays frozen!'
+        },
+        'lora-rank': {
+          title: '📊 LORA RANK (r)',
+          content: 'Dimension of the low-rank decomposition.',
+          typical: 'r=8: Minimal, fast\nr=16: Good balance\nr=32: Better quality\nr=64: Near full fine-tune\nr=256: Rarely needed',
+          tradeoff: 'Higher rank:\n+ Better expressiveness\n- More parameters\n- More memory'
+        },
+        'lora-alpha': {
+          title: '📏 LORA ALPHA (α)',
+          content: 'Scaling factor for LoRA output.',
+          formula: 'Output = W×x + (α/r) × BA×x\n\nα/r controls contribution strength\nTypical: α = r or α = 2r',
+          intuition: 'Higher α = stronger LoRA effect\nUsually set α = r for neutral scaling\nThen tune learning rate instead'
+        },
+        'lora-target': {
+          title: '🎯 TARGET MODULES',
+          content: 'Which layers to apply LoRA to.',
+          common: 'Attention projections: q_proj, k_proj, v_proj, o_proj\nMLP layers: gate_proj, up_proj, down_proj\nAll linear layers: Maximum effect',
+          recommendation: 'Start: q_proj, v_proj\nBetter: All attention + MLP\nDiminishing returns beyond that'
+        },
+        'lora-params': {
+          title: '📊 LORA PARAMETER COUNT',
+          content: 'How many parameters does LoRA add?',
+          formula: 'Per layer: 2 × d × r\nTotal: num_layers × num_targets × 2 × d × r',
+          example: 'LLaMA-7B with r=16:\nd=4096, 32 layers, 4 targets\n= 32 × 4 × 2 × 4096 × 16\n= 16.7M params (0.24% of 7B)'
+        },
+
+        // QLORA
+        'qlora-concept': {
+          title: '🔶 QLORA',
+          content: 'LoRA with 4-bit quantized base model.',
+          innovation: 'Base model: 4-bit NF4 quantized\nLoRA adapters: FP16/BF16\nPaged optimizers: Handle memory spikes',
+          benefit: '70B model fits on single 48GB GPU!\nNear-full fine-tuning quality\nFraction of the cost'
+        },
+        'qlora-nf4': {
+          title: '🔢 NF4 (4-bit NormalFloat)',
+          content: 'Optimal 4-bit quantization for neural networks.',
+          mechanism: 'Quantization values at normal distribution quantiles\nBetter than uniform INT4\nTheoretically optimal for Gaussian weights',
+          double: 'Double quantization: Quantize the scales too!\nFurther memory savings'
+        },
+        'qlora-memory': {
+          title: '💾 QLORA MEMORY',
+          content: 'Memory requirements with QLoRA.',
+          comparison: 'Full fine-tune 7B: ~112GB\nLoRA 7B (FP16): ~28GB\nQLoRA 7B: ~6GB\n\nFull fine-tune 70B: ~1.1TB\nQLoRA 70B: ~48GB',
+          magic: 'Train 70B on single A100!\nOr 7B on consumer GPU'
+        },
+        'qlora-quality': {
+          title: '📊 QLORA QUALITY',
+          content: 'How does QLoRA compare to full fine-tuning?',
+          findings: 'QLoRA matches full fine-tuning on most tasks\nSometimes slightly worse on complex reasoning\nMuch better than expected for 4-bit',
+          paper: 'Dettmers et al. 2023: "QLoRA: Efficient Finetuning of Quantized LLMs"'
+        },
+
+        // OTHER PEFT
+        'peft-prefix': {
+          title: '📝 PREFIX TUNING',
+          content: 'Learn continuous prompt prefixes.',
+          mechanism: 'Add learnable vectors to key/value\nLike a learned "soft prompt"\nNo changes to model weights',
+          params: 'Prefix length × hidden_dim × num_layers\nTypically < 0.1% of model'
+        },
+        'peft-adapter': {
+          title: '🔌 ADAPTER LAYERS',
+          content: 'Insert small bottleneck modules between layers.',
+          architecture: 'Down-project → Activation → Up-project\nBottleneck dimension << hidden dim\nResidual connection',
+          tradeoff: 'Adds inference latency\nVery parameter efficient\nGood for multi-task'
+        },
+        'peft-ia3': {
+          title: '🔢 IA³',
+          content: 'Learn vectors that scale activations.',
+          mechanism: 'Learn vectors l_k, l_v, l_ff\nMultiply activations elementwise\nExtremely few parameters',
+          params: 'Only d parameters per layer!\n~0.01% of model size\nLimited expressiveness'
+        },
+
+        // DATA
+        'data-format': {
+          title: '📄 DATA FORMAT',
+          content: 'How to structure training data.',
+          formats: 'Instruction format:\n{"instruction": "...", "input": "...", "output": "..."}\n\nConversation format:\n{"messages": [{"role": "user/assistant", "content": "..."}]}\n\nCompletion format:\n{"prompt": "...", "completion": "..."}',
+          tip: 'Match your inference format!'
+        },
+        'data-quality': {
+          title: '⭐ DATA QUALITY',
+          content: 'Quality matters more than quantity.',
+          principles: '• Diverse, representative examples\n• Consistent format\n• High-quality outputs\n• Clear instructions\n• Cover edge cases',
+          amount: '1K examples: Noticeable effect\n10K examples: Good quality\n100K+ examples: Diminishing returns'
+        },
+        'data-augment': {
+          title: '🔄 DATA AUGMENTATION',
+          content: 'Increase effective dataset size.',
+          techniques: '• Paraphrase inputs\n• Vary instruction phrasing\n• Generate with stronger model\n• Back-translation\n• Synthetic data generation',
+          caution: 'Don\'t introduce errors\nMaintain diversity\nValidate augmented data'
+        },
+
+        // TRAINING
+        'train-lr': {
+          title: '📈 LEARNING RATE',
+          content: 'Critical hyperparameter for fine-tuning.',
+          typical: 'Full fine-tune: 1e-5 to 5e-5\nLoRA: 1e-4 to 3e-4\nHigher than pre-training!',
+          schedule: 'Cosine decay common\nWarmup: 3-10% of steps\nLinear decay also works'
+        },
+        'train-epochs': {
+          title: '🔄 EPOCHS',
+          content: 'How many passes through the data.',
+          typical: 'Instruction tuning: 1-3 epochs\nDomain adaptation: 3-10 epochs\nWatch for overfitting!',
+          signs: 'Overfit signs:\n• Train loss ↓, eval loss ↑\n• Repetitive outputs\n• Loss of general knowledge'
+        },
+        'train-batch': {
+          title: '📦 BATCH SIZE',
+          content: 'Samples per gradient update.',
+          tradeoff: 'Larger batch:\n+ Stable gradients\n+ Faster (GPU utilization)\n- More memory\n- May need higher LR',
+          gradient_accum: 'Gradient accumulation:\nSmall micro-batch, accumulate N steps\nEffective batch = micro × N'
+        },
+        'train-optimizer': {
+          title: '⚙️ OPTIMIZER',
+          content: 'How to update weights.',
+          options: 'AdamW: Default, works well\nAdam 8-bit: Memory efficient\nSGD: Rarely used for LLMs\nAdafactor: Very memory efficient',
+          paged: 'Paged optimizers (QLoRA):\nOffload optimizer states to CPU\nHandle memory spikes'
+        },
+
+        // FRAMEWORKS
+        'framework-hf': {
+          title: '🤗 HUGGINGFACE TRANSFORMERS',
+          content: 'De facto standard for fine-tuning.',
+          components: 'Trainer: High-level training loop\nPEFT: LoRA/QLoRA library\nTRL: RLHF training\nAccelerate: Multi-GPU/distributed',
+          usage: 'trainer = Trainer(\n  model=model,\n  args=training_args,\n  train_dataset=dataset\n)\ntrainer.train()'
+        },
+        'framework-axolotl': {
+          title: '🦎 AXOLOTL',
+          content: 'Config-driven fine-tuning framework.',
+          features: 'YAML configuration\nMany dataset formats\nBuilt-in LoRA/QLoRA\nFlashAttention support\nMulti-GPU easy',
+          benefit: 'No code needed for common cases\nBattle-tested configs\nActive community'
+        },
+        'framework-unsloth': {
+          title: '🦥 UNSLOTH',
+          content: '2x faster fine-tuning with custom kernels.',
+          speedup: '2x faster training\n60% less memory\nFree tier available',
+          how: 'Custom Triton kernels\nOptimized LoRA implementation\nIntegrated quantization'
+        },
+        'framework-llamafactory': {
+          title: '🏭 LLAMA-FACTORY',
+          content: 'Unified fine-tuning for many models.',
+          features: 'Web UI and CLI\n100+ model support\nAll PEFT methods\nRLHF integration',
+          strength: 'Easy to use\nGood defaults\nActive development'
+        },
+
+        // EVALUATION
+        'eval-loss': {
+          title: '📉 TRAINING/EVAL LOSS',
+          content: 'Basic training metrics.',
+          interpret: 'Train loss ↓: Model is learning\nEval loss ↓: Generalizing well\nEval loss ↑: Overfitting\nGap widening: Overfit',
+          target: 'Smooth decrease\nEval follows train\nPlateau = done or stuck'
+        },
+        'eval-benchmark': {
+          title: '📊 BENCHMARKS',
+          content: 'Evaluate on standard tasks.',
+          common: 'MMLU: Knowledge\nHellaSwag: Commonsense\nHumanEval: Code\nTruthfulQA: Honesty\nARC: Reasoning',
+          tool: 'lm-eval-harness:\nStandardized evaluation\nMany benchmarks'
+        },
+        'eval-human': {
+          title: '👤 HUMAN EVALUATION',
+          content: 'Ultimately what matters.',
+          aspects: '• Helpfulness\n• Accuracy\n• Safety\n• Style/format\n• Specific task performance',
+          method: 'A/B testing\nBlind comparisons\nRubric scoring'
+        },
+        'eval-overfit': {
+          title: '⚠️ CATASTROPHIC FORGETTING',
+          content: 'Model forgets pre-training knowledge.',
+          signs: '• Worse on general benchmarks\n• Loses capabilities\n• Only good on fine-tune distribution',
+          prevent: '• Lower learning rate\n• Fewer epochs\n• Mix in general data\n• Use LoRA (less risk)'
+        },
+
+        // DEPLOYMENT
+        'deploy-merge': {
+          title: '🔀 MERGE ADAPTERS',
+          content: 'Combine LoRA weights into base model.',
+          process: 'W_merged = W_base + α/r × BA\nNo adapter overhead at inference\nSingle model file',
+          when: 'Production deployment\nMaximum inference speed\nSimplify serving'
+        },
+        'deploy-serve': {
+          title: '🚀 SERVING',
+          content: 'Deploy your fine-tuned model.',
+          options: 'vLLM: Fast inference server\nTGI: HuggingFace server\nOllama: Local deployment\nAnyscale: Managed serving',
+          tip: 'Quantize for deployment\nAWQ/GPTQ for efficiency'
+        },
+        'deploy-multi': {
+          title: '🔄 MULTI-ADAPTER',
+          content: 'Serve multiple LoRA adapters from one base.',
+          benefit: 'One base model in memory\nSwap adapters per request\nMulti-tenant serving',
+          tools: 'LoRAX: Multi-LoRA serving\nvLLM: LoRA support\nS-LoRA: Scalable serving'
+        },
+
+        // RECIPES
+        'recipe-instruct': {
+          title: '📝 INSTRUCTION TUNING',
+          content: 'Train model to follow instructions.',
+          data: 'Alpaca-style: (instruction, input, output)\nShareGPT: Conversation format\nDolly, OpenAssistant datasets',
+          config: 'LoRA r=16-64\n1-3 epochs\nLR 2e-4\n1K-100K examples'
+        },
+        'recipe-chat': {
+          title: '💬 CHAT FINE-TUNING',
+          content: 'Train conversational assistant.',
+          format: 'Multi-turn conversations\nSystem prompts\nUser/assistant turns',
+          data: 'ShareGPT conversations\nOpenAssistant\nUltraChat'
+        },
+        'recipe-domain': {
+          title: '🏥 DOMAIN ADAPTATION',
+          content: 'Adapt to specific domain (legal, medical, etc.).',
+          approach: 'Phase 1: Continue pre-train on domain text\nPhase 2: Instruction tune on domain tasks',
+          data: 'Domain corpora (papers, docs)\nDomain Q&A\nDomain-specific instructions'
+        },
+        'recipe-code': {
+          title: '💻 CODE FINE-TUNING',
+          content: 'Improve coding capabilities.',
+          data: 'Code completion pairs\nInstruction → Code\nBug fix pairs\nCode explanation',
+          tips: 'Include docstrings\nMultiple languages\nTest cases'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.comparison && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">COMPARISON</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.comparison}</pre>
+              </div>
+            )}
+            {t.typical && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TYPICAL VALUES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.typical}</pre>
+              </div>
+            )}
+            {t.formats && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMATS</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.formats}</pre>
+              </div>
+            )}
+            {t.config && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">CONFIG</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.config}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.tradeoff && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⚖️ </span>{t.tradeoff}
+              </div>
+            )}
+            {t.pros && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.pros}
+              </div>
+            )}
+            {t.cons && (
+              <div className="text-xs text-red-400 mt-1">
+                <span className="font-bold">❌ </span>{t.cons}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-emerald-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-teal-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-green-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600/30 border border-emerald-400 rounded-full mb-6">
+                <span className="text-emerald-300 font-bold">FINE-TUNING</span>
+                <span className="text-white">•</span>
+                <span className="text-emerald-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-400 to-green-400">
+                Fine-Tuning Guide
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-emerald-300 font-bold">LoRA, QLoRA, PEFT</span> — Train LLMs efficiently on your data.
+              </p>
+            </header>
+
+            {/* Key Insight */}
+            <div className="bg-gradient-to-r from-emerald-900/50 to-teal-900/50 border-2 border-emerald-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-black text-white">⚡ LORA MAGIC</div>
+              </div>
+              <div className="flex items-center justify-center gap-4">
+                <div className="px-6 py-4 rounded-lg bg-slate-800 border border-slate-600 text-center">
+                  <div className="text-slate-400 text-sm">Full Fine-tune 7B</div>
+                  <div className="text-red-400 font-bold text-xl">~112 GB</div>
+                </div>
+                <div className="text-emerald-400 text-3xl">→</div>
+                <div className="px-6 py-4 rounded-lg bg-emerald-900/50 border border-emerald-500 text-center">
+                  <div className="text-emerald-400 text-sm">QLoRA 7B</div>
+                  <div className="text-emerald-300 font-bold text-xl">~6 GB</div>
+                </div>
+                <div className="text-slate-500 text-lg mx-4">|</div>
+                <div className="px-6 py-4 rounded-lg bg-slate-800 border border-slate-600 text-center">
+                  <div className="text-slate-400 text-sm">Full Fine-tune 70B</div>
+                  <div className="text-red-400 font-bold text-xl">~1.1 TB</div>
+                </div>
+                <div className="text-emerald-400 text-3xl">→</div>
+                <div className="px-6 py-4 rounded-lg bg-emerald-900/50 border border-emerald-500 text-center">
+                  <div className="text-emerald-400 text-sm">QLoRA 70B</div>
+                  <div className="text-emerald-300 font-bold text-xl">~48 GB</div>
+                </div>
+              </div>
+            </div>
+
+            {/* WHY FINE-TUNE */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Why Fine-Tune?" 
+                subtitle="When to adapt vs prompt"
+                color="from-emerald-500 to-green-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="why-finetune">
+                  <div className="p-5 rounded-xl bg-emerald-900/40 border-2 border-emerald-500">
+                    <div className="text-xl font-black text-emerald-200 mb-2">✅ When to Fine-Tune</div>
+                    <ul className="text-emerald-100/70 text-sm space-y-1">
+                      <li>• Domain adaptation (legal, medical)</li>
+                      <li>• Consistent style/format</li>
+                      <li>• Proprietary knowledge</li>
+                      <li>• Reduce prompt length</li>
+                    </ul>
+                  </div>
+                </Hoverable>
+                <Hoverable id="why-not">
+                  <div className="p-5 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-xl font-black text-slate-200 mb-2">❌ When NOT to</div>
+                    <ul className="text-slate-400 text-sm space-y-1">
+                      <li>• Factual knowledge → Use RAG</li>
+                      <li>• Simple tasks → Prompt engineering</li>
+                      <li>• No quality data → Don't bother</li>
+                      <li>• Complex workflows → Use agents</li>
+                    </ul>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* APPROACHES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Fine-Tuning Approaches" 
+                subtitle="Full vs Parameter-Efficient"
+                color="from-teal-500 to-cyan-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="approach-full">
+                  <div className="p-5 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-xl font-black text-slate-200 mb-2">🔄 Full Fine-Tuning</div>
+                    <div className="text-slate-400 text-sm mb-2">Update all parameters</div>
+                    <div className="text-red-400 text-xs">7B: ~112GB VRAM needed</div>
+                    <div className="text-green-400 text-xs mt-1">Best quality, highest cost</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="approach-peft">
+                  <div className="p-5 rounded-xl bg-teal-900/40 border-2 border-teal-500">
+                    <div className="text-xl font-black text-teal-200 mb-2">⚡ PEFT Methods</div>
+                    <div className="text-teal-100/70 text-sm mb-2">~0.1-1% of parameters</div>
+                    <div className="text-teal-300 text-xs">10-100× less memory</div>
+                    <div className="text-teal-300 text-xs mt-1">90%+ of full fine-tune quality</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* LORA */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="LoRA" 
+                subtitle="Low-Rank Adaptation"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <Hoverable id="lora-concept">
+                <div className="bg-blue-900/30 rounded-xl p-6 mb-4 border border-blue-500/30">
+                  <div className="text-center">
+                    <div className="text-blue-300 font-bold text-lg mb-2">LoRA Formula</div>
+                    <div className="font-mono text-blue-200 text-xl">y = W·x + (B·A)·x</div>
+                    <div className="text-blue-100/60 text-sm mt-2">W frozen, only train A and B matrices</div>
+                  </div>
+                </div>
+              </Hoverable>
+
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <Hoverable id="lora-rank">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">📊 Rank (r)</div>
+                    <div className="text-blue-100/70 text-sm">8-64 typical</div>
+                    <div className="text-blue-300 text-xs mt-2">Higher = more params</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="lora-alpha">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">📏 Alpha (α)</div>
+                    <div className="text-indigo-100/70 text-sm">Usually α = r</div>
+                    <div className="text-indigo-300 text-xs mt-2">Scaling factor</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="lora-target">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🎯 Targets</div>
+                    <div className="text-violet-100/70 text-sm">q,k,v,o projections</div>
+                    <div className="text-violet-300 text-xs mt-2">+ MLP layers</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="lora-params">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">📊 Params</div>
+                    <div className="text-purple-100/70 text-sm">~0.1-1% of model</div>
+                    <div className="text-purple-300 text-xs mt-2">16M for 7B at r=16</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* QLORA */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="QLoRA" 
+                subtitle="Quantized LoRA for massive savings"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Hoverable id="qlora-concept">
+                  <div className="p-5 rounded-xl bg-orange-900/40 border-2 border-orange-500">
+                    <div className="text-xl font-black text-orange-200 mb-2">🔶 QLoRA Concept</div>
+                    <div className="text-orange-100/70 text-sm">
+                      Base model: 4-bit NF4<br/>
+                      LoRA adapters: FP16<br/>
+                      Paged optimizers
+                    </div>
+                    <div className="text-orange-300 text-xs mt-2">70B on single 48GB GPU!</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="qlora-memory">
+                  <div className="p-5 rounded-xl bg-amber-900/40 border-2 border-amber-500">
+                    <div className="text-xl font-black text-amber-200 mb-2">💾 Memory Savings</div>
+                    <div className="text-amber-100/70 text-sm space-y-1">
+                      <div>Full 7B: 112GB → QLoRA: 6GB</div>
+                      <div>Full 70B: 1.1TB → QLoRA: 48GB</div>
+                    </div>
+                    <div className="text-amber-300 text-xs mt-2">~20× memory reduction</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Hoverable id="qlora-nf4">
+                  <div className="p-3 rounded-lg bg-orange-900/30 border border-orange-500/50">
+                    <div className="text-orange-200 font-bold text-sm">🔢 NF4 Quantization</div>
+                    <div className="text-orange-100/60 text-xs">Optimal 4-bit for Gaussian weights</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="qlora-quality">
+                  <div className="p-3 rounded-lg bg-amber-900/30 border border-amber-500/50">
+                    <div className="text-amber-200 font-bold text-sm">📊 Quality</div>
+                    <div className="text-amber-100/60 text-xs">Matches full fine-tuning on most tasks</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* OTHER PEFT */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Other PEFT Methods" 
+                subtitle="Prefix, Adapters, IA³"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="peft-prefix">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">📝 Prefix Tuning</div>
+                    <div className="text-pink-100/70 text-sm">Learnable soft prompts</div>
+                    <div className="text-pink-300 text-xs mt-2">&lt; 0.1% of model</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="peft-adapter">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">🔌 Adapters</div>
+                    <div className="text-rose-100/70 text-sm">Bottleneck modules</div>
+                    <div className="text-rose-300 text-xs mt-2">Good for multi-task</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="peft-ia3">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">🔢 IA³</div>
+                    <div className="text-red-100/70 text-sm">Learned scaling vectors</div>
+                    <div className="text-red-300 text-xs mt-2">~0.01% of model</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* DATA */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Training Data" 
+                subtitle="Quality over quantity"
+                color="from-yellow-500 to-lime-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="data-format">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">📄 Format</div>
+                    <div className="text-yellow-100/70 text-sm">Instruction, Chat, Completion</div>
+                    <div className="text-yellow-300 text-xs mt-2">Match inference format!</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="data-quality">
+                  <div className="p-4 rounded-xl bg-lime-900/50 border-2 border-lime-400">
+                    <div className="text-lg font-black text-lime-200 mb-2">⭐ Quality</div>
+                    <div className="text-lime-100/70 text-sm">1K-100K examples</div>
+                    <div className="text-lime-300 text-xs mt-2">Quality {'>'} Quantity</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="data-augment">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🔄 Augmentation</div>
+                    <div className="text-green-100/70 text-sm">Paraphrase, synthetic</div>
+                    <div className="text-green-300 text-xs mt-2">Don't introduce errors</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* TRAINING PARAMS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Training Parameters" 
+                subtitle="Hyperparameters that matter"
+                color="from-cyan-500 to-sky-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="train-lr">
+                  <div className="p-3 rounded-lg bg-cyan-900/50 border border-cyan-400 text-center">
+                    <div className="text-cyan-200 font-bold text-sm">📈 Learning Rate</div>
+                    <div className="text-cyan-100/60 text-xs">LoRA: 1e-4 to 3e-4</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-epochs">
+                  <div className="p-3 rounded-lg bg-sky-900/50 border border-sky-400 text-center">
+                    <div className="text-sky-200 font-bold text-sm">🔄 Epochs</div>
+                    <div className="text-sky-100/60 text-xs">1-3 typical</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-batch">
+                  <div className="p-3 rounded-lg bg-blue-900/50 border border-blue-400 text-center">
+                    <div className="text-blue-200 font-bold text-sm">📦 Batch Size</div>
+                    <div className="text-blue-100/60 text-xs">+ gradient accum</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-optimizer">
+                  <div className="p-3 rounded-lg bg-indigo-900/50 border border-indigo-400 text-center">
+                    <div className="text-indigo-200 font-bold text-sm">⚙️ Optimizer</div>
+                    <div className="text-indigo-100/60 text-xs">AdamW, 8-bit Adam</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* FRAMEWORKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="Frameworks" 
+                subtitle="Tools for fine-tuning"
+                color="from-violet-500 to-purple-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="framework-hf">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🤗 HuggingFace</div>
+                    <div className="text-violet-100/70 text-sm">Standard choice</div>
+                    <div className="text-violet-300 text-xs mt-2">Trainer + PEFT + TRL</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="framework-axolotl">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">🦎 Axolotl</div>
+                    <div className="text-purple-100/70 text-sm">Config-driven</div>
+                    <div className="text-purple-300 text-xs mt-2">YAML, no code</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="framework-unsloth">
+                  <div className="p-4 rounded-xl bg-fuchsia-900/50 border-2 border-fuchsia-400">
+                    <div className="text-lg font-black text-fuchsia-200 mb-2">🦥 Unsloth</div>
+                    <div className="text-fuchsia-100/70 text-sm">2× faster</div>
+                    <div className="text-fuchsia-300 text-xs mt-2">Custom kernels</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="framework-llamafactory">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">🏭 LLaMA-Factory</div>
+                    <div className="text-pink-100/70 text-sm">Web UI + CLI</div>
+                    <div className="text-pink-300 text-xs mt-2">100+ models</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* EVALUATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Evaluation" 
+                subtitle="Measure quality"
+                color="from-red-500 to-orange-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="eval-loss">
+                  <div className="p-3 rounded-lg bg-red-900/50 border border-red-400 text-center">
+                    <div className="text-red-200 font-bold text-sm">📉 Loss Curves</div>
+                    <div className="text-red-100/60 text-xs">Train vs Eval</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-benchmark">
+                  <div className="p-3 rounded-lg bg-orange-900/50 border border-orange-400 text-center">
+                    <div className="text-orange-200 font-bold text-sm">📊 Benchmarks</div>
+                    <div className="text-orange-100/60 text-xs">MMLU, HumanEval</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-human">
+                  <div className="p-3 rounded-lg bg-amber-900/50 border border-amber-400 text-center">
+                    <div className="text-amber-200 font-bold text-sm">👤 Human Eval</div>
+                    <div className="text-amber-100/60 text-xs">What matters most</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-overfit">
+                  <div className="p-3 rounded-lg bg-yellow-900/50 border border-yellow-400 text-center">
+                    <div className="text-yellow-200 font-bold text-sm">⚠️ Forgetting</div>
+                    <div className="text-yellow-100/60 text-xs">Watch general benchmarks</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* DEPLOYMENT */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="10" 
+                title="Deployment" 
+                subtitle="Serve your model"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="deploy-merge">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-lg font-black text-slate-200 mb-2">🔀 Merge</div>
+                    <div className="text-slate-400 text-sm">Combine adapters into base</div>
+                    <div className="text-slate-500 text-xs mt-2">Single model file</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="deploy-serve">
+                  <div className="p-4 rounded-xl bg-zinc-800 border-2 border-zinc-500">
+                    <div className="text-lg font-black text-zinc-200 mb-2">🚀 Serve</div>
+                    <div className="text-zinc-400 text-sm">vLLM, TGI, Ollama</div>
+                    <div className="text-zinc-500 text-xs mt-2">Quantize for efficiency</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="deploy-multi">
+                  <div className="p-4 rounded-xl bg-stone-800 border-2 border-stone-500">
+                    <div className="text-lg font-black text-stone-200 mb-2">🔄 Multi-Adapter</div>
+                    <div className="text-stone-400 text-sm">One base, many LoRAs</div>
+                    <div className="text-stone-500 text-xs mt-2">LoRAX, S-LoRA</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* RECIPES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="11" 
+                title="Recipes" 
+                subtitle="Common fine-tuning tasks"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="recipe-instruct">
+                  <div className="p-3 rounded-lg bg-green-900/50 border border-green-400 text-center">
+                    <div className="text-green-200 font-bold text-sm">📝 Instruction</div>
+                    <div className="text-green-100/60 text-xs">Follow commands</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="recipe-chat">
+                  <div className="p-3 rounded-lg bg-emerald-900/50 border border-emerald-400 text-center">
+                    <div className="text-emerald-200 font-bold text-sm">💬 Chat</div>
+                    <div className="text-emerald-100/60 text-xs">Multi-turn conv</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="recipe-domain">
+                  <div className="p-3 rounded-lg bg-teal-900/50 border border-teal-400 text-center">
+                    <div className="text-teal-200 font-bold text-sm">🏥 Domain</div>
+                    <div className="text-teal-100/60 text-xs">Legal, medical</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="recipe-code">
+                  <div className="p-3 rounded-lg bg-cyan-900/50 border border-cyan-400 text-center">
+                    <div className="text-cyan-200 font-bold text-sm">💻 Code</div>
+                    <div className="text-cyan-100/60 text-xs">Programming</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-emerald-900/50 to-teal-900/50 border-2 border-emerald-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🎓 FINE-TUNING SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                QLoRA enables fine-tuning 70B models on single GPUs.<br/>
+                Quality data matters more than quantity. Evaluate carefully.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">LoRA r=16</div>
+                  <div className="text-slate-400">Good default</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">QLoRA</div>
+                  <div className="text-slate-400">4-bit base</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-yellow-300 font-bold">1K-100K</div>
+                  <div className="text-slate-400">Examples</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">LR 2e-4</div>
+                  <div className="text-slate-400">Typical</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">1-3 epochs</div>
+                  <div className="text-slate-400">Don't overfit</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Fine-Tuning Guide • LoRA • QLoRA • PEFT</p>
+              <p className="text-xs mt-1 text-slate-600">Adapt LLMs efficiently to your use case</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<FineTuningDiagram />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Evaluation & Benchmarks</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function EvaluationDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHY EVALUATE
+        'why-eval': {
+          title: '🎯 WHY EVALUATE?',
+          content: 'Understand model capabilities and compare models objectively.',
+          reasons: '• Compare models fairly\n• Track progress over time\n• Identify strengths/weaknesses\n• Guide development decisions\n• Avoid hype, see reality',
+          caution: 'Benchmarks ≠ Real-world performance\nAlways test on your specific use case'
+        },
+        'eval-types': {
+          title: '📊 EVALUATION TYPES',
+          content: 'Different ways to measure LLM quality.',
+          types: 'Automatic benchmarks:\n• Standardized tests\n• Reproducible\n• May not reflect real use\n\nHuman evaluation:\n• Most reliable\n• Expensive, slow\n• Subjective',
+          hybrid: 'LLM-as-judge: Use GPT-4 to evaluate\nFaster than human, often correlates well'
+        },
+
+        // KNOWLEDGE BENCHMARKS
+        'bench-mmlu': {
+          title: '📚 MMLU',
+          content: 'Massive Multitask Language Understanding. 57 subjects, 14K questions.',
+          subjects: 'STEM, Humanities, Social Sciences, Other\nElementary to professional level\nMultiple choice (A/B/C/D)',
+          scores: 'GPT-4: 86.4%\nClaude 3 Opus: 86.8%\nGemini Ultra: 90%\nLLaMA 3 70B: 79.5%',
+          note: 'Approaching saturation\n5-shot evaluation standard'
+        },
+        'bench-mmlu-pro': {
+          title: '📚 MMLU-PRO',
+          content: 'Harder version of MMLU with 10 answer choices.',
+          changes: '10 options instead of 4\nHarder questions\nReduced random guess success\nMore discriminating',
+          scores: 'GPT-4o: ~73%\nClaude 3.5 Sonnet: ~74%\nLLaMA 3 70B: ~56%',
+          purpose: 'Better differentiate frontier models'
+        },
+        'bench-arc': {
+          title: '🧪 ARC (AI2 Reasoning Challenge)',
+          content: 'Grade-school science questions requiring reasoning.',
+          splits: 'ARC-Easy: Simple questions\nARC-Challenge: Harder, requires reasoning\nMultiple choice format',
+          scores: 'GPT-4: 96.3% (Challenge)\nClaude 3 Opus: 96.4%\nLLaMA 3 70B: 93.0%',
+          focus: 'Tests scientific reasoning, not just knowledge'
+        },
+        'bench-triviaqa': {
+          title: '❓ TRIVIAQA',
+          content: 'Reading comprehension with trivia questions.',
+          format: 'Question + evidence documents\nTest factual recall\n95K question-answer pairs',
+          use: 'Tests knowledge retrieval\nOpen-domain QA benchmark'
+        },
+
+        // REASONING BENCHMARKS
+        'bench-gsm8k': {
+          title: '🔢 GSM8K',
+          content: 'Grade School Math. 8.5K multi-step word problems.',
+          format: 'Word problems requiring arithmetic\n2-8 steps to solve\nTest mathematical reasoning',
+          scores: 'GPT-4: 92%\nClaude 3 Opus: 95%\nLLaMA 3 70B: 93%',
+          note: 'Chain-of-thought helps significantly'
+        },
+        'bench-math': {
+          title: '🔢 MATH',
+          content: 'Competition mathematics. Much harder than GSM8K.',
+          levels: '5 difficulty levels\nAlgebra, geometry, number theory, etc.\n12.5K problems',
+          scores: 'GPT-4: 52.9%\nClaude 3 Opus: 60.1%\nLLaMA 3 70B: 50.4%',
+          note: 'Still challenging for all models'
+        },
+        'bench-hellaswag': {
+          title: '📖 HELLASWAG',
+          content: 'Commonsense reasoning about situations.',
+          format: 'Given a scenario, pick the most likely continuation\n4-way multiple choice\nAdversarially filtered',
+          scores: 'GPT-4: 95.3%\nClaude 3 Opus: 95.4%\nLLaMA 3 70B: 88.0%',
+          tests: 'Physical and social commonsense'
+        },
+        'bench-winogrande': {
+          title: '🧩 WINOGRANDE',
+          content: 'Pronoun resolution requiring commonsense.',
+          format: 'Fill in the blank\nRequires world knowledge\n44K problems',
+          example: '"The trophy doesn\'t fit in the suitcase because it\'s too [big/small]"\nWhich refers to trophy vs suitcase?',
+          tests: 'Commonsense reasoning'
+        },
+        'bench-bbh': {
+          title: '🧠 BIG-BENCH HARD',
+          content: '23 challenging tasks from BIG-Bench.',
+          tasks: 'Boolean expressions\nCausal judgment\nDate understanding\nLogical deduction\n...and more',
+          use: 'Tests diverse reasoning abilities\nChain-of-thought evaluation'
+        },
+
+        // CODE BENCHMARKS
+        'bench-humaneval': {
+          title: '💻 HUMANEVAL',
+          content: '164 hand-written Python programming problems.',
+          format: 'Function signature + docstring\nGenerate implementation\nTest with unit tests',
+          metric: 'Pass@1: First attempt success\nPass@10: Any of 10 attempts',
+          scores: 'GPT-4: 67% (Pass@1)\nClaude 3 Opus: 84.9%\nLLaMA 3 70B: 81.7%'
+        },
+        'bench-mbpp': {
+          title: '💻 MBPP',
+          content: 'Mostly Basic Python Problems. 974 crowd-sourced.',
+          format: 'Task description\nGenerate Python function\n3 test cases each',
+          scores: 'GPT-4: 83.0%\nClaude 3 Opus: 90%+\nLLaMA 3 70B: 82.0%',
+          note: 'Easier than HumanEval'
+        },
+        'bench-apps': {
+          title: '💻 APPS',
+          content: '10K coding problems from competitions.',
+          levels: 'Introductory, Interview, Competition\nMuch harder than HumanEval\nLong problem descriptions',
+          use: 'Tests algorithmic coding\nReal competitive programming'
+        },
+        'bench-swebench': {
+          title: '🐛 SWE-BENCH',
+          content: 'Real GitHub issues to resolve.',
+          format: 'Issue description + codebase\nGenerate patch to fix\nRun actual test suite',
+          scores: 'GPT-4: ~1.7%\nClaude 3.5 Sonnet: ~49% (Verified)\nBest agents: ~50%+',
+          note: 'Very challenging real-world benchmark'
+        },
+
+        // SAFETY BENCHMARKS
+        'bench-truthfulqa': {
+          title: '✅ TRUTHFULQA',
+          content: 'Tests if models give truthful answers.',
+          focus: 'Questions humans often answer incorrectly\nMisconceptions, conspiracy theories\n817 questions',
+          scores: 'Tests tendency to repeat false beliefs\nHigher = more truthful',
+          note: 'Measures "honest" vs "confident"'
+        },
+        'bench-toxigen': {
+          title: '⚠️ TOXIGEN',
+          content: 'Tests toxic language generation.',
+          format: '274K toxic and benign statements\nTest if model generates/detects toxicity',
+          use: 'Safety evaluation\nBias detection'
+        },
+        'bench-bold': {
+          title: '⚖️ BOLD',
+          content: 'Bias in Open-ended Language Generation.',
+          format: 'Prompts about different demographics\nMeasure bias in completions\nRace, gender, religion, etc.',
+          use: 'Fairness evaluation\nBias auditing'
+        },
+
+        // CHAT/INSTRUCTION
+        'bench-alpacaeval': {
+          title: '🦙 ALPACAEVAL',
+          content: 'Automated evaluation of instruction following.',
+          method: 'GPT-4 compares model output to reference\n805 instructions\nWin rate against baseline',
+          scores: 'Measures instruction following ability\nCorrelates with human preference',
+          versions: 'AlpacaEval 2.0: Length-controlled'
+        },
+        'bench-mtbench': {
+          title: '💬 MT-BENCH',
+          content: 'Multi-turn conversation benchmark.',
+          format: '80 multi-turn questions\n8 categories\nGPT-4 as judge',
+          categories: 'Writing, roleplay, reasoning, math,\ncoding, extraction, STEM, humanities',
+          scores: 'GPT-4: 8.99/10\nClaude 3 Opus: 9.0/10'
+        },
+        'bench-arena': {
+          title: '🏟️ CHATBOT ARENA',
+          content: 'Human preference via blind comparisons.',
+          method: 'Users chat with 2 anonymous models\nVote for preferred response\nELO rating system',
+          value: 'Gold standard for chat quality\nReal human preferences\nContinuously updated',
+          top: 'GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro at top'
+        },
+
+        // MULTIMODAL
+        'bench-vqa': {
+          title: '🖼️ VQA (Visual QA)',
+          content: 'Answer questions about images.',
+          format: 'Image + question\nOpen-ended or multiple choice',
+          types: 'VQAv2: General questions\nOCR-VQA: Text in images\nGQA: Compositional questions'
+        },
+        'bench-mmmu': {
+          title: '🖼️ MMMU',
+          content: 'Massive Multi-discipline Multimodal Understanding.',
+          format: '11.5K questions across 30 subjects\nRequires image + text understanding\nCollege-level difficulty',
+          scores: 'GPT-4V: 56.8%\nGemini Ultra: 59.4%\nClaude 3 Opus: 59.4%'
+        },
+
+        // EVALUATION METHODS
+        'method-fewshot': {
+          title: '🎯 FEW-SHOT EVALUATION',
+          content: 'Provide examples before testing.',
+          format: '0-shot: No examples\n5-shot: 5 examples\nTypical: 5-shot for benchmarks',
+          impact: 'More shots usually helps\nDiminishing returns after 5-10\nSome tasks need 0-shot'
+        },
+        'method-cot': {
+          title: '🔗 CHAIN-OF-THOUGHT',
+          content: 'Let model reason step-by-step.',
+          method: '"Let\'s think step by step"\nModel shows reasoning\nThen gives final answer',
+          impact: 'Huge gains on reasoning tasks\nGSM8K: 18% → 60%+ improvement\nStandard for math/logic'
+        },
+        'method-llm-judge': {
+          title: '🤖 LLM-AS-JUDGE',
+          content: 'Use GPT-4/Claude to evaluate outputs.',
+          method: 'Show output to judge LLM\nRate on criteria\nOrpairwise comparison',
+          benefit: 'Cheaper than humans\nMore scalable\nCorrelates with human judgment',
+          caution: 'Self-preference bias\nMay miss subtle issues'
+        },
+        'method-human': {
+          title: '👤 HUMAN EVALUATION',
+          content: 'The gold standard.',
+          aspects: 'Helpfulness\nAccuracy\nHarmlessness\nStyle/format',
+          methods: 'Likert scales (1-5)\nPairwise comparison\nRanking\nTask completion',
+          challenge: 'Expensive, slow, subjective'
+        },
+
+        // LEADERBOARDS
+        'leader-helm': {
+          title: '📊 HELM',
+          content: 'Holistic Evaluation of Language Models (Stanford).',
+          scope: '42 scenarios\n7 metrics per scenario\nMany models compared',
+          metrics: 'Accuracy, calibration, robustness,\nfairness, efficiency, etc.',
+          value: 'Comprehensive, standardized'
+        },
+        'leader-openllm': {
+          title: '📊 OPEN LLM LEADERBOARD',
+          content: 'HuggingFace community leaderboard.',
+          benchmarks: 'ARC, HellaSwag, MMLU,\nTruthfulQA, Winogrande, GSM8K',
+          scope: 'Thousands of open models\nCommunity submissions',
+          note: 'V2 with harder benchmarks'
+        },
+        'leader-evalharness': {
+          title: '🔧 LM-EVAL-HARNESS',
+          content: 'EleutherAI evaluation framework.',
+          features: 'Unified evaluation interface\n200+ tasks\nEasy to add new tasks',
+          usage: 'lm_eval --model hf --model_args pretrained=...\n  --tasks mmlu,hellaswag --batch_size 8',
+          standard: 'De facto standard for evaluation'
+        },
+
+        // PITFALLS
+        'pitfall-contamination': {
+          title: '⚠️ DATA CONTAMINATION',
+          content: 'Benchmark data in training set.',
+          problem: 'Model memorizes test questions\nInflated scores\nDoesn\'t reflect true ability',
+          detection: 'Check for exact matches\nPerturb test cases\nUse newer benchmarks'
+        },
+        'pitfall-gaming': {
+          title: '🎮 BENCHMARK GAMING',
+          content: 'Optimizing for benchmarks over real capability.',
+          examples: 'Train on benchmark-like data\nPrompt engineering for specific tests\nOverfitting to evaluation format',
+          solution: 'Use held-out test sets\nMultiple evaluation methods\nReal-world testing'
+        },
+        'pitfall-saturation': {
+          title: '📈 BENCHMARK SATURATION',
+          content: 'Top models near-perfect on benchmark.',
+          problem: 'Can\'t differentiate models\nNeed harder benchmarks\nMMVU, ARC becoming saturated',
+          response: 'MMLU-Pro, harder versions\nNew benchmarks continuously'
+        },
+
+        // PRACTICAL
+        'practical-choose': {
+          title: '🎯 CHOOSING BENCHMARKS',
+          content: 'Match benchmarks to your use case.',
+          guidelines: 'Code: HumanEval, MBPP, SWE-bench\nMath: GSM8K, MATH\nKnowledge: MMLU, ARC\nChat: Arena, MT-Bench\nSafety: TruthfulQA, ToxiGen',
+          tip: 'Always supplement with task-specific evaluation'
+        },
+        'practical-run': {
+          title: '🔧 RUNNING EVALUATIONS',
+          content: 'Tools and best practices.',
+          tools: 'lm-eval-harness: Standard choice\nBigCode evaluation: Code benchmarks\nHelm: Comprehensive suite',
+          tips: 'Match exact evaluation settings\nReport std dev when possible\nDocument prompt templates'
+        },
+        'practical-interpret': {
+          title: '📊 INTERPRETING RESULTS',
+          content: 'What do benchmark scores mean?',
+          caution: '• Small differences may not be meaningful\n• Benchmarks have variance\n• Different prompts → different scores\n• Real-world ≠ benchmark',
+          advice: 'Look at multiple benchmarks\nConsider your specific task\nTest on your own data'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.format && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMAT</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.format}</pre>
+              </div>
+            )}
+            {t.scores && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SCORES</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.scores}</pre>
+              </div>
+            )}
+            {t.method && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">METHOD</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.method}</pre>
+              </div>
+            )}
+            {t.categories && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">CATEGORIES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.categories}</pre>
+              </div>
+            )}
+            {t.benchmarks && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">BENCHMARKS</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.benchmarks}</pre>
+              </div>
+            )}
+            {t.focus && (
+              <div className="text-xs text-cyan-400 mt-2">
+                <span className="font-bold">🎯 </span>{t.focus}
+              </div>
+            )}
+            {t.note && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">📝 </span>{t.note}
+              </div>
+            )}
+            {t.caution && (
+              <div className="text-xs text-orange-400 mt-2">
+                <span className="font-bold">⚠️ </span>{t.caution}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-rose-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-pink-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-red-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-rose-600/30 border border-rose-400 rounded-full mb-6">
+                <span className="text-rose-300 font-bold">EVALUATION</span>
+                <span className="text-white">•</span>
+                <span className="text-rose-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-pink-400 to-red-400">
+                LLM Evaluation & Benchmarks
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-rose-300 font-bold">MMLU, HumanEval, Chatbot Arena</span> — How we measure LLM capabilities.
+              </p>
+            </header>
+
+            {/* Benchmark Categories Overview */}
+            <div className="bg-gradient-to-r from-rose-900/50 to-pink-900/50 border-2 border-rose-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-black text-white">📊 BENCHMARK CATEGORIES</div>
+              </div>
+              <div className="grid grid-cols-6 gap-3">
+                {[
+                  { icon: '📚', name: 'Knowledge', color: 'blue', examples: 'MMLU, ARC' },
+                  { icon: '🧠', name: 'Reasoning', color: 'purple', examples: 'GSM8K, BBH' },
+                  { icon: '💻', name: 'Code', color: 'green', examples: 'HumanEval, MBPP' },
+                  { icon: '💬', name: 'Chat', color: 'cyan', examples: 'Arena, MT-Bench' },
+                  { icon: '✅', name: 'Safety', color: 'orange', examples: 'TruthfulQA' },
+                  { icon: '🖼️', name: 'Multimodal', color: 'pink', examples: 'MMMU, VQA' },
+                ].map((cat, i) => (
+                  <div key={i} className={`px-3 py-3 rounded-lg bg-${cat.color}-900/50 border border-${cat.color}-500 text-center`}>
+                    <div className="text-2xl mb-1">{cat.icon}</div>
+                    <div className={`text-${cat.color}-200 font-bold text-sm`}>{cat.name}</div>
+                    <div className={`text-${cat.color}-300 text-xs mt-1`}>{cat.examples}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* WHY EVALUATE */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Why Evaluate?" 
+                subtitle="Understanding benchmark value"
+                color="from-rose-500 to-red-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="why-eval">
+                  <div className="p-5 rounded-xl bg-rose-900/40 border-2 border-rose-500">
+                    <div className="text-xl font-black text-rose-200 mb-2">🎯 Purpose</div>
+                    <div className="text-rose-100/70 text-sm">
+                      Compare models objectively<br/>
+                      Track progress over time<br/>
+                      Identify strengths/weaknesses
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-types">
+                  <div className="p-5 rounded-xl bg-pink-900/40 border-2 border-pink-500">
+                    <div className="text-xl font-black text-pink-200 mb-2">📊 Types</div>
+                    <div className="text-pink-100/70 text-sm">
+                      Automatic benchmarks<br/>
+                      Human evaluation<br/>
+                      LLM-as-judge
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* KNOWLEDGE BENCHMARKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Knowledge Benchmarks" 
+                subtitle="Testing factual knowledge"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="bench-mmlu">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">📚 MMLU</div>
+                    <div className="text-blue-100/70 text-sm">57 subjects</div>
+                    <div className="text-blue-300 text-xs mt-2">GPT-4: 86.4%</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-mmlu-pro">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">📚 MMLU-PRO</div>
+                    <div className="text-indigo-100/70 text-sm">10 choices (harder)</div>
+                    <div className="text-indigo-300 text-xs mt-2">More discriminating</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-arc">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🧪 ARC</div>
+                    <div className="text-violet-100/70 text-sm">Science reasoning</div>
+                    <div className="text-violet-300 text-xs mt-2">GPT-4: 96.3%</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-triviaqa">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">❓ TriviaQA</div>
+                    <div className="text-purple-100/70 text-sm">Factual recall</div>
+                    <div className="text-purple-300 text-xs mt-2">95K Q&A pairs</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* REASONING BENCHMARKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Reasoning Benchmarks" 
+                subtitle="Testing logical thinking"
+                color="from-purple-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="bench-gsm8k">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">🔢 GSM8K</div>
+                    <div className="text-purple-100/60 text-xs">Grade school math</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-math">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🔢 MATH</div>
+                    <div className="text-violet-100/60 text-xs">Competition math</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-hellaswag">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">📖 HellaSwag</div>
+                    <div className="text-fuchsia-100/60 text-xs">Commonsense</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-winogrande">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">🧩 WinoGrande</div>
+                    <div className="text-pink-100/60 text-xs">Pronoun resolution</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-bbh">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">🧠 BBH</div>
+                    <div className="text-rose-100/60 text-xs">23 hard tasks</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CODE BENCHMARKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Code Benchmarks" 
+                subtitle="Testing programming ability"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="bench-humaneval">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">💻 HumanEval</div>
+                    <div className="text-green-100/70 text-sm">164 Python problems</div>
+                    <div className="text-green-300 text-xs mt-2">Claude 3 Opus: 84.9%</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-mbpp">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">💻 MBPP</div>
+                    <div className="text-emerald-100/70 text-sm">974 basic problems</div>
+                    <div className="text-emerald-300 text-xs mt-2">Easier than HumanEval</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-apps">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">💻 APPS</div>
+                    <div className="text-teal-100/70 text-sm">Competition problems</div>
+                    <div className="text-teal-300 text-xs mt-2">Very challenging</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-swebench">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">🐛 SWE-Bench</div>
+                    <div className="text-cyan-100/70 text-sm">Real GitHub issues</div>
+                    <div className="text-cyan-300 text-xs mt-2">~50% best agents</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* CHAT BENCHMARKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Chat & Instruction" 
+                subtitle="Testing conversational ability"
+                color="from-cyan-500 to-sky-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="bench-arena">
+                  <div className="p-5 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">🏟️ Chatbot Arena</div>
+                    <div className="text-cyan-100/70 text-sm">Human ELO ranking</div>
+                    <div className="text-cyan-300 text-xs mt-2">Gold standard for chat</div>
+                    <div className="text-green-400 text-xs">Most trusted!</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-mtbench">
+                  <div className="p-5 rounded-xl bg-sky-900/50 border-2 border-sky-400">
+                    <div className="text-xl font-black text-sky-200 mb-2">💬 MT-Bench</div>
+                    <div className="text-sky-100/70 text-sm">Multi-turn, GPT-4 judge</div>
+                    <div className="text-sky-300 text-xs mt-2">8 categories, 80 Qs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-alpacaeval">
+                  <div className="p-5 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-xl font-black text-blue-200 mb-2">🦙 AlpacaEval</div>
+                    <div className="text-blue-100/70 text-sm">Instruction following</div>
+                    <div className="text-blue-300 text-xs mt-2">Automated comparison</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SAFETY BENCHMARKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Safety & Bias" 
+                subtitle="Testing alignment and fairness"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="bench-truthfulqa">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">✅ TruthfulQA</div>
+                    <div className="text-orange-100/70 text-sm">Tests truthfulness</div>
+                    <div className="text-orange-300 text-xs mt-2">817 questions</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-toxigen">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">⚠️ ToxiGen</div>
+                    <div className="text-amber-100/70 text-sm">Toxic generation</div>
+                    <div className="text-amber-300 text-xs mt-2">274K statements</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-bold">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">⚖️ BOLD</div>
+                    <div className="text-yellow-100/70 text-sm">Bias measurement</div>
+                    <div className="text-yellow-300 text-xs mt-2">Demographics</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* MULTIMODAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Multimodal" 
+                subtitle="Vision + Language"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="bench-vqa">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">🖼️ VQA</div>
+                    <div className="text-pink-100/70 text-sm">Visual Question Answering</div>
+                    <div className="text-pink-300 text-xs mt-2">Image + Question → Answer</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-mmmu">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">🖼️ MMMU</div>
+                    <div className="text-rose-100/70 text-sm">11.5K multimodal Qs</div>
+                    <div className="text-rose-300 text-xs mt-2">GPT-4V: 56.8%</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* METHODS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="Evaluation Methods" 
+                subtitle="How benchmarks are run"
+                color="from-violet-500 to-purple-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="method-fewshot">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🎯 Few-Shot</div>
+                    <div className="text-violet-100/60 text-xs">0-shot vs 5-shot</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="method-cot">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">🔗 Chain-of-Thought</div>
+                    <div className="text-purple-100/60 text-xs">Step-by-step reasoning</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="method-llm-judge">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🤖 LLM-as-Judge</div>
+                    <div className="text-fuchsia-100/60 text-xs">GPT-4 evaluates</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="method-human">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">👤 Human Eval</div>
+                    <div className="text-pink-100/60 text-xs">Gold standard</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* LEADERBOARDS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Leaderboards & Tools" 
+                subtitle="Where to track progress"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="leader-helm">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-lg font-black text-slate-200 mb-2">📊 HELM</div>
+                    <div className="text-slate-400 text-sm">Stanford holistic eval</div>
+                    <div className="text-slate-500 text-xs mt-2">42 scenarios, 7 metrics</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="leader-openllm">
+                  <div className="p-4 rounded-xl bg-zinc-800 border-2 border-zinc-500">
+                    <div className="text-lg font-black text-zinc-200 mb-2">📊 Open LLM</div>
+                    <div className="text-zinc-400 text-sm">HuggingFace leaderboard</div>
+                    <div className="text-zinc-500 text-xs mt-2">Thousands of models</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="leader-evalharness">
+                  <div className="p-4 rounded-xl bg-stone-800 border-2 border-stone-500">
+                    <div className="text-lg font-black text-stone-200 mb-2">🔧 lm-eval-harness</div>
+                    <div className="text-stone-400 text-sm">EleutherAI framework</div>
+                    <div className="text-stone-500 text-xs mt-2">200+ tasks, standard</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PITFALLS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="10" 
+                title="Pitfalls" 
+                subtitle="What can go wrong"
+                color="from-red-500 to-orange-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="pitfall-contamination">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">⚠️ Contamination</div>
+                    <div className="text-red-100/70 text-sm">Test data in training</div>
+                    <div className="text-red-300 text-xs mt-2">Inflated scores</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pitfall-gaming">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🎮 Gaming</div>
+                    <div className="text-orange-100/70 text-sm">Optimizing for benchmarks</div>
+                    <div className="text-orange-300 text-xs mt-2">Not real capability</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="pitfall-saturation">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">📈 Saturation</div>
+                    <div className="text-amber-100/70 text-sm">Models near-perfect</div>
+                    <div className="text-amber-300 text-xs mt-2">Need harder tests</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="11" 
+                title="Practical Guidance" 
+                subtitle="How to evaluate well"
+                color="from-teal-500 to-cyan-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="practical-choose">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">🎯 Choose</div>
+                    <div className="text-teal-100/70 text-sm">Match to your use case</div>
+                    <div className="text-teal-300 text-xs mt-2">Code: HumanEval, Chat: Arena</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-run">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">🔧 Run</div>
+                    <div className="text-cyan-100/70 text-sm">lm-eval-harness standard</div>
+                    <div className="text-cyan-300 text-xs mt-2">Match exact settings</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-interpret">
+                  <div className="p-4 rounded-xl bg-sky-900/50 border-2 border-sky-400">
+                    <div className="text-lg font-black text-sky-200 mb-2">📊 Interpret</div>
+                    <div className="text-sky-100/70 text-sm">Small diffs may not matter</div>
+                    <div className="text-sky-300 text-xs mt-2">Test on YOUR data</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-rose-900/50 to-pink-900/50 border-2 border-rose-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                📊 EVALUATION SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Benchmarks help compare models, but real-world testing is essential.<br/>
+                Chatbot Arena for chat quality, task-specific benchmarks for capabilities.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">MMLU</div>
+                  <div className="text-slate-400">Knowledge</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">HumanEval</div>
+                  <div className="text-slate-400">Code</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">GSM8K</div>
+                  <div className="text-slate-400">Math</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">Arena</div>
+                  <div className="text-slate-400">Chat (best!)</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">TruthfulQA</div>
+                  <div className="text-slate-400">Safety</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>LLM Evaluation & Benchmarks • MMLU • HumanEval • Chatbot Arena</p>
+              <p className="text-xs mt-1 text-slate-600">Measure what matters for your use case</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<EvaluationDiagram />);
+  </script>
+</body>
+</html>

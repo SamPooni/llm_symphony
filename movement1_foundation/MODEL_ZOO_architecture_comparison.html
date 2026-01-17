@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Model Zoo - Architecture Comparison</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function ModelZooDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // LLAMA FAMILY
+        'llama-overview': {
+          title: '🦙 LLAMA FAMILY',
+          content: 'Meta\'s open-weight LLM series. Foundation for most open-source LLMs.',
+          versions: 'LLaMA 1 (Feb 2023): 7B-65B\nLLaMA 2 (Jul 2023): 7B-70B + Chat\nLLaMA 3 (Apr 2024): 8B-70B\nLLaMA 3.1 (Jul 2024): 8B-405B',
+          impact: 'Democratized LLM research\nBase for Mistral, Vicuna, Alpaca, etc.\nMost influential open model family'
+        },
+        'llama-arch': {
+          title: '🏗️ LLAMA ARCHITECTURE',
+          content: 'Decoder-only transformer with key innovations.',
+          features: 'RMSNorm (pre-normalization)\nSwiGLU activation (not GELU)\nRoPE positional encoding\nNo bias terms\nGQA (LLaMA 2 70B+)',
+          params: 'LLaMA 2 70B:\n• 80 layers\n• 64 heads (8 KV heads GQA)\n• 8192 hidden dim\n• 32K vocab'
+        },
+        'llama-3': {
+          title: '🦙 LLAMA 3 / 3.1',
+          content: 'Latest generation with major improvements.',
+          improvements: '128K vocab (vs 32K)\n128K context (3.1)\nGQA for all sizes\nBetter multilingual\n15T+ training tokens',
+          sizes: '8B: Fast, efficient\n70B: Strong performer\n405B: Frontier-class (3.1)'
+        },
+        'llama-training': {
+          title: '📊 LLAMA TRAINING',
+          content: 'Massive scale pre-training.',
+          data: 'LLaMA 1: 1.4T tokens\nLLaMA 2: 2T tokens\nLLaMA 3: 15T+ tokens',
+          compute: 'LLaMA 2 70B: ~1.7M GPU hours\nLLaMA 3 405B: Massive cluster',
+          note: 'Chinchilla-optimal or beyond'
+        },
+
+        // MISTRAL
+        'mistral-overview': {
+          title: '🌀 MISTRAL AI',
+          content: 'French AI lab. Efficient, high-quality open models.',
+          models: 'Mistral 7B (Sep 2023)\nMixtral 8x7B (Dec 2023)\nMistral Large (Feb 2024)\nMistral NeMo (Jul 2024)\nMistral Large 2 (Jul 2024)',
+          philosophy: 'Efficiency over size\nStrong 7B beats larger models\nOpen weights (mostly)'
+        },
+        'mistral-7b': {
+          title: '🌀 MISTRAL 7B',
+          content: 'Punches way above its weight class.',
+          innovations: 'Sliding Window Attention (SWA)\nGrouped-Query Attention (GQA)\n32K context window\nRolling buffer KV cache',
+          performance: 'Beats LLaMA 2 13B\nCompetitive with 30B+ models\nVery efficient inference'
+        },
+        'mistral-swa': {
+          title: '🪟 SLIDING WINDOW ATTENTION',
+          content: 'Each token attends to fixed window of past tokens.',
+          mechanism: 'Window size: 4096 tokens\nBeyond window: Information flows through layers\nEffective context > window size',
+          benefit: 'O(n × w) instead of O(n²)\nLinear memory growth\nHandles very long contexts'
+        },
+        'mixtral-overview': {
+          title: '🎭 MIXTRAL 8x7B',
+          content: 'Mixture of Experts model. 8 experts, 2 active.',
+          specs: '46.7B total parameters\n~12.9B active per token\n8 experts per layer\nTop-2 routing',
+          performance: 'Matches LLaMA 2 70B\n6x faster inference\nBest efficiency/quality ratio'
+        },
+
+        // GPT
+        'gpt-overview': {
+          title: '🔷 OPENAI GPT FAMILY',
+          content: 'The models that started the LLM revolution.',
+          history: 'GPT-1 (2018): 117M, proved concept\nGPT-2 (2019): 1.5B, text generation\nGPT-3 (2020): 175B, few-shot learning\nGPT-4 (2023): MoE?, multimodal',
+          status: 'Closed source, API only\nArchitecture details secret'
+        },
+        'gpt-4': {
+          title: '🔷 GPT-4',
+          content: 'OpenAI\'s flagship model. Architecture unknown.',
+          rumored: 'Rumored: 8x220B MoE\n~1.7T total parameters\n~220B active per forward\nMultimodal (vision)',
+          capabilities: '128K context (Turbo)\nStrong reasoning\nCode generation\nVision understanding',
+          note: 'No official architecture details'
+        },
+        'gpt-training': {
+          title: '📊 GPT TRAINING',
+          content: 'Estimated training details.',
+          gpt3: 'GPT-3 175B:\n• 300B tokens\n• ~3.6M GPU hours (estimated)\n• $4.6M compute (2020)',
+          gpt4: 'GPT-4:\n• Estimated $100M+ training\n• Unknown token count\n• Massive infrastructure'
+        },
+
+        // CLAUDE
+        'claude-overview': {
+          title: '🟠 ANTHROPIC CLAUDE',
+          content: 'Safety-focused AI assistant. Constitutional AI.',
+          versions: 'Claude 1 (Mar 2023)\nClaude 2 (Jul 2023)\nClaude 3 (Mar 2024): Haiku/Sonnet/Opus\nClaude 3.5 Sonnet (Jun 2024)',
+          focus: 'Helpfulness, harmlessness, honesty\nConstitutional AI training\nLong context (200K)'
+        },
+        'claude-3': {
+          title: '🟠 CLAUDE 3 FAMILY',
+          content: 'Three tiers for different needs.',
+          tiers: 'Haiku: Fast, cheap, 200K context\nSonnet: Balanced, 200K context\nOpus: Most capable, 200K context',
+          performance: 'Opus rivals GPT-4\nSonnet best value\nHaiku for high-volume'
+        },
+        'claude-arch': {
+          title: '🏗️ CLAUDE ARCHITECTURE',
+          content: 'Architecture details not public.',
+          known: 'Decoder-only transformer (likely)\nConstitutional AI (RLHF variant)\n200K context window\nMultimodal (Claude 3)',
+          training: 'RLHF with AI feedback\nRed-teaming for safety\nIterative refinement'
+        },
+
+        // GEMINI
+        'gemini-overview': {
+          title: '💎 GOOGLE GEMINI',
+          content: 'Google DeepMind\'s multimodal model family.',
+          versions: 'Gemini 1.0 (Dec 2023)\nGemini 1.5 (Feb 2024)\nGemini 1.5 Flash (May 2024)',
+          focus: 'Native multimodal\nExtreme long context (1M+)\nIntegrated with Google'
+        },
+        'gemini-15': {
+          title: '💎 GEMINI 1.5',
+          content: 'Revolutionary context length.',
+          specs: '1M token context (Pro)\n2M tokens possible\nNative audio/video/image\nMoE architecture',
+          innovation: 'Ring attention for long context\nCross-modal understanding\nIn-context learning at scale'
+        },
+        'gemini-arch': {
+          title: '🏗️ GEMINI ARCHITECTURE',
+          content: 'Multimodal from the ground up.',
+          features: 'Mixture of Experts (confirmed)\nMultimodal tokenization\nRing attention (1.5)\nNative interleaving of modalities',
+          training: 'TPU pods at massive scale\nMultimodal pre-training\nRLHF + instruction tuning'
+        },
+
+        // QWEN
+        'qwen-overview': {
+          title: '🔮 QWEN (ALIBABA)',
+          content: 'Alibaba\'s open model series. Strong multilingual.',
+          versions: 'Qwen 1 (Aug 2023): 7B-72B\nQwen 1.5 (Feb 2024)\nQwen 2 (Jun 2024): 0.5B-72B',
+          strengths: 'Excellent Chinese/English\nOpen weights\nGood coding ability'
+        },
+        'qwen-arch': {
+          title: '🏗️ QWEN ARCHITECTURE',
+          content: 'Modern decoder-only with innovations.',
+          features: 'RoPE + NTK-aware scaling\nSwiGLU activation\nGQA for efficiency\nLarge vocab (151K Qwen 2)',
+          context: '32K base, extensible to 128K\nYaRN for context extension'
+        },
+
+        // ARCHITECTURE COMPONENTS
+        'arch-attention': {
+          title: '👁️ ATTENTION VARIANTS',
+          content: 'Different attention mechanisms across models.',
+          types: 'MHA: Full heads (GPT-3, LLaMA 1)\nGQA: Grouped KV heads (LLaMA 2/3, Mistral)\nMQA: Single KV head (Falcon)\nSWA: Sliding window (Mistral)',
+          trend: 'GQA becoming standard\nReduces KV cache 4-8x\nMinimal quality loss'
+        },
+        'arch-position': {
+          title: '📍 POSITION ENCODING',
+          content: 'How models understand token positions.',
+          methods: 'Absolute: Learned embeddings (GPT-2)\nRoPE: Rotary embeddings (LLaMA, Mistral)\nALiBi: Attention bias (Falcon, MPT)\nNoPE: No explicit (some models)',
+          dominant: 'RoPE is most common\nExtrapolates to longer contexts\nCompatible with NTK scaling'
+        },
+        'arch-norm': {
+          title: '⚖️ NORMALIZATION',
+          content: 'Layer normalization variants.',
+          types: 'Post-LN: Original transformer\nPre-LN: Before attention/FFN (most LLMs)\nRMSNorm: Simplified, no mean (LLaMA)',
+          trend: 'Pre-LN + RMSNorm standard\nMore stable training\nSlightly more efficient'
+        },
+        'arch-activation': {
+          title: '⚡ ACTIVATION FUNCTIONS',
+          content: 'Non-linearities in FFN layers.',
+          types: 'GELU: Gaussian error (GPT, BERT)\nSwiGLU: Swish-gated (LLaMA, Mistral)\nGeGLU: GELU-gated (some models)',
+          trend: 'SwiGLU now dominant\nSlightly more parameters\nBetter performance'
+        },
+        'arch-ffn': {
+          title: '🧮 FFN VARIANTS',
+          content: 'Feed-forward network designs.',
+          standard: 'Up projection → Activation → Down\nExpansion: 4× hidden dim',
+          gated: 'SwiGLU: gate × up → down\nExpansion: 8/3× hidden dim\nSame params, better quality',
+          moe: 'MoE: Multiple expert FFNs\nRouter selects top-k\nMassive capacity, sparse compute'
+        },
+
+        // MoE
+        'moe-concept': {
+          title: '🎭 MIXTURE OF EXPERTS',
+          content: 'Sparse activation for efficiency.',
+          idea: 'Many expert FFNs per layer\nRouter selects top-k per token\nOnly k experts compute\nMassive total params, sparse active',
+          examples: 'Mixtral: 8 experts, top-2\nGPT-4: 8 experts (rumored)\nGemini: MoE architecture'
+        },
+        'moe-routing': {
+          title: '🚦 MOE ROUTING',
+          content: 'How tokens are assigned to experts.',
+          router: 'Router: Linear projection\nScores: softmax over experts\nTop-k: Select highest scores\nLoad balancing: Aux loss',
+          challenges: 'Expert collapse (all tokens → few experts)\nLoad imbalance\nCommunication overhead'
+        },
+
+        // TRAINING
+        'train-data-mix': {
+          title: '📚 TRAINING DATA',
+          content: 'What models are trained on.',
+          typical: 'Web crawl: CommonCrawl, FineWeb\nBooks: Books3, Gutenberg\nCode: GitHub, StackOverflow\nWikipedia: All languages\nAcademic: ArXiv, papers',
+          mix: 'English: 70-90%\nCode: 5-15%\nOther languages: 5-20%\nMath/science: Variable'
+        },
+        'train-scale': {
+          title: '📈 TRAINING SCALE',
+          content: 'Compute requirements by model size.',
+          examples: '7B: ~200K GPU hours\n13B: ~400K GPU hours\n70B: ~1.7M GPU hours\n405B: ~30M GPU hours (est.)',
+          cost: 'H100 at $2/hr:\n70B ≈ $3.4M\n405B ≈ $60M'
+        },
+        'train-chinchilla': {
+          title: '📊 SCALING LAWS',
+          content: 'Optimal compute allocation.',
+          chinchilla: 'Tokens ≈ 20 × Parameters\n70B model → 1.4T tokens\nLLaMA 3 went beyond: 15T tokens',
+          trend: 'Over-train smaller models\nMore data, same compute\nBetter inference efficiency'
+        },
+
+        // CONTEXT
+        'context-length': {
+          title: '📏 CONTEXT LENGTH',
+          content: 'Maximum input size by model.',
+          lengths: 'GPT-4: 128K\nClaude 3: 200K\nGemini 1.5: 1M-2M\nLLaMA 3.1: 128K\nMistral: 32K (SWA)',
+          trend: 'Rapidly increasing\nNew architectures needed\nMemory is bottleneck'
+        },
+        'context-extension': {
+          title: '🔧 CONTEXT EXTENSION',
+          content: 'Techniques to extend context.',
+          methods: 'RoPE scaling: Simple but degrades\nNTK-aware: Better extrapolation\nYaRN: Best quality\nRing attention: Extreme lengths',
+          note: 'Often fine-tuning needed\nQuality drops at edges\nActive research area'
+        },
+
+        // OPEN VS CLOSED
+        'open-source': {
+          title: '🔓 OPEN MODELS',
+          content: 'Models with publicly available weights.',
+          pros: 'Free to use\nCan fine-tune\nFull control\nPrivacy (local)',
+          cons: 'Need own infrastructure\nNo SLA/support\nSafety responsibility yours',
+          examples: 'LLaMA, Mistral, Qwen, Falcon'
+        },
+        'closed-source': {
+          title: '🔒 CLOSED MODELS',
+          content: 'API-only access.',
+          pros: 'Easy to use\nManaged infrastructure\nCutting edge capability\nSafety handled',
+          cons: 'Cost per token\nNo customization\nData privacy concerns\nVendor lock-in',
+          examples: 'GPT-4, Claude, Gemini'
+        },
+
+        // BENCHMARKS
+        'bench-mmlu': {
+          title: '📊 MMLU',
+          content: 'Massive Multitask Language Understanding. 57 subjects.',
+          scores: 'GPT-4: 86.4%\nClaude 3 Opus: 86.8%\nGemini Ultra: 90%\nLLaMA 3 70B: 79.5%\nMistral Large: 81.2%',
+          note: 'Higher = better\nSaturation concerns\n5-shot evaluation'
+        },
+        'bench-humaneval': {
+          title: '💻 HUMANEVAL',
+          content: 'Code generation benchmark. 164 problems.',
+          scores: 'GPT-4: 67%\nClaude 3 Opus: 84.9%\nGemini Ultra: 74.4%\nLLaMA 3 70B: 81.7%',
+          note: 'Pass@1 metric\nPython coding\nFunction completion'
+        },
+        'bench-arena': {
+          title: '🏟️ CHATBOT ARENA',
+          content: 'Human preference ranking. ELO scores.',
+          top: 'GPT-4o: ~1290\nClaude 3.5 Sonnet: ~1270\nGemini 1.5 Pro: ~1260\nLLaMA 3.1 405B: ~1250',
+          value: 'Real human preferences\nBlind comparisons\nMost trusted ranking'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.versions && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">VERSIONS</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.versions}</pre>
+              </div>
+            )}
+            {t.features && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FEATURES</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.features}</pre>
+              </div>
+            )}
+            {t.specs && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SPECS</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.specs}</pre>
+              </div>
+            )}
+            {t.scores && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">SCORES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.scores}</pre>
+              </div>
+            )}
+            {t.types && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TYPES</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.types}</pre>
+              </div>
+            )}
+            {t.pros && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">PROS</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.pros}</pre>
+              </div>
+            )}
+            {t.impact && (
+              <div className="text-xs text-cyan-400 mt-2">
+                <span className="font-bold">🌟 </span>{t.impact}
+              </div>
+            )}
+            {t.trend && (
+              <div className="text-xs text-purple-400 mt-2">
+                <span className="font-bold">📈 </span>{t.trend}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      const ModelCard = ({ id, name, org, color, sizes, open, children }) => (
+        <Hoverable id={id}>
+          <div className={`p-5 rounded-xl bg-${color}-900/40 border-2 border-${color}-500 relative`}>
+            {open !== undefined && (
+              <span className={`absolute top-2 right-2 text-xs px-2 py-0.5 rounded ${open ? 'bg-green-600 text-white' : 'bg-slate-600 text-slate-300'}`}>
+                {open ? '🔓 Open' : '🔒 Closed'}
+              </span>
+            )}
+            <div className={`text-xl font-black text-${color}-200 mb-1`}>{name}</div>
+            <div className={`text-${color}-300 text-sm mb-2`}>{org}</div>
+            {sizes && <div className={`text-${color}-100/60 text-xs`}>{sizes}</div>}
+            {children}
+          </div>
+        </Hoverable>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-violet-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-purple-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600/30 border border-violet-400 rounded-full mb-6">
+                <span className="text-violet-300 font-bold">MODEL ZOO</span>
+                <span className="text-white">•</span>
+                <span className="text-violet-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-blue-400 to-purple-400">
+                LLM Architecture Comparison
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                Compare <span className="text-violet-300 font-bold">LLaMA, Mistral, GPT, Claude, Gemini</span> — architectures, sizes, capabilities.
+              </p>
+            </header>
+
+            {/* MAJOR MODELS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Major Model Families" 
+                subtitle="The leading LLM architectures"
+                color="from-violet-500 to-purple-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                {/* LLaMA */}
+                <div className="space-y-3">
+                  <ModelCard id="llama-overview" name="🦙 LLaMA" org="Meta AI" color="purple" sizes="7B → 405B" open={true}>
+                    <div className="mt-2 space-y-1">
+                      <Hoverable id="llama-arch">
+                        <div className="text-xs bg-purple-900/50 rounded p-1 text-purple-200">RMSNorm • SwiGLU • RoPE • GQA</div>
+                      </Hoverable>
+                      <Hoverable id="llama-3">
+                        <div className="text-xs bg-purple-900/50 rounded p-1 text-purple-200">LLaMA 3.1: 128K ctx, 15T tokens</div>
+                      </Hoverable>
+                    </div>
+                  </ModelCard>
+                </div>
+
+                {/* Mistral */}
+                <div className="space-y-3">
+                  <ModelCard id="mistral-overview" name="🌀 Mistral" org="Mistral AI" color="cyan" sizes="7B → Large 2" open={true}>
+                    <div className="mt-2 space-y-1">
+                      <Hoverable id="mistral-swa">
+                        <div className="text-xs bg-cyan-900/50 rounded p-1 text-cyan-200">Sliding Window Attention</div>
+                      </Hoverable>
+                      <Hoverable id="mixtral-overview">
+                        <div className="text-xs bg-cyan-900/50 rounded p-1 text-cyan-200">Mixtral: 8x7B MoE</div>
+                      </Hoverable>
+                    </div>
+                  </ModelCard>
+                </div>
+
+                {/* GPT */}
+                <div className="space-y-3">
+                  <ModelCard id="gpt-overview" name="🔷 GPT" org="OpenAI" color="blue" sizes="GPT-4, 4o, o1" open={false}>
+                    <div className="mt-2 space-y-1">
+                      <Hoverable id="gpt-4">
+                        <div className="text-xs bg-blue-900/50 rounded p-1 text-blue-200">GPT-4: 128K ctx, multimodal</div>
+                      </Hoverable>
+                      <Hoverable id="gpt-training">
+                        <div className="text-xs bg-blue-900/50 rounded p-1 text-blue-200">~8x220B MoE (rumored)</div>
+                      </Hoverable>
+                    </div>
+                  </ModelCard>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                {/* Claude */}
+                <ModelCard id="claude-overview" name="🟠 Claude" org="Anthropic" color="orange" sizes="Haiku → Opus" open={false}>
+                  <div className="mt-2 space-y-1">
+                    <Hoverable id="claude-3">
+                      <div className="text-xs bg-orange-900/50 rounded p-1 text-orange-200">Claude 3: 200K context</div>
+                    </Hoverable>
+                    <Hoverable id="claude-arch">
+                      <div className="text-xs bg-orange-900/50 rounded p-1 text-orange-200">Constitutional AI, RLHF</div>
+                    </Hoverable>
+                  </div>
+                </ModelCard>
+
+                {/* Gemini */}
+                <ModelCard id="gemini-overview" name="💎 Gemini" org="Google DeepMind" color="emerald" sizes="Flash → Ultra" open={false}>
+                  <div className="mt-2 space-y-1">
+                    <Hoverable id="gemini-15">
+                      <div className="text-xs bg-emerald-900/50 rounded p-1 text-emerald-200">Gemini 1.5: 1M-2M context!</div>
+                    </Hoverable>
+                    <Hoverable id="gemini-arch">
+                      <div className="text-xs bg-emerald-900/50 rounded p-1 text-emerald-200">Native multimodal, MoE</div>
+                    </Hoverable>
+                  </div>
+                </ModelCard>
+
+                {/* Qwen */}
+                <ModelCard id="qwen-overview" name="🔮 Qwen" org="Alibaba" color="pink" sizes="0.5B → 72B" open={true}>
+                  <div className="mt-2 space-y-1">
+                    <Hoverable id="qwen-arch">
+                      <div className="text-xs bg-pink-900/50 rounded p-1 text-pink-200">RoPE + NTK, 151K vocab</div>
+                    </Hoverable>
+                    <div className="text-xs bg-pink-900/50 rounded p-1 text-pink-200">Excellent multilingual</div>
+                  </div>
+                </ModelCard>
+              </div>
+            </section>
+
+            {/* ARCHITECTURE COMPARISON */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Architecture Components" 
+                subtitle="Key building blocks compared"
+                color="from-blue-500 to-cyan-600"
+              />
+              
+              <div className="grid grid-cols-5 gap-3 mb-4">
+                <Hoverable id="arch-attention">
+                  <div className="p-3 rounded-lg bg-blue-900/50 border border-blue-400 text-center">
+                    <div className="text-blue-200 font-bold text-sm">👁️ Attention</div>
+                    <div className="text-blue-100/60 text-xs">MHA → GQA → MQA</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="arch-position">
+                  <div className="p-3 rounded-lg bg-cyan-900/50 border border-cyan-400 text-center">
+                    <div className="text-cyan-200 font-bold text-sm">📍 Position</div>
+                    <div className="text-cyan-100/60 text-xs">RoPE dominant</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="arch-norm">
+                  <div className="p-3 rounded-lg bg-teal-900/50 border border-teal-400 text-center">
+                    <div className="text-teal-200 font-bold text-sm">⚖️ Norm</div>
+                    <div className="text-teal-100/60 text-xs">Pre-LN + RMSNorm</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="arch-activation">
+                  <div className="p-3 rounded-lg bg-green-900/50 border border-green-400 text-center">
+                    <div className="text-green-200 font-bold text-sm">⚡ Activation</div>
+                    <div className="text-green-100/60 text-xs">SwiGLU standard</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="arch-ffn">
+                  <div className="p-3 rounded-lg bg-emerald-900/50 border border-emerald-400 text-center">
+                    <div className="text-emerald-200 font-bold text-sm">🧮 FFN</div>
+                    <div className="text-emerald-100/60 text-xs">Dense or MoE</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              {/* Architecture Table */}
+              <div className="bg-slate-900/60 border border-blue-500/30 rounded-xl p-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-700">
+                      <th className="text-left p-2">Model</th>
+                      <th className="text-center p-2">Attention</th>
+                      <th className="text-center p-2">Position</th>
+                      <th className="text-center p-2">Norm</th>
+                      <th className="text-center p-2">Activation</th>
+                      <th className="text-center p-2">FFN</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-300">
+                    <tr className="border-b border-slate-800">
+                      <td className="p-2 font-bold text-purple-300">LLaMA 3</td>
+                      <td className="text-center p-2">GQA</td>
+                      <td className="text-center p-2">RoPE</td>
+                      <td className="text-center p-2">RMSNorm</td>
+                      <td className="text-center p-2">SwiGLU</td>
+                      <td className="text-center p-2">Dense</td>
+                    </tr>
+                    <tr className="border-b border-slate-800">
+                      <td className="p-2 font-bold text-cyan-300">Mistral 7B</td>
+                      <td className="text-center p-2">GQA + SWA</td>
+                      <td className="text-center p-2">RoPE</td>
+                      <td className="text-center p-2">RMSNorm</td>
+                      <td className="text-center p-2">SwiGLU</td>
+                      <td className="text-center p-2">Dense</td>
+                    </tr>
+                    <tr className="border-b border-slate-800">
+                      <td className="p-2 font-bold text-cyan-300">Mixtral 8x7B</td>
+                      <td className="text-center p-2">GQA + SWA</td>
+                      <td className="text-center p-2">RoPE</td>
+                      <td className="text-center p-2">RMSNorm</td>
+                      <td className="text-center p-2">SwiGLU</td>
+                      <td className="text-center p-2 text-yellow-300">MoE 8×</td>
+                    </tr>
+                    <tr className="border-b border-slate-800">
+                      <td className="p-2 font-bold text-blue-300">GPT-4 (est.)</td>
+                      <td className="text-center p-2">MHA/GQA?</td>
+                      <td className="text-center p-2">Unknown</td>
+                      <td className="text-center p-2">Unknown</td>
+                      <td className="text-center p-2">Unknown</td>
+                      <td className="text-center p-2 text-yellow-300">MoE? 8×</td>
+                    </tr>
+                    <tr className="border-b border-slate-800">
+                      <td className="p-2 font-bold text-emerald-300">Gemini 1.5</td>
+                      <td className="text-center p-2">Ring Attn</td>
+                      <td className="text-center p-2">Unknown</td>
+                      <td className="text-center p-2">Unknown</td>
+                      <td className="text-center p-2">Unknown</td>
+                      <td className="text-center p-2 text-yellow-300">MoE</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-pink-300">Qwen 2</td>
+                      <td className="text-center p-2">GQA</td>
+                      <td className="text-center p-2">RoPE + NTK</td>
+                      <td className="text-center p-2">RMSNorm</td>
+                      <td className="text-center p-2">SwiGLU</td>
+                      <td className="text-center p-2">Dense</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* MOE */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Mixture of Experts" 
+                subtitle="Sparse activation for efficiency"
+                color="from-yellow-500 to-amber-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="moe-concept">
+                  <div className="p-5 rounded-xl bg-yellow-900/40 border-2 border-yellow-500">
+                    <div className="text-xl font-black text-yellow-200 mb-2">🎭 MoE Concept</div>
+                    <div className="text-yellow-100/70 text-sm">
+                      Multiple expert FFNs per layer<br/>
+                      Router selects top-k per token<br/>
+                      Massive params, sparse compute
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="moe-routing">
+                  <div className="p-5 rounded-xl bg-amber-900/40 border-2 border-amber-500">
+                    <div className="text-xl font-black text-amber-200 mb-2">🚦 Routing</div>
+                    <div className="text-amber-100/70 text-sm">
+                      Linear router → softmax → top-k<br/>
+                      Load balancing aux loss<br/>
+                      Prevent expert collapse
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="mt-4 bg-slate-800/50 rounded-lg p-4">
+                <div className="text-sm text-slate-400 mb-2">MoE Models</div>
+                <div className="flex gap-4 flex-wrap">
+                  <div className="px-3 py-1 rounded bg-cyan-900/50 text-cyan-200 text-sm">Mixtral 8×7B (46.7B total, 12.9B active)</div>
+                  <div className="px-3 py-1 rounded bg-blue-900/50 text-blue-200 text-sm">GPT-4 8×220B? (rumored)</div>
+                  <div className="px-3 py-1 rounded bg-emerald-900/50 text-emerald-200 text-sm">Gemini (MoE confirmed)</div>
+                </div>
+              </div>
+            </section>
+
+            {/* CONTEXT & TRAINING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Context & Training" 
+                subtitle="Scale and capabilities"
+                color="from-indigo-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Hoverable id="context-length">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-3">📏 Context Length</div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-indigo-300">GPT-4 Turbo</span><span>128K</span></div>
+                      <div className="flex justify-between"><span className="text-orange-300">Claude 3</span><span>200K</span></div>
+                      <div className="flex justify-between"><span className="text-emerald-300">Gemini 1.5</span><span className="text-emerald-400 font-bold">1M-2M</span></div>
+                      <div className="flex justify-between"><span className="text-purple-300">LLaMA 3.1</span><span>128K</span></div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="train-scale">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-3">📈 Training Scale</div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-violet-300">LLaMA 2 70B</span><span>2T tokens</span></div>
+                      <div className="flex justify-between"><span className="text-purple-300">LLaMA 3</span><span className="text-purple-400 font-bold">15T+ tokens</span></div>
+                      <div className="flex justify-between"><span className="text-blue-300">GPT-4</span><span>Unknown (massive)</span></div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Hoverable id="context-extension">
+                  <div className="p-3 rounded-lg bg-indigo-900/30 border border-indigo-500/50">
+                    <div className="text-indigo-200 font-bold text-sm">🔧 Context Extension</div>
+                    <div className="text-indigo-100/60 text-xs">RoPE scaling • NTK • YaRN • Ring Attention</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-chinchilla">
+                  <div className="p-3 rounded-lg bg-violet-900/30 border border-violet-500/50">
+                    <div className="text-violet-200 font-bold text-sm">📊 Scaling Laws</div>
+                    <div className="text-violet-100/60 text-xs">Chinchilla: Tokens ≈ 20 × Params • LLaMA 3: Over-trained</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* OPEN VS CLOSED */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Open vs Closed" 
+                subtitle="Weights availability"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="open-source">
+                  <div className="p-5 rounded-xl bg-green-900/40 border-2 border-green-500">
+                    <div className="text-xl font-black text-green-200 mb-2">🔓 Open Weights</div>
+                    <div className="text-green-100/70 text-sm mb-3">Free, customizable, local deployment</div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="px-2 py-1 rounded bg-purple-900/50 text-purple-200 text-xs">LLaMA</span>
+                      <span className="px-2 py-1 rounded bg-cyan-900/50 text-cyan-200 text-xs">Mistral</span>
+                      <span className="px-2 py-1 rounded bg-pink-900/50 text-pink-200 text-xs">Qwen</span>
+                      <span className="px-2 py-1 rounded bg-slate-700 text-slate-200 text-xs">Falcon</span>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="closed-source">
+                  <div className="p-5 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-xl font-black text-slate-200 mb-2">🔒 Closed (API)</div>
+                    <div className="text-slate-400 text-sm mb-3">Managed, cutting-edge, no customization</div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="px-2 py-1 rounded bg-blue-900/50 text-blue-200 text-xs">GPT-4</span>
+                      <span className="px-2 py-1 rounded bg-orange-900/50 text-orange-200 text-xs">Claude</span>
+                      <span className="px-2 py-1 rounded bg-emerald-900/50 text-emerald-200 text-xs">Gemini</span>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* BENCHMARKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Benchmarks" 
+                subtitle="How models compare"
+                color="from-red-500 to-orange-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="bench-mmlu">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">📊 MMLU</div>
+                    <div className="text-red-100/70 text-sm">57 subject knowledge test</div>
+                    <div className="text-red-300 text-xs mt-2">Top: Gemini Ultra 90%</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-humaneval">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">💻 HumanEval</div>
+                    <div className="text-orange-100/70 text-sm">Code generation</div>
+                    <div className="text-orange-300 text-xs mt-2">Top: Claude 3 Opus 84.9%</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="bench-arena">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">🏟️ Chatbot Arena</div>
+                    <div className="text-amber-100/70 text-sm">Human preferences (ELO)</div>
+                    <div className="text-amber-300 text-xs mt-2">Top: GPT-4o ~1290</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-violet-900/50 to-purple-900/50 border-2 border-violet-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🏆 MODEL ZOO SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Modern LLMs converge on: Decoder-only • GQA • RoPE • RMSNorm • SwiGLU.<br/>
+                MoE for scale efficiency. Open models catching up to closed.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">LLaMA</div>
+                  <div className="text-slate-400">Open standard</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">Mistral</div>
+                  <div className="text-slate-400">Efficient MoE</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">GPT-4</div>
+                  <div className="text-slate-400">Frontier closed</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">Claude</div>
+                  <div className="text-slate-400">Safety focus</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-emerald-300 font-bold">Gemini</div>
+                  <div className="text-slate-400">Multimodal</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>LLM Model Zoo • Architecture Comparison • Benchmarks</p>
+              <p className="text-xs mt-1 text-slate-600">LLaMA • Mistral • GPT • Claude • Gemini • Qwen</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ModelZooDiagram />);
+  </script>
+</body>
+</html>

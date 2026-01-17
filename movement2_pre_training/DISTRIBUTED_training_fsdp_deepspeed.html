@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Distributed Training - FSDP, DeepSpeed, Parallelism</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function DistributedDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHY DISTRIBUTED
+        'why-distributed': {
+          title: '🌐 WHY DISTRIBUTED TRAINING?',
+          content: 'Models too big for one GPU, training too slow.',
+          problem: 'LLaMA 70B: 140GB in FP16\nA100 80GB: Not enough!\nTraining time: Months on one GPU',
+          solution: 'Distribute across many GPUs:\n• Split model across GPUs\n• Process data in parallel\n• Coordinate gradient updates'
+        },
+        'why-scale': {
+          title: '📈 SCALING REQUIREMENTS',
+          content: 'What large-scale training looks like.',
+          examples: 'LLaMA 2 70B: 2M GPU hours\nGPT-4: ~$100M+ compute\nClusters: 1000s of GPUs',
+          hardware: 'A100/H100 GPU clusters\nNVLink, InfiniBand networking\nMassive storage systems'
+        },
+
+        // PARALLELISM TYPES
+        'parallel-data': {
+          title: '📊 DATA PARALLELISM (DP)',
+          content: 'Same model on each GPU, different data.',
+          mechanism: '1. Copy model to all GPUs\n2. Split batch across GPUs\n3. Each GPU computes gradients\n4. All-reduce to sync gradients\n5. Each GPU updates its copy',
+          pros: 'Simple to implement\nScales linearly with GPUs\nNo model changes needed',
+          cons: 'Full model on each GPU\nDoesn\'t help if model too big'
+        },
+        'parallel-tensor': {
+          title: '🧮 TENSOR PARALLELISM (TP)',
+          content: 'Split individual layers across GPUs.',
+          mechanism: 'Split weight matrices:\nColumn split: A = [A1 | A2]\nRow split: A = [A1; A2]\n\nEach GPU has part of each layer\nCommunicate activations between GPUs',
+          pros: 'Enables very large layers\nLow memory per GPU\nGood for wide models',
+          cons: 'High communication overhead\nNeeds fast interconnect (NVLink)\nComplex implementation'
+        },
+        'parallel-pipeline': {
+          title: '🔗 PIPELINE PARALLELISM (PP)',
+          content: 'Split model layers across GPUs sequentially.',
+          mechanism: 'GPU 0: Layers 1-8\nGPU 1: Layers 9-16\nGPU 2: Layers 17-24\n...\n\nActivations flow through pipeline',
+          pros: 'Simple partitioning\nLow communication\nWorks with any model',
+          cons: 'Pipeline bubbles (idle time)\nMicro-batching needed\nMemory for activations'
+        },
+        'parallel-sequence': {
+          title: '📜 SEQUENCE PARALLELISM (SP)',
+          content: 'Split sequence dimension across GPUs.',
+          mechanism: 'Each GPU processes subset of tokens\nUsed with tensor parallelism\nReduces activation memory',
+          when: 'Long sequences\nCombined with TP\nReduces memory further'
+        },
+        'parallel-expert': {
+          title: '🧑‍🔬 EXPERT PARALLELISM (EP)',
+          content: 'Distribute MoE experts across GPUs.',
+          mechanism: 'Each GPU holds subset of experts\nRouter sends tokens to right GPU\nUsed for Mixture-of-Experts models',
+          examples: 'Mixtral 8x7B\nGPT-4 (rumored MoE)\nSwitch Transformer'
+        },
+        'parallel-3d': {
+          title: '🎲 3D PARALLELISM',
+          content: 'Combine Data + Tensor + Pipeline parallelism.',
+          mechanism: 'DP across nodes\nTP within node (NVLink)\nPP across node groups',
+          example: '64 GPUs:\n• 4-way TP (within node)\n• 4-way PP (across nodes)\n• 4-way DP (replica groups)',
+          usage: 'Required for largest models\nMegatron-LM, DeepSpeed'
+        },
+
+        // ZERO
+        'zero-overview': {
+          title: '⚡ ZERO (Zero Redundancy Optimizer)',
+          content: 'DeepSpeed\'s memory optimization technique.',
+          idea: 'Data parallelism wastes memory:\nEach GPU has full model copy\n\nZeRO: Partition optimizer states,\ngradients, parameters across GPUs',
+          stages: 'ZeRO-1: Partition optimizer states\nZeRO-2: + Partition gradients\nZeRO-3: + Partition parameters'
+        },
+        'zero-1': {
+          title: '1️⃣ ZERO STAGE 1',
+          content: 'Partition optimizer states only.',
+          memory: 'Adam optimizer: 12 bytes/param\nWith ZeRO-1: 12/N bytes/param\n\n7B model, 8 GPUs:\n84GB → 10.5GB optimizer memory',
+          overhead: 'Minimal communication\nSame as standard DP'
+        },
+        'zero-2': {
+          title: '2️⃣ ZERO STAGE 2',
+          content: 'Partition optimizer states + gradients.',
+          memory: 'Gradients: 4 bytes/param (FP32)\nWith ZeRO-2: 4/N bytes/param\n\nAdditional memory savings\nStill reasonable communication',
+          usage: 'Good default for most cases\nBalances memory and speed'
+        },
+        'zero-3': {
+          title: '3️⃣ ZERO STAGE 3',
+          content: 'Partition everything: optimizer + gradients + parameters.',
+          memory: 'Parameters distributed across GPUs\nEach GPU holds 1/N of model\n\n70B model, 8 GPUs:\n~18GB per GPU (FP16)',
+          tradeoff: 'Maximum memory savings\nHigher communication cost\nAll-gather for forward/backward',
+          usage: 'When model doesn\'t fit otherwise\nLargest models'
+        },
+        'zero-offload': {
+          title: '💾 ZERO-OFFLOAD',
+          content: 'Offload optimizer states to CPU.',
+          mechanism: 'Keep parameters on GPU\nOffload optimizer to CPU RAM\nCPU does optimizer step\nCopy updated params back',
+          benefit: 'Train larger models\nCPU RAM is cheaper\nSlower but more memory',
+          usage: 'When GPU memory exhausted\nSingle GPU large model training'
+        },
+        'zero-infinity': {
+          title: '♾️ ZERO-INFINITY',
+          content: 'Offload to NVMe SSD for unlimited scale.',
+          mechanism: 'Offload to SSD when needed\nPrefetch to hide latency\nTrain trillion+ parameter models',
+          requirement: 'Fast NVMe SSDs\nSlower than GPU-only\nUltra-large models'
+        },
+
+        // FSDP
+        'fsdp-overview': {
+          title: '🔷 FSDP (Fully Sharded Data Parallel)',
+          content: 'PyTorch\'s native ZeRO-3 implementation.',
+          mechanism: 'Shard parameters across GPUs\nAll-gather before forward\nReduce-scatter after backward\nNative PyTorch, no DeepSpeed needed',
+          benefit: 'PyTorch native\nGood integration\nEasier debugging'
+        },
+        'fsdp-sharding': {
+          title: '🗂️ FSDP SHARDING STRATEGIES',
+          content: 'How to shard the model.',
+          strategies: 'FULL_SHARD: All params sharded (ZeRO-3)\nSHARD_GRAD_OP: Gradients + optimizer (ZeRO-2)\nNO_SHARD: No sharding (DDP)\nHYBRID_SHARD: Shard within node only',
+          choice: 'FULL_SHARD: Maximum memory savings\nHYBRID_SHARD: Better speed, more memory'
+        },
+        'fsdp-wrapping': {
+          title: '📦 FSDP WRAPPING',
+          content: 'Which modules to wrap with FSDP.',
+          auto: 'auto_wrap_policy:\n• size_based: Wrap if > N params\n• transformer_layer: Wrap each layer',
+          manual: 'Manual wrapping for control\nWrap transformer blocks\nDon\'t wrap too granularly',
+          tip: 'Wrap at transformer layer level\nToo fine = communication overhead'
+        },
+        'fsdp-mixed': {
+          title: '🔀 FSDP MIXED PRECISION',
+          content: 'Combine FSDP with mixed precision.',
+          config: 'param_dtype: torch.float16/bfloat16\nreduce_dtype: torch.float32\nbuffer_dtype: torch.float32',
+          benefit: 'Further memory reduction\nFaster computation\nCareful with loss scaling'
+        },
+
+        // DEEPSPEED
+        'ds-overview': {
+          title: '⚡ DEEPSPEED',
+          content: 'Microsoft\'s distributed training library.',
+          features: 'ZeRO optimization\nPipeline parallelism\nTensor parallelism\n3D parallelism\nOffloading',
+          usage: 'Config-driven\nIntegrates with HuggingFace\nMost feature-rich option'
+        },
+        'ds-config': {
+          title: '⚙️ DEEPSPEED CONFIG',
+          content: 'Configuration file for DeepSpeed.',
+          example: '{\n  "train_batch_size": 32,\n  "gradient_accumulation_steps": 4,\n  "fp16": {"enabled": true},\n  "zero_optimization": {\n    "stage": 2,\n    "offload_optimizer": {"device": "cpu"}\n  }\n}',
+          tip: 'Start with ZeRO-2\nAdd offloading if needed\nTune batch sizes'
+        },
+        'ds-zero-config': {
+          title: '🔧 ZERO CONFIG OPTIONS',
+          content: 'Key ZeRO configuration options.',
+          options: 'stage: 1, 2, or 3\noffload_optimizer: CPU offload\noffload_param: Parameter offload\noverlap_comm: Overlap communication\ncontiguous_gradients: Memory layout',
+          tips: 'overlap_comm=true for speed\ncontiguous_gradients for memory\nPin memory for offloading'
+        },
+
+        // MEGATRON
+        'megatron-overview': {
+          title: '🔱 MEGATRON-LM',
+          content: 'NVIDIA\'s framework for large model training.',
+          features: 'Tensor parallelism\nPipeline parallelism\nSequence parallelism\nFused kernels\n3D parallelism',
+          usage: 'Pre-training large models\nNeeds NVIDIA GPUs\nHighest performance'
+        },
+        'megatron-tp': {
+          title: '🧮 MEGATRON TENSOR PARALLEL',
+          content: 'How Megatron splits attention and MLP.',
+          attention: 'Q, K, V: Column parallel\nOutput projection: Row parallel\nAll-reduce after output',
+          mlp: 'First linear: Column parallel\nSecond linear: Row parallel\nAll-reduce after MLP',
+          benefit: 'Efficient splitting\nMinimal communication points'
+        },
+
+        // COMMUNICATION
+        'comm-allreduce': {
+          title: '🔄 ALL-REDUCE',
+          content: 'Sum gradients across all GPUs.',
+          mechanism: 'Each GPU has local gradients\nAll-reduce: Sum and broadcast\nAll GPUs get same result',
+          usage: 'Data parallelism\nGradient synchronization\nRing all-reduce efficient'
+        },
+        'comm-allgather': {
+          title: '📥 ALL-GATHER',
+          content: 'Collect data from all GPUs to all GPUs.',
+          mechanism: 'Each GPU has a piece\nAll-gather: Everyone gets full data\nUsed in ZeRO-3 for parameters',
+          cost: 'O(N) memory on each GPU\nHigh bandwidth requirement'
+        },
+        'comm-reducescatter': {
+          title: '📤 REDUCE-SCATTER',
+          content: 'Reduce and distribute pieces.',
+          mechanism: 'Sum across GPUs\nEach GPU gets different piece\nUsed for gradient sharding',
+          usage: 'ZeRO backward pass\nFSDP gradient handling'
+        },
+        'comm-nccl': {
+          title: '🔌 NCCL',
+          content: 'NVIDIA Collective Communication Library.',
+          role: 'Optimized GPU communication\nAll-reduce, all-gather, etc.\nUses NVLink, InfiniBand',
+          perf: 'Near-hardware peak bandwidth\nOptimized for multi-GPU\nDefault for PyTorch distributed'
+        },
+
+        // HARDWARE
+        'hw-nvlink': {
+          title: '🔗 NVLINK',
+          content: 'High-speed GPU interconnect within node.',
+          specs: 'NVLink 3.0: 600 GB/s bidirectional\nNVLink 4.0: 900 GB/s\nMuch faster than PCIe',
+          usage: 'Tensor parallelism within node\nAll-reduce within node\nCritical for TP efficiency'
+        },
+        'hw-infiniband': {
+          title: '🌐 INFINIBAND',
+          content: 'High-speed network between nodes.',
+          specs: 'HDR: 200 Gb/s\nNDR: 400 Gb/s\nRDMA for low latency',
+          usage: 'Data parallelism across nodes\nPipeline parallelism\nDistributed all-reduce'
+        },
+        'hw-topology': {
+          title: '🗺️ CLUSTER TOPOLOGY',
+          content: 'How GPUs are connected matters.',
+          levels: 'Within GPU: Fast (NVLink)\nWithin node: Medium (NVLink/PCIe)\nAcross nodes: Slower (InfiniBand)',
+          implication: 'TP: Within NVLink domain\nPP: Across nodes OK\nDP: Across nodes OK'
+        },
+
+        // PRACTICAL
+        'practical-choose': {
+          title: '🎯 CHOOSING STRATEGY',
+          content: 'Which parallelism to use?',
+          decision: 'Model fits on 1 GPU? → DDP\nModel fits with ZeRO-2? → ZeRO-2/FSDP\nStill doesn\'t fit? → ZeRO-3/FSDP\nVery large model? → 3D parallelism',
+          start: 'Start simple, add complexity\nDDP → ZeRO-2 → ZeRO-3 → TP'
+        },
+        'practical-batch': {
+          title: '📦 BATCH SIZE',
+          content: 'Scaling batch size with distributed training.',
+          math: 'Global batch = local × num_GPUs × grad_accum\n\n8 GPUs, local=4, accum=8:\nGlobal = 4 × 8 × 8 = 256',
+          scaling: 'Larger global batch → scale LR\nLinear scaling rule (approximately)\nWarmup helps stability'
+        },
+        'practical-checkpoint': {
+          title: '💾 CHECKPOINTING',
+          content: 'Saving distributed model state.',
+          challenges: 'Sharded state across GPUs\nNeed to gather or save shards\nCheckpoint size = model size',
+          methods: 'Full checkpoint: Gather all\nSharded checkpoint: Save shards\nFSDP state_dict options'
+        },
+        'practical-debug': {
+          title: '🐛 DEBUGGING',
+          content: 'Debugging distributed training.',
+          challenges: 'Errors on different ranks\nDeadlocks in communication\nMemory issues hard to trace',
+          tips: 'Test on 1 GPU first\nUse NCCL_DEBUG=INFO\nCheck for rank mismatches\nMonitor all GPU memory'
+        },
+
+        // FRAMEWORKS
+        'fw-accelerate': {
+          title: '🚀 ACCELERATE',
+          content: 'HuggingFace\'s distributed training library.',
+          benefit: 'Simple API\nWorks with FSDP and DeepSpeed\nMinimal code changes',
+          usage: 'accelerator = Accelerator()\nmodel, optimizer = accelerator.prepare(...)'
+        },
+        'fw-lightning': {
+          title: '⚡ PYTORCH LIGHTNING',
+          content: 'High-level training framework.',
+          distributed: 'strategy="fsdp"\nstrategy="deepspeed_stage_2"\nHandles distribution automatically',
+          benefit: 'Clean code structure\nBuilt-in strategies\nEasy switching'
+        },
+        'fw-composer': {
+          title: '🎼 MOSAIC COMPOSER',
+          content: 'MosaicML\'s training library.',
+          features: 'Efficient training recipes\nFSDP integration\nMany optimizations built-in',
+          usage: 'Used for MPT models\nGood for pre-training'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.memory && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MEMORY</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.memory}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.strategies && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STRATEGIES</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.strategies}</pre>
+              </div>
+            )}
+            {t.stages && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STAGES</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.stages}</pre>
+              </div>
+            )}
+            {t.decision && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">DECISION TREE</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.decision}</pre>
+              </div>
+            )}
+            {t.pros && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.pros}
+              </div>
+            )}
+            {t.cons && (
+              <div className="text-xs text-red-400 mt-1">
+                <span className="font-bold">❌ </span>{t.cons}
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.tradeoff && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⚖️ </span>{t.tradeoff}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-indigo-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-cyan-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-blue-600/30 border border-blue-400 rounded-full mb-6">
+                <span className="text-blue-300 font-bold">DISTRIBUTED</span>
+                <span className="text-white">•</span>
+                <span className="text-blue-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-cyan-400">
+                Distributed Training
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-blue-300 font-bold">FSDP, DeepSpeed, 3D Parallelism</span> — Train models across many GPUs.
+              </p>
+            </header>
+
+            {/* Parallelism Overview */}
+            <div className="bg-gradient-to-r from-blue-900/50 to-indigo-900/50 border-2 border-blue-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-black text-white">🌐 PARALLELISM STRATEGIES</div>
+              </div>
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="parallel-data">
+                  <div className="px-4 py-3 rounded-lg bg-green-900/50 border border-green-500 text-center">
+                    <div className="text-green-200 font-bold">📊 Data</div>
+                    <div className="text-green-300 text-xs mt-1">Same model, diff data</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-tensor">
+                  <div className="px-4 py-3 rounded-lg bg-blue-900/50 border border-blue-500 text-center">
+                    <div className="text-blue-200 font-bold">🧮 Tensor</div>
+                    <div className="text-blue-300 text-xs mt-1">Split layers</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-pipeline">
+                  <div className="px-4 py-3 rounded-lg bg-purple-900/50 border border-purple-500 text-center">
+                    <div className="text-purple-200 font-bold">🔗 Pipeline</div>
+                    <div className="text-purple-300 text-xs mt-1">Sequential stages</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-sequence">
+                  <div className="px-4 py-3 rounded-lg bg-pink-900/50 border border-pink-500 text-center">
+                    <div className="text-pink-200 font-bold">📜 Sequence</div>
+                    <div className="text-pink-300 text-xs mt-1">Split tokens</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-3d">
+                  <div className="px-4 py-3 rounded-lg bg-cyan-900/50 border border-cyan-500 text-center">
+                    <div className="text-cyan-200 font-bold">🎲 3D</div>
+                    <div className="text-cyan-300 text-xs mt-1">DP + TP + PP</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </div>
+
+            {/* WHY DISTRIBUTED */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Why Distributed?" 
+                subtitle="The need for scale"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="why-distributed">
+                  <div className="p-5 rounded-xl bg-blue-900/40 border-2 border-blue-500">
+                    <div className="text-xl font-black text-blue-200 mb-2">🌐 The Problem</div>
+                    <div className="text-blue-100/70 text-sm">
+                      70B model = 140GB in FP16<br/>
+                      Single A100 = 80GB max<br/>
+                      Training months on 1 GPU
+                    </div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="why-scale">
+                  <div className="p-5 rounded-xl bg-indigo-900/40 border-2 border-indigo-500">
+                    <div className="text-xl font-black text-indigo-200 mb-2">📈 The Scale</div>
+                    <div className="text-indigo-100/70 text-sm">
+                      LLaMA 2: 2M GPU hours<br/>
+                      GPT-4: ~$100M+ compute<br/>
+                      1000s of GPUs in clusters
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PARALLELISM TYPES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Parallelism Types" 
+                subtitle="Ways to distribute work"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <Hoverable id="parallel-data">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">📊 Data Parallel</div>
+                    <div className="text-green-100/70 text-sm">Copy model, split data</div>
+                    <div className="text-green-300 text-xs mt-2">Simple, scales well</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-tensor">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🧮 Tensor Parallel</div>
+                    <div className="text-emerald-100/70 text-sm">Split weight matrices</div>
+                    <div className="text-emerald-300 text-xs mt-2">Needs NVLink</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-pipeline">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">🔗 Pipeline Parallel</div>
+                    <div className="text-teal-100/70 text-sm">Sequential layer stages</div>
+                    <div className="text-teal-300 text-xs mt-2">Micro-batching needed</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Hoverable id="parallel-expert">
+                  <div className="p-3 rounded-lg bg-cyan-900/40 border border-cyan-500">
+                    <div className="text-cyan-200 font-bold text-sm">🧑‍🔬 Expert Parallel</div>
+                    <div className="text-cyan-100/60 text-xs">Distribute MoE experts</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="parallel-3d">
+                  <div className="p-3 rounded-lg bg-sky-900/40 border border-sky-500">
+                    <div className="text-sky-200 font-bold text-sm">🎲 3D Parallelism</div>
+                    <div className="text-sky-100/60 text-xs">DP + TP + PP combined</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* ZERO */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="ZeRO Optimization" 
+                subtitle="Zero Redundancy Optimizer"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <Hoverable id="zero-overview">
+                <div className="bg-orange-900/30 rounded-xl p-4 mb-4 border border-orange-500/30 text-center">
+                  <div className="text-orange-300 font-bold">⚡ ZeRO: Partition optimizer states, gradients, and parameters across GPUs</div>
+                </div>
+              </Hoverable>
+
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <Hoverable id="zero-1">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">1️⃣ Stage 1</div>
+                    <div className="text-orange-100/70 text-sm">Optimizer states only</div>
+                    <div className="text-orange-300 text-xs mt-2">4× memory savings</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="zero-2">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">2️⃣ Stage 2</div>
+                    <div className="text-amber-100/70 text-sm">+ Gradients</div>
+                    <div className="text-amber-300 text-xs mt-2">8× memory savings</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="zero-3">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">3️⃣ Stage 3</div>
+                    <div className="text-yellow-100/70 text-sm">+ Parameters</div>
+                    <div className="text-yellow-300 text-xs mt-2">Linear scaling!</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Hoverable id="zero-offload">
+                  <div className="p-3 rounded-lg bg-orange-900/40 border border-orange-500">
+                    <div className="text-orange-200 font-bold text-sm">💾 ZeRO-Offload</div>
+                    <div className="text-orange-100/60 text-xs">Offload to CPU RAM</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="zero-infinity">
+                  <div className="p-3 rounded-lg bg-amber-900/40 border border-amber-500">
+                    <div className="text-amber-200 font-bold text-sm">♾️ ZeRO-Infinity</div>
+                    <div className="text-amber-100/60 text-xs">Offload to NVMe SSD</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* FSDP */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="FSDP" 
+                subtitle="PyTorch Fully Sharded Data Parallel"
+                color="from-red-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="fsdp-overview">
+                  <div className="p-3 rounded-lg bg-red-900/50 border border-red-400 text-center">
+                    <div className="text-red-200 font-bold text-sm">🔷 Overview</div>
+                    <div className="text-red-100/60 text-xs">Native ZeRO-3</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fsdp-sharding">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">🗂️ Sharding</div>
+                    <div className="text-rose-100/60 text-xs">FULL, HYBRID, etc</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fsdp-wrapping">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">📦 Wrapping</div>
+                    <div className="text-pink-100/60 text-xs">Which modules</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fsdp-mixed">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🔀 Mixed Precision</div>
+                    <div className="text-fuchsia-100/60 text-xs">FP16/BF16</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* DEEPSPEED */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="DeepSpeed" 
+                subtitle="Microsoft's training library"
+                color="from-purple-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="ds-overview">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">⚡ Overview</div>
+                    <div className="text-purple-100/70 text-sm">ZeRO + more features</div>
+                    <div className="text-purple-300 text-xs mt-2">Config-driven</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ds-config">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">⚙️ Config</div>
+                    <div className="text-violet-100/70 text-sm">JSON configuration</div>
+                    <div className="text-violet-300 text-xs mt-2">Easy to tune</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="ds-zero-config">
+                  <div className="p-4 rounded-xl bg-fuchsia-900/50 border-2 border-fuchsia-400">
+                    <div className="text-lg font-black text-fuchsia-200 mb-2">🔧 ZeRO Config</div>
+                    <div className="text-fuchsia-100/70 text-sm">Stage, offload, overlap</div>
+                    <div className="text-fuchsia-300 text-xs mt-2">Fine-grained control</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* MEGATRON */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Megatron-LM" 
+                subtitle="NVIDIA's large model framework"
+                color="from-green-500 to-teal-600"
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="megatron-overview">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🔱 Overview</div>
+                    <div className="text-green-100/70 text-sm">TP + PP + SP + fused kernels</div>
+                    <div className="text-green-300 text-xs mt-2">Highest performance</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="megatron-tp">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">🧮 Tensor Parallel</div>
+                    <div className="text-teal-100/70 text-sm">Column/row split</div>
+                    <div className="text-teal-300 text-xs mt-2">Efficient splitting</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* COMMUNICATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Communication" 
+                subtitle="How GPUs talk to each other"
+                color="from-cyan-500 to-sky-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="comm-allreduce">
+                  <div className="p-3 rounded-lg bg-cyan-900/50 border border-cyan-400 text-center">
+                    <div className="text-cyan-200 font-bold text-sm">🔄 All-Reduce</div>
+                    <div className="text-cyan-100/60 text-xs">Sum gradients</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="comm-allgather">
+                  <div className="p-3 rounded-lg bg-sky-900/50 border border-sky-400 text-center">
+                    <div className="text-sky-200 font-bold text-sm">📥 All-Gather</div>
+                    <div className="text-sky-100/60 text-xs">Collect all pieces</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="comm-reducescatter">
+                  <div className="p-3 rounded-lg bg-blue-900/50 border border-blue-400 text-center">
+                    <div className="text-blue-200 font-bold text-sm">📤 Reduce-Scatter</div>
+                    <div className="text-blue-100/60 text-xs">Sum and distribute</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="comm-nccl">
+                  <div className="p-3 rounded-lg bg-indigo-900/50 border border-indigo-400 text-center">
+                    <div className="text-indigo-200 font-bold text-sm">🔌 NCCL</div>
+                    <div className="text-indigo-100/60 text-xs">NVIDIA collective lib</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* HARDWARE */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="Hardware" 
+                subtitle="Interconnects matter"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="hw-nvlink">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-lg font-black text-slate-200 mb-2">🔗 NVLink</div>
+                    <div className="text-slate-400 text-sm">600-900 GB/s within node</div>
+                    <div className="text-slate-500 text-xs mt-2">Critical for TP</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="hw-infiniband">
+                  <div className="p-4 rounded-xl bg-zinc-800 border-2 border-zinc-500">
+                    <div className="text-lg font-black text-zinc-200 mb-2">🌐 InfiniBand</div>
+                    <div className="text-zinc-400 text-sm">200-400 Gb/s across nodes</div>
+                    <div className="text-zinc-500 text-xs mt-2">RDMA, low latency</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="hw-topology">
+                  <div className="p-4 rounded-xl bg-stone-800 border-2 border-stone-500">
+                    <div className="text-lg font-black text-stone-200 mb-2">🗺️ Topology</div>
+                    <div className="text-stone-400 text-sm">Placement matters</div>
+                    <div className="text-stone-500 text-xs mt-2">TP within NVLink domain</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Practical" 
+                subtitle="Making it work"
+                color="from-amber-500 to-yellow-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="practical-choose">
+                  <div className="p-3 rounded-lg bg-amber-900/50 border border-amber-400 text-center">
+                    <div className="text-amber-200 font-bold text-sm">🎯 Choosing</div>
+                    <div className="text-amber-100/60 text-xs">DDP → ZeRO → TP</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-batch">
+                  <div className="p-3 rounded-lg bg-yellow-900/50 border border-yellow-400 text-center">
+                    <div className="text-yellow-200 font-bold text-sm">📦 Batch Size</div>
+                    <div className="text-yellow-100/60 text-xs">Global = local × GPUs</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-checkpoint">
+                  <div className="p-3 rounded-lg bg-lime-900/50 border border-lime-400 text-center">
+                    <div className="text-lime-200 font-bold text-sm">💾 Checkpointing</div>
+                    <div className="text-lime-100/60 text-xs">Sharded saves</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-debug">
+                  <div className="p-3 rounded-lg bg-green-900/50 border border-green-400 text-center">
+                    <div className="text-green-200 font-bold text-sm">🐛 Debugging</div>
+                    <div className="text-green-100/60 text-xs">Test on 1 GPU first</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* FRAMEWORKS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="10" 
+                title="Frameworks" 
+                subtitle="Higher-level tools"
+                color="from-pink-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="fw-accelerate">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">🚀 Accelerate</div>
+                    <div className="text-pink-100/70 text-sm">HuggingFace</div>
+                    <div className="text-pink-300 text-xs mt-2">Simple API</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fw-lightning">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">⚡ Lightning</div>
+                    <div className="text-rose-100/70 text-sm">PyTorch Lightning</div>
+                    <div className="text-rose-300 text-xs mt-2">strategy="fsdp"</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="fw-composer">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">🎼 Composer</div>
+                    <div className="text-red-100/70 text-sm">MosaicML</div>
+                    <div className="text-red-300 text-xs mt-2">Training recipes</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-blue-900/50 to-indigo-900/50 border-2 border-blue-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🌐 DISTRIBUTED TRAINING SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Data Parallel for simple scaling. ZeRO for memory efficiency.<br/>
+                Tensor + Pipeline for largest models. FSDP or DeepSpeed for implementation.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">DP</div>
+                  <div className="text-slate-400">Simple start</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-orange-300 font-bold">ZeRO-2</div>
+                  <div className="text-slate-400">Good default</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-yellow-300 font-bold">ZeRO-3</div>
+                  <div className="text-slate-400">Max memory</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">TP</div>
+                  <div className="text-slate-400">Large layers</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-purple-300 font-bold">3D</div>
+                  <div className="text-slate-400">Largest scale</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Distributed Training • FSDP • DeepSpeed • Parallelism</p>
+              <p className="text-xs mt-1 text-slate-600">Scale to 1000s of GPUs</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DistributedDiagram />);
+  </script>
+</body>
+</html>

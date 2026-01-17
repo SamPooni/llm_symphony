@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Embeddings & Vector Search - Semantic Representation</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function EmbeddingsDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // WHAT ARE EMBEDDINGS
+        'embed-concept': {
+          title: '🔢 WHAT ARE EMBEDDINGS?',
+          content: 'Dense vector representations that capture semantic meaning.',
+          intuition: 'Words/sentences → Fixed-size vectors\nSimilar meaning → Similar vectors\n"king" - "man" + "woman" ≈ "queen"',
+          dimensions: 'Typical: 384 - 4096 dimensions\nEach dimension captures some semantic feature\nLearned, not hand-crafted'
+        },
+        'embed-why': {
+          title: '🎯 WHY EMBEDDINGS?',
+          content: 'Enable semantic operations on text.',
+          capabilities: '• Semantic search (find similar meaning)\n• Clustering (group related items)\n• Classification (categorize content)\n• Recommendation (find related items)\n• Anomaly detection (find outliers)',
+          key: 'Transforms discrete text into continuous space where math works'
+        },
+        'embed-vs-sparse': {
+          title: '📊 DENSE vs SPARSE',
+          content: 'Two approaches to text representation.',
+          sparse: 'Sparse (TF-IDF, BM25):\n• Vocab-sized vectors (100K+ dims)\n• Most values are 0\n• Exact keyword matching\n• Fast, interpretable',
+          dense: 'Dense (Embeddings):\n• Fixed size (384-4096 dims)\n• All values meaningful\n• Semantic matching\n• Learned representations'
+        },
+
+        // EMBEDDING MODELS
+        'model-overview': {
+          title: '🤖 EMBEDDING MODELS',
+          content: 'Neural networks trained to produce embeddings.',
+          types: 'Word embeddings: Word2Vec, GloVe\nSentence embeddings: SBERT, E5, BGE\nMultimodal: CLIP (text + image)',
+          evolution: 'Word2Vec (2013) → BERT (2018) → Sentence-BERT (2019) → Modern retrievers (2023+)'
+        },
+        'model-openai': {
+          title: '🔷 OPENAI EMBEDDINGS',
+          content: 'Easy-to-use, high-quality API embeddings.',
+          models: 'text-embedding-3-small:\n• 1536 dims, $0.02/1M tokens\n• Good quality, efficient\n\ntext-embedding-3-large:\n• 3072 dims, $0.13/1M tokens\n• Best quality\n• Supports Matryoshka (variable dims)',
+          usage: 'response = openai.embeddings.create(\n  model="text-embedding-3-small",\n  input="Your text here"\n)'
+        },
+        'model-cohere': {
+          title: '🔶 COHERE EMBED',
+          content: 'Strong multilingual embeddings with input types.',
+          models: 'embed-english-v3.0: English only\nembed-multilingual-v3.0: 100+ languages',
+          feature: 'Input types:\n• search_document: For indexing\n• search_query: For searching\n• classification: For classifying\n• clustering: For clustering',
+          benefit: 'Different embeddings for different tasks!'
+        },
+        'model-voyage': {
+          title: '⛵ VOYAGE AI',
+          content: 'Specialized embeddings for different domains.',
+          models: 'voyage-large-2: General purpose\nvoyage-code-2: Code/technical\nvoyage-law-2: Legal documents\nvoyage-finance-2: Financial',
+          benefit: 'Domain-specific = better retrieval\nTrained on domain corpora'
+        },
+        'model-bge': {
+          title: '🔓 BGE (BAAI)',
+          content: 'Best open-source embedding model family.',
+          models: 'bge-small-en-v1.5: 384 dims, fast\nbge-base-en-v1.5: 768 dims, balanced\nbge-large-en-v1.5: 1024 dims, best\nbge-m3: Multilingual + multi-task',
+          usage: 'from sentence_transformers import SentenceTransformer\nmodel = SentenceTransformer("BAAI/bge-large-en-v1.5")\nembeddings = model.encode(texts)'
+        },
+        'model-e5': {
+          title: '🔓 E5 (Microsoft)',
+          content: 'Strong contrastive learning embeddings.',
+          models: 'e5-small-v2: 384 dims\ne5-base-v2: 768 dims\ne5-large-v2: 1024 dims\nmultilingual-e5-large: 100+ languages',
+          note: 'Prefix required!\nQuery: "query: your question"\nDocument: "passage: your text"'
+        },
+        'model-gte': {
+          title: '🔓 GTE (Alibaba)',
+          content: 'General Text Embeddings from Alibaba.',
+          models: 'gte-small: 384 dims\ngte-base: 768 dims\ngte-large: 1024 dims\ngte-Qwen2-7B-instruct: LLM-based!',
+          trend: 'LLM-based embeddings emerging\nUse decoder LLMs for embeddings\nBetter quality, higher cost'
+        },
+        'model-minilm': {
+          title: '🔓 MINILM',
+          content: 'Fast, lightweight embedding model.',
+          specs: 'all-MiniLM-L6-v2:\n• 384 dimensions\n• 22M parameters\n• Very fast inference\n• Good for prototyping',
+          tradeoff: 'Speed vs quality\nGreat for development\nUpgrade for production'
+        },
+
+        // SIMILARITY METRICS
+        'sim-cosine': {
+          title: '📐 COSINE SIMILARITY',
+          content: 'Angle between vectors. Most common for embeddings.',
+          formula: 'cos(A, B) = (A · B) / (||A|| × ||B||)\n\nRange: -1 to 1\n1 = identical direction\n0 = orthogonal\n-1 = opposite',
+          benefit: 'Magnitude-invariant\nOnly direction matters\nDefault for most use cases'
+        },
+        'sim-dot': {
+          title: '📏 DOT PRODUCT',
+          content: 'Raw inner product. Magnitude matters.',
+          formula: 'A · B = Σ(Aᵢ × Bᵢ)\n\nRange: -∞ to ∞\nHigher = more similar\nAffected by vector length',
+          when: 'When magnitude is meaningful\nNormalized vectors: Same as cosine\nFaster than cosine (no norm)'
+        },
+        'sim-euclidean': {
+          title: '📏 EUCLIDEAN DISTANCE',
+          content: 'Straight-line distance in vector space.',
+          formula: 'L2 = √Σ(Aᵢ - Bᵢ)²\n\nRange: 0 to ∞\n0 = identical\nSmaller = more similar',
+          when: 'When absolute position matters\nLess common for text embeddings\nUsed in some clustering'
+        },
+        'sim-manhattan': {
+          title: '📏 MANHATTAN DISTANCE',
+          content: 'Sum of absolute differences (L1 norm).',
+          formula: 'L1 = Σ|Aᵢ - Bᵢ|\n\nRange: 0 to ∞\nGrid-like distance\nMore robust to outliers',
+          when: 'Sparse data\nHigh-dimensional spaces\nLess common for embeddings'
+        },
+
+        // VECTOR INDEXING
+        'index-brute': {
+          title: '🔍 BRUTE FORCE (Flat)',
+          content: 'Compare query to every vector. Exact but slow.',
+          complexity: 'O(n × d) per query\nn = number of vectors\nd = dimensions',
+          when: 'Small datasets (<10K vectors)\nNeed exact results\nBaseline for comparison',
+          note: 'Perfect recall, slowest speed'
+        },
+        'index-ivf': {
+          title: '🗂️ IVF (Inverted File)',
+          content: 'Cluster vectors, search only relevant clusters.',
+          mechanism: '1. K-means clustering (nlist clusters)\n2. Assign vectors to clusters\n3. Query: Find nearest clusters\n4. Search only those clusters (nprobe)',
+          params: 'nlist: Number of clusters (√n typical)\nnprobe: Clusters to search (trade recall/speed)',
+          tradeoff: 'Higher nprobe = better recall, slower'
+        },
+        'index-hnsw': {
+          title: '🕸️ HNSW',
+          content: 'Hierarchical Navigable Small World. Graph-based.',
+          mechanism: 'Build navigable graph layers\nTop layer: Few nodes, long jumps\nBottom layer: All nodes, short jumps\nGreedy search through layers',
+          params: 'M: Connections per node (16-64)\nefConstruction: Build quality (100-500)\nefSearch: Search quality (50-500)',
+          benefit: 'Best recall/speed tradeoff\nNo training needed\nDefault choice for most'
+        },
+        'index-pq': {
+          title: '📦 PQ (Product Quantization)',
+          content: 'Compress vectors for memory efficiency.',
+          mechanism: 'Split vector into subvectors\nQuantize each subvector to centroid\nStore centroid IDs (1 byte each)\n768-dim → 96 bytes typical',
+          benefit: '10-100× memory reduction\nAsymmetric distance computation\nCombine with IVF: IVF-PQ'
+        },
+        'index-scann': {
+          title: '🔎 ScaNN (Google)',
+          content: 'Google\'s optimized ANN library.',
+          features: 'Anisotropic quantization\nBetter for max inner product\nState-of-the-art performance',
+          usage: 'Used by Google Search\nTensorFlow integration\nPython API available'
+        },
+
+        // VECTOR DATABASES
+        'db-pinecone': {
+          title: '🌲 PINECONE',
+          content: 'Fully managed vector database.',
+          features: 'Serverless scaling\nMetadata filtering\nNamespaces for multi-tenancy\nHybrid search',
+          pricing: 'Free: 1 index, 100K vectors\nStarter: $70/mo, 1M vectors\nEnterprise: Custom',
+          best: 'Best for: Getting started, managed infra'
+        },
+        'db-weaviate': {
+          title: '🔷 WEAVIATE',
+          content: 'Open-source with rich features.',
+          features: 'GraphQL API\nBuilt-in vectorizers\nHybrid BM25 + vector\nMulti-modal support\nGenerative search',
+          deployment: 'Docker, Kubernetes, Cloud\nSelf-hosted or managed',
+          best: 'Best for: Production, complex schemas'
+        },
+        'db-qdrant': {
+          title: '🔶 QDRANT',
+          content: 'High-performance, Rust-based.',
+          features: 'Written in Rust (fast!)\nRich filtering\nPayload indexing\nQuantization built-in\nDistributed mode',
+          api: 'REST and gRPC\nPython, JS, Rust clients',
+          best: 'Best for: Performance, filtering'
+        },
+        'db-chroma': {
+          title: '🎨 CHROMA',
+          content: 'Simple, developer-friendly.',
+          features: 'Embedded (no server)\nPersistent or in-memory\nSimple Python API\nLangChain native',
+          usage: 'client = chromadb.Client()\ncollection = client.create_collection("docs")\ncollection.add(documents=texts)',
+          best: 'Best for: Prototyping, local dev'
+        },
+        'db-pgvector': {
+          title: '🐘 PGVECTOR',
+          content: 'PostgreSQL extension for vectors.',
+          features: 'Use existing Postgres\nSQL interface\nJOINs with other tables\nACID transactions',
+          usage: 'CREATE EXTENSION vector;\nCREATE TABLE items (embedding vector(384));\nSELECT * FROM items ORDER BY embedding <=> query LIMIT 5;',
+          best: 'Best for: Existing Postgres users'
+        },
+        'db-milvus': {
+          title: '🔵 MILVUS',
+          content: 'Scalable, distributed vector database.',
+          features: 'Billion-scale vectors\nGPU acceleration\nMultiple index types\nCloud-native architecture',
+          deployment: 'Kubernetes recommended\nZilliz Cloud (managed)',
+          best: 'Best for: Large scale, enterprise'
+        },
+
+        // SEARCH STRATEGIES
+        'search-semantic': {
+          title: '🧠 SEMANTIC SEARCH',
+          content: 'Find by meaning, not keywords.',
+          process: '1. Embed query\n2. Find nearest vectors\n3. Return corresponding documents',
+          example: 'Query: "CEO compensation"\nFinds: "executive salary packages"\nNo keyword overlap needed!',
+          strength: 'Understands synonyms, paraphrases'
+        },
+        'search-hybrid': {
+          title: '🔀 HYBRID SEARCH',
+          content: 'Combine vector and keyword search.',
+          why: 'Vector: Good for semantic similarity\nKeyword: Good for exact matches, names\nHybrid: Best of both',
+          methods: 'Linear combination: α×vector + (1-α)×BM25\nRRF: Reciprocal Rank Fusion\nLearned fusion: Train combiner',
+          example: 'Query: "error code E-1234"\nKeyword finds exact code\nVector finds similar errors'
+        },
+        'search-filter': {
+          title: '🏷️ FILTERED SEARCH',
+          content: 'Combine vector similarity with metadata filters.',
+          examples: 'source = "docs.company.com"\ndate >= "2024-01-01"\ncategory IN ["tech", "science"]\nuser_id = "123"',
+          strategies: 'Pre-filter: Filter → Search (fast)\nPost-filter: Search → Filter (accurate)\nIn-filter: Integrated (best)'
+        },
+        'search-mmr': {
+          title: '🎯 MMR (Diversity)',
+          content: 'Balance relevance with diversity.',
+          problem: 'Top-k may return near-duplicates\nWastes context with redundancy',
+          formula: 'MMR = λ×Sim(q,d) - (1-λ)×max(Sim(d,dᵢ))\nλ=1: Pure relevance\nλ=0: Pure diversity',
+          benefit: 'More informative results\nLess redundancy'
+        },
+
+        // EVALUATION
+        'eval-recall': {
+          title: '📊 RECALL@K',
+          content: 'What fraction of relevant items are in top-k?',
+          formula: 'Recall@k = |relevant ∩ top-k| / |relevant|\n\nRecall@10 = 0.8 means:\n80% of relevant docs in top 10',
+          target: 'Recall@10 > 0.9 is good\nHigher k = higher recall\nMeasures coverage'
+        },
+        'eval-precision': {
+          title: '📊 PRECISION@K',
+          content: 'What fraction of top-k are relevant?',
+          formula: 'Precision@k = |relevant ∩ top-k| / k\n\nPrecision@10 = 0.7 means:\n7 of 10 results are relevant',
+          tradeoff: 'Precision vs Recall\nHigh precision = fewer false positives\nHigh recall = fewer false negatives'
+        },
+        'eval-mrr': {
+          title: '📊 MRR (Mean Reciprocal Rank)',
+          content: 'Average of 1/rank of first relevant result.',
+          formula: 'MRR = (1/n) × Σ(1/rankᵢ)\n\nIf first relevant at rank 3:\nRR = 1/3 = 0.33',
+          intuition: 'Rewards finding relevant docs early\nMRR = 1.0 means always rank 1\nGood for single-answer queries'
+        },
+        'eval-ndcg': {
+          title: '📊 NDCG',
+          content: 'Normalized Discounted Cumulative Gain.',
+          formula: 'DCG = Σ(relᵢ / log₂(i+1))\nNDCG = DCG / ideal_DCG',
+          intuition: 'Rewards relevant docs at top\nPenalizes relevant docs ranked low\nAccounts for graded relevance',
+          range: '0 to 1 (1 = perfect ranking)'
+        },
+
+        // TRAINING
+        'train-contrastive': {
+          title: '🎯 CONTRASTIVE LEARNING',
+          content: 'Learn by comparing positive and negative pairs.',
+          process: 'Positive: (query, relevant_doc)\nNegative: (query, irrelevant_doc)\nLoss: Pull positives close, push negatives away',
+          loss: 'InfoNCE / Contrastive loss\nHard negatives improve quality\nIn-batch negatives for efficiency'
+        },
+        'train-hard-neg': {
+          title: '💪 HARD NEGATIVES',
+          content: 'Negatives that are challenging but wrong.',
+          why: 'Random negatives too easy\nModel doesn\'t learn fine distinctions\nHard negatives force better learning',
+          sources: 'BM25 top results (not relevant)\nOther queries\' positives\nLLM-generated negatives'
+        },
+        'train-distillation': {
+          title: '🧪 KNOWLEDGE DISTILLATION',
+          content: 'Train smaller model to mimic larger one.',
+          process: 'Teacher: Large, accurate model\nStudent: Smaller, faster model\nLoss: Match teacher\'s outputs',
+          benefit: 'Smaller model, similar quality\nFaster inference\nCheaper deployment'
+        },
+
+        // ADVANCED
+        'adv-matryoshka': {
+          title: '🪆 MATRYOSHKA EMBEDDINGS',
+          content: 'Variable-size embeddings from one model.',
+          mechanism: 'Train with multiple truncation points\nFirst 256 dims: Useful alone\nFirst 512 dims: Better\nAll dims: Best',
+          benefit: 'Flexibility: Trade quality for speed\nOne model, many sizes\nOpenAI text-embedding-3 supports this'
+        },
+        'adv-late-interaction': {
+          title: '🔄 LATE INTERACTION',
+          content: 'Token-level matching instead of single vector.',
+          models: 'ColBERT: Contextualized Late Interaction\nEncode query and doc tokens separately\nCompute token-level similarities\nAggregate for final score',
+          benefit: 'Better than single-vector\nFaster than cross-encoder\nBest of both worlds'
+        },
+        'adv-multimodal': {
+          title: '🖼️ MULTIMODAL EMBEDDINGS',
+          content: 'Same vector space for text and images.',
+          models: 'CLIP: Text ↔ Image\nImageBind: Text/Image/Audio/etc.\nSigLIP: Improved CLIP',
+          usage: 'Search images with text\nSearch text with images\nUnified retrieval across modalities'
+        },
+        'adv-sparse-dense': {
+          title: '🔀 LEARNED SPARSE',
+          content: 'Learn sparse representations for retrieval.',
+          models: 'SPLADE: Sparse Lexical AND Dense\nSPLADE++: Improved version\nEfficient Transformer-based',
+          benefit: 'Interpretable (like BM25)\nSemantic (like dense)\nFast exact matching possible'
+        },
+
+        // PRACTICAL
+        'practical-normalize': {
+          title: '⚖️ NORMALIZATION',
+          content: 'Normalize vectors to unit length.',
+          why: 'Cosine similarity = dot product for unit vectors\nFaster computation\nMost embedding models do this',
+          code: 'import numpy as np\nnormalized = embedding / np.linalg.norm(embedding)'
+        },
+        'practical-batch': {
+          title: '📦 BATCHING',
+          content: 'Embed multiple texts at once.',
+          benefit: 'Much faster than one-by-one\nGPU utilization\nTypical batch: 32-256',
+          code: 'embeddings = model.encode(\n  texts,\n  batch_size=64,\n  show_progress_bar=True\n)'
+        },
+        'practical-cache': {
+          title: '💾 CACHING',
+          content: 'Cache embeddings to avoid recomputation.',
+          strategies: 'Store in vector DB (persistent)\nRedis for hot queries\nLocal disk cache',
+          tip: 'Embeddings are deterministic\nCache aggressively\nInvalidate on model change'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.models && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MODELS</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.models}</pre>
+              </div>
+            )}
+            {t.features && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FEATURES</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.features}</pre>
+              </div>
+            )}
+            {t.usage && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">USAGE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.usage}</pre>
+              </div>
+            )}
+            {t.code && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">CODE</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.code}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400 mt-2">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.tradeoff && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⚖️ </span>{t.tradeoff}
+              </div>
+            )}
+            {t.best && (
+              <div className="text-xs text-cyan-400 mt-2">
+                <span className="font-bold">🎯 </span>{t.best}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children, className = '' }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className={`cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110 ${className}`}
+        >
+          {children}
+        </div>
+      );
+
+      const SectionHeader = ({ number, title, subtitle, color }) => (
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+            {number}
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">{title}</h2>
+            <p className="text-white/60">{subtitle}</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-indigo-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-violet-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-blue-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-indigo-600/30 border border-indigo-400 rounded-full mb-6">
+                <span className="text-indigo-300 font-bold">EMBEDDINGS</span>
+                <span className="text-white">•</span>
+                <span className="text-indigo-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-400 to-blue-400">
+                Embeddings & Vector Search
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-indigo-300 font-bold">Text → Vectors → Semantic Search</span> — the foundation of modern retrieval.
+              </p>
+            </header>
+
+            {/* Core Concept */}
+            <div className="bg-gradient-to-r from-indigo-900/50 to-violet-900/50 border-2 border-indigo-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center mb-6">
+                <div className="text-2xl font-black text-white">🔢 EMBEDDING INTUITION</div>
+              </div>
+              <div className="flex items-center justify-center gap-6">
+                <Hoverable id="embed-concept">
+                  <div className="px-6 py-4 rounded-lg bg-indigo-900/50 border border-indigo-500 text-center">
+                    <div className="text-indigo-200 font-mono text-sm">"king" - "man" + "woman"</div>
+                    <div className="text-indigo-400 text-xl mt-2">≈</div>
+                    <div className="text-indigo-200 font-mono text-sm">"queen"</div>
+                  </div>
+                </Hoverable>
+                <div className="text-slate-500 text-lg">|</div>
+                <Hoverable id="embed-why">
+                  <div className="px-6 py-4 rounded-lg bg-violet-900/50 border border-violet-500 text-center">
+                    <div className="text-violet-200 text-sm">Similar meaning</div>
+                    <div className="text-violet-400 text-xl mt-1">↓</div>
+                    <div className="text-violet-200 text-sm">Similar vectors</div>
+                  </div>
+                </Hoverable>
+                <div className="text-slate-500 text-lg">|</div>
+                <Hoverable id="embed-vs-sparse">
+                  <div className="px-6 py-4 rounded-lg bg-blue-900/50 border border-blue-500 text-center">
+                    <div className="text-blue-200 text-sm">Dense: 384-4096 dims</div>
+                    <div className="text-blue-400 text-xs mt-1">vs Sparse: 100K+ dims</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </div>
+
+            {/* EMBEDDING MODELS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="1" 
+                title="Embedding Models" 
+                subtitle="Convert text to vectors"
+                color="from-indigo-500 to-blue-600"
+              />
+              
+              <Hoverable id="model-overview">
+                <div className="text-center mb-4 p-3 bg-indigo-900/30 rounded-lg border border-indigo-500/30">
+                  <div className="text-indigo-300 font-bold">Word2Vec → BERT → Sentence-BERT → Modern Retrievers</div>
+                </div>
+              </Hoverable>
+
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <Hoverable id="model-openai">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">🔷 OpenAI</div>
+                    <div className="text-blue-100/70 text-sm">text-embedding-3</div>
+                    <div className="text-blue-300 text-xs mt-2">1536-3072 dims</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-cohere">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🔶 Cohere</div>
+                    <div className="text-orange-100/70 text-sm">embed-v3</div>
+                    <div className="text-orange-300 text-xs mt-2">Input types!</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-voyage">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">⛵ Voyage</div>
+                    <div className="text-cyan-100/70 text-sm">Domain-specific</div>
+                    <div className="text-cyan-300 text-xs mt-2">Code, Law, Finance</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-bge">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🔓 BGE</div>
+                    <div className="text-green-100/70 text-sm">Best open source</div>
+                    <div className="text-green-300 text-xs mt-2">384-1024 dims</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <Hoverable id="model-e5">
+                  <div className="p-3 rounded-lg bg-purple-900/40 border border-purple-500">
+                    <div className="text-purple-200 font-bold text-sm">🔓 E5 (Microsoft)</div>
+                    <div className="text-purple-100/60 text-xs">Prefix: "query:" / "passage:"</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-gte">
+                  <div className="p-3 rounded-lg bg-pink-900/40 border border-pink-500">
+                    <div className="text-pink-200 font-bold text-sm">🔓 GTE (Alibaba)</div>
+                    <div className="text-pink-100/60 text-xs">LLM-based variants</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="model-minilm">
+                  <div className="p-3 rounded-lg bg-slate-800 border border-slate-500">
+                    <div className="text-slate-200 font-bold text-sm">🔓 MiniLM</div>
+                    <div className="text-slate-400 text-xs">Fast, 384 dims</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SIMILARITY METRICS */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="2" 
+                title="Similarity Metrics" 
+                subtitle="How to compare vectors"
+                color="from-cyan-500 to-teal-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="sim-cosine">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-lg font-black text-cyan-200 mb-2">📐 Cosine</div>
+                    <div className="text-cyan-100/70 text-sm">Angle between vectors</div>
+                    <div className="text-cyan-300 text-xs mt-2">Range: -1 to 1</div>
+                    <div className="text-green-400 text-xs">✓ Default choice</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="sim-dot">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">📏 Dot Product</div>
+                    <div className="text-teal-100/70 text-sm">Raw inner product</div>
+                    <div className="text-teal-300 text-xs mt-2">Range: -∞ to ∞</div>
+                    <div className="text-teal-400 text-xs">Magnitude matters</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="sim-euclidean">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">📏 Euclidean</div>
+                    <div className="text-emerald-100/70 text-sm">L2 distance</div>
+                    <div className="text-emerald-300 text-xs mt-2">Range: 0 to ∞</div>
+                    <div className="text-emerald-400 text-xs">0 = identical</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="sim-manhattan">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">📏 Manhattan</div>
+                    <div className="text-green-100/70 text-sm">L1 distance</div>
+                    <div className="text-green-300 text-xs mt-2">Range: 0 to ∞</div>
+                    <div className="text-green-400 text-xs">Outlier robust</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* VECTOR INDEXING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="3" 
+                title="Vector Indexing" 
+                subtitle="ANN algorithms for fast search"
+                color="from-purple-500 to-violet-600"
+              />
+              
+              <div className="grid grid-cols-5 gap-3">
+                <Hoverable id="index-brute">
+                  <div className="p-3 rounded-lg bg-slate-800 border border-slate-500 text-center">
+                    <div className="text-slate-200 font-bold text-sm">🔍 Flat</div>
+                    <div className="text-slate-400 text-xs">Exact, slow</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="index-ivf">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">🗂️ IVF</div>
+                    <div className="text-purple-100/60 text-xs">Clustering</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="index-hnsw">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border-2 border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🕸️ HNSW</div>
+                    <div className="text-violet-100/60 text-xs">Graph-based</div>
+                    <div className="text-green-400 text-xs">✓ Best default</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="index-pq">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">📦 PQ</div>
+                    <div className="text-fuchsia-100/60 text-xs">Compression</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="index-scann">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">🔎 ScaNN</div>
+                    <div className="text-pink-100/60 text-xs">Google</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* VECTOR DATABASES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="4" 
+                title="Vector Databases" 
+                subtitle="Store and search vectors at scale"
+                color="from-green-500 to-emerald-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <Hoverable id="db-pinecone">
+                  <div className="p-4 rounded-xl bg-green-900/50 border-2 border-green-400">
+                    <div className="text-lg font-black text-green-200 mb-2">🌲 Pinecone</div>
+                    <div className="text-green-100/70 text-sm">Fully managed</div>
+                    <div className="text-green-300 text-xs mt-2">Best for: Getting started</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="db-weaviate">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-lg font-black text-emerald-200 mb-2">🔷 Weaviate</div>
+                    <div className="text-emerald-100/70 text-sm">Feature-rich open source</div>
+                    <div className="text-emerald-300 text-xs mt-2">Best for: Production</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="db-qdrant">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-lg font-black text-teal-200 mb-2">🔶 Qdrant</div>
+                    <div className="text-teal-100/70 text-sm">Rust, high performance</div>
+                    <div className="text-teal-300 text-xs mt-2">Best for: Filtering</div>
+                  </div>
+                </Hoverable>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <Hoverable id="db-chroma">
+                  <div className="p-3 rounded-lg bg-pink-900/40 border border-pink-500">
+                    <div className="text-pink-200 font-bold text-sm">🎨 Chroma</div>
+                    <div className="text-pink-100/60 text-xs">Embedded, developer-friendly</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="db-pgvector">
+                  <div className="p-3 rounded-lg bg-blue-900/40 border border-blue-500">
+                    <div className="text-blue-200 font-bold text-sm">🐘 pgvector</div>
+                    <div className="text-blue-100/60 text-xs">PostgreSQL extension</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="db-milvus">
+                  <div className="p-3 rounded-lg bg-indigo-900/40 border border-indigo-500">
+                    <div className="text-indigo-200 font-bold text-sm">🔵 Milvus</div>
+                    <div className="text-indigo-100/60 text-xs">Billion-scale, distributed</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SEARCH STRATEGIES */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="5" 
+                title="Search Strategies" 
+                subtitle="How to retrieve effectively"
+                color="from-orange-500 to-amber-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="search-semantic">
+                  <div className="p-4 rounded-xl bg-orange-900/50 border-2 border-orange-400">
+                    <div className="text-lg font-black text-orange-200 mb-2">🧠 Semantic</div>
+                    <div className="text-orange-100/70 text-sm">Find by meaning</div>
+                    <div className="text-orange-300 text-xs mt-2">Synonyms, paraphrases</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="search-hybrid">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-lg font-black text-amber-200 mb-2">🔀 Hybrid</div>
+                    <div className="text-amber-100/70 text-sm">Vector + Keyword</div>
+                    <div className="text-amber-300 text-xs mt-2">Best of both</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="search-filter">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-lg font-black text-yellow-200 mb-2">🏷️ Filtered</div>
+                    <div className="text-yellow-100/70 text-sm">+ Metadata filters</div>
+                    <div className="text-yellow-300 text-xs mt-2">date, source, category</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="search-mmr">
+                  <div className="p-4 rounded-xl bg-lime-900/50 border-2 border-lime-400">
+                    <div className="text-lg font-black text-lime-200 mb-2">🎯 MMR</div>
+                    <div className="text-lime-100/70 text-sm">Diversity</div>
+                    <div className="text-lime-300 text-xs mt-2">Reduce redundancy</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* EVALUATION */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="6" 
+                title="Evaluation" 
+                subtitle="Measure retrieval quality"
+                color="from-red-500 to-rose-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="eval-recall">
+                  <div className="p-3 rounded-lg bg-red-900/50 border border-red-400 text-center">
+                    <div className="text-red-200 font-bold text-sm">📊 Recall@K</div>
+                    <div className="text-red-100/60 text-xs">Coverage of relevant</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-precision">
+                  <div className="p-3 rounded-lg bg-rose-900/50 border border-rose-400 text-center">
+                    <div className="text-rose-200 font-bold text-sm">📊 Precision@K</div>
+                    <div className="text-rose-100/60 text-xs">Accuracy of top-k</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-mrr">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">📊 MRR</div>
+                    <div className="text-pink-100/60 text-xs">Reciprocal rank</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="eval-ndcg">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">📊 NDCG</div>
+                    <div className="text-fuchsia-100/60 text-xs">Graded relevance</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* TRAINING */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="7" 
+                title="Training Embeddings" 
+                subtitle="How embedding models learn"
+                color="from-blue-500 to-indigo-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="train-contrastive">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">🎯 Contrastive</div>
+                    <div className="text-blue-100/70 text-sm">Pull positives, push negatives</div>
+                    <div className="text-blue-300 text-xs mt-2">InfoNCE loss</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-hard-neg">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">💪 Hard Negatives</div>
+                    <div className="text-indigo-100/70 text-sm">Challenging examples</div>
+                    <div className="text-indigo-300 text-xs mt-2">BM25 mined</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-distillation">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🧪 Distillation</div>
+                    <div className="text-violet-100/70 text-sm">Teacher → Student</div>
+                    <div className="text-violet-300 text-xs mt-2">Smaller, faster</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* ADVANCED */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="8" 
+                title="Advanced Topics" 
+                subtitle="Cutting-edge techniques"
+                color="from-violet-500 to-purple-600"
+              />
+              
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="adv-matryoshka">
+                  <div className="p-3 rounded-lg bg-violet-900/50 border border-violet-400 text-center">
+                    <div className="text-violet-200 font-bold text-sm">🪆 Matryoshka</div>
+                    <div className="text-violet-100/60 text-xs">Variable dimensions</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-late-interaction">
+                  <div className="p-3 rounded-lg bg-purple-900/50 border border-purple-400 text-center">
+                    <div className="text-purple-200 font-bold text-sm">🔄 ColBERT</div>
+                    <div className="text-purple-100/60 text-xs">Late interaction</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-multimodal">
+                  <div className="p-3 rounded-lg bg-fuchsia-900/50 border border-fuchsia-400 text-center">
+                    <div className="text-fuchsia-200 font-bold text-sm">🖼️ Multimodal</div>
+                    <div className="text-fuchsia-100/60 text-xs">CLIP, ImageBind</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="adv-sparse-dense">
+                  <div className="p-3 rounded-lg bg-pink-900/50 border border-pink-400 text-center">
+                    <div className="text-pink-200 font-bold text-sm">🔀 SPLADE</div>
+                    <div className="text-pink-100/60 text-xs">Learned sparse</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* PRACTICAL */}
+            <section className="mb-10">
+              <SectionHeader 
+                number="9" 
+                title="Practical Tips" 
+                subtitle="Production best practices"
+                color="from-slate-500 to-zinc-600"
+              />
+              
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="practical-normalize">
+                  <div className="p-4 rounded-xl bg-slate-800 border-2 border-slate-500">
+                    <div className="text-lg font-black text-slate-200 mb-2">⚖️ Normalize</div>
+                    <div className="text-slate-400 text-sm">Unit vectors for cosine</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-batch">
+                  <div className="p-4 rounded-xl bg-zinc-800 border-2 border-zinc-500">
+                    <div className="text-lg font-black text-zinc-200 mb-2">📦 Batch</div>
+                    <div className="text-zinc-400 text-sm">32-256 texts at once</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="practical-cache">
+                  <div className="p-4 rounded-xl bg-stone-800 border-2 border-stone-500">
+                    <div className="text-lg font-black text-stone-200 mb-2">💾 Cache</div>
+                    <div className="text-stone-400 text-sm">Embeddings are deterministic</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-indigo-900/50 to-violet-900/50 border-2 border-indigo-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🔢 EMBEDDINGS SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Text → Dense vectors → Semantic search. Choose model based on quality/cost.<br/>
+                HNSW for indexing, hybrid search for best results.
+              </div>
+              
+              <div className="grid grid-cols-5 gap-3 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">OpenAI</div>
+                  <div className="text-slate-400">Easy API</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-green-300 font-bold">BGE</div>
+                  <div className="text-slate-400">Best open</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">Cosine</div>
+                  <div className="text-slate-400">Default metric</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-violet-300 font-bold">HNSW</div>
+                  <div className="text-slate-400">Best index</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-amber-300 font-bold">Hybrid</div>
+                  <div className="text-slate-400">Vector + BM25</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Embeddings & Vector Search • Models • Indexing • Databases</p>
+              <p className="text-xs mt-1 text-slate-600">Text → Vectors → Semantic Understanding</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<EmbeddingsDiagram />);
+  </script>
+</body>
+</html>

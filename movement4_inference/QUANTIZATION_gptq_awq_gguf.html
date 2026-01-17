@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quantization Deep Dive - GPTQ, AWQ, GGUF & Beyond</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+
+    function QuantizationDiagram() {
+      const [tooltip, setTooltip] = useState(null);
+      const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+      const handleMouseMove = (e) => {
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
+
+      const showTooltip = (id) => setTooltip(id);
+      const hideTooltip = () => setTooltip(null);
+
+      const tooltips = {
+        // Why Quantization
+        'why-memory': {
+          title: '💾 MEMORY SAVINGS',
+          content: 'Reduce model size by 2-4× with minimal quality loss. Essential for deployment.',
+          example: 'LLaMA-70B:\nFP16: 140GB VRAM\nINT8: 70GB VRAM\nINT4: 35GB VRAM',
+          benefit: 'Run larger models on smaller GPUs\n70B fits on single 48GB GPU with INT4'
+        },
+        'why-speed': {
+          title: '⚡ INFERENCE SPEED',
+          content: 'Lower precision = faster memory transfer = faster inference (memory-bound decode).',
+          mechanism: 'Decode phase is memory-bandwidth bound\nSmaller weights = faster loading from HBM\n1.5-2× speedup typical for INT4',
+          caveat: 'Prefill may not speed up (compute-bound)\nDepends on hardware support'
+        },
+        'why-cost': {
+          title: '💰 COST REDUCTION',
+          content: 'Smaller models = cheaper GPUs = lower inference costs.',
+          example: 'INT4 70B on A100-40GB: ~$1/hr\nvs FP16 70B on 2×A100-80GB: ~$4/hr\n4× cost reduction!',
+          production: 'At scale, quantization saves millions'
+        },
+
+        // Precision Formats
+        'format-fp32': {
+          title: '🔢 FP32 (32-bit Float)',
+          content: 'Full precision. Used for optimizer states, rarely for weights.',
+          bits: '1 sign + 8 exponent + 23 mantissa\nRange: ±3.4×10³⁸\nPrecision: ~7 decimal digits',
+          usage: 'Adam optimizer m,v states\nMaster weights in mixed precision\n4 bytes per parameter'
+        },
+        'format-fp16': {
+          title: '🔢 FP16 (16-bit Float)',
+          content: 'Half precision. Common for inference, needs loss scaling for training.',
+          bits: '1 sign + 5 exponent + 10 mantissa\nRange: ±65,504\nPrecision: ~3 decimal digits',
+          issue: 'Small range → gradient underflow\nRequires loss scaling for training'
+        },
+        'format-bf16': {
+          title: '🔢 BF16 (Brain Float 16)',
+          content: 'Same range as FP32, less precision. Training default on modern GPUs.',
+          bits: '1 sign + 8 exponent + 7 mantissa\nRange: Same as FP32!\nPrecision: ~2 decimal digits',
+          benefit: 'No loss scaling needed\nH100/A100 native support\nPreferred for training ✓'
+        },
+        'format-fp8': {
+          title: '🔢 FP8 (8-bit Float)',
+          content: 'New format on H100+. Two variants: E4M3 and E5M2.',
+          variants: 'E4M3: More precision (inference)\nE5M2: More range (training gradients)\nH100: 2× FP16 throughput',
+          status: 'Emerging standard\nRequires H100/B200\nComplex to use correctly'
+        },
+        'format-int8': {
+          title: '🔢 INT8 (8-bit Integer)',
+          content: 'Symmetric or asymmetric quantization. Good balance of quality/compression.',
+          formula: 'x_q = round(x / scale)\nx_dequant = x_q × scale\nScale = max(|x|) / 127',
+          quality: '~0.1-0.5% degradation typical\n2× compression from FP16\nWell-supported everywhere'
+        },
+        'format-int4': {
+          title: '🔢 INT4 (4-bit Integer)',
+          content: 'Aggressive quantization. Requires careful calibration.',
+          formula: '16 possible values (-8 to 7)\nOften grouped (32-128 weights share scale)\nNF4: Normalized float variant',
+          quality: '~1-3% degradation typical\n4× compression from FP16\nGPTQ/AWQ/GGUF use this'
+        },
+        'format-nf4': {
+          title: '🔢 NF4 (4-bit NormalFloat)',
+          content: 'QLoRA innovation. Optimal for normally-distributed weights.',
+          mechanism: 'Values placed at normal distribution quantiles\nBetter than uniform INT4 for neural nets\nUsed by bitsandbytes',
+          benefit: 'Theoretically optimal for Gaussian weights\nSlightly better quality than INT4'
+        },
+
+        // PTQ vs QAT
+        'ptq-concept': {
+          title: '📦 POST-TRAINING QUANTIZATION (PTQ)',
+          content: 'Quantize after training. No retraining needed. Most common approach.',
+          process: '1. Load trained FP16 model\n2. Collect calibration data\n3. Compute scales/zeros\n4. Quantize weights\n5. Save quantized model',
+          benefit: 'Fast (minutes to hours)\nNo training required\nWorks with any model'
+        },
+        'qat-concept': {
+          title: '🎓 QUANTIZATION-AWARE TRAINING (QAT)',
+          content: 'Simulate quantization during training. Model learns to be robust.',
+          mechanism: 'Forward: Fake quantize (round then dequant)\nBackward: Straight-through estimator\nModel adapts to quantization error',
+          tradeoff: 'Better quality than PTQ\nBut requires training access\nExpensive for large models'
+        },
+
+        // Calibration
+        'calibration-concept': {
+          title: '📊 CALIBRATION',
+          content: 'Collect activation statistics to determine optimal scales.',
+          process: 'Run ~128-1024 samples through model\nRecord min/max/distribution of activations\nCompute optimal scale per tensor',
+          importance: 'Bad calibration = bad quality\nCalibration data should match deployment\nMore samples = better (diminishing returns)'
+        },
+        'calibration-minmax': {
+          title: '📏 Min-Max Calibration',
+          content: 'Simplest method. Scale to cover full range of observed values.',
+          formula: 'scale = (max - min) / (2^bits - 1)\nzero_point = -min / scale',
+          issue: 'Sensitive to outliers\nOne large value ruins the scale\nOften not optimal'
+        },
+        'calibration-percentile': {
+          title: '📊 Percentile Calibration',
+          content: 'Clip outliers. Use 99.9th percentile instead of max.',
+          formula: 'scale based on percentile(99.9%) not max\nOutliers clipped/saturated\nMuch better for transformers',
+          benefit: 'Robust to activation outliers\nCommon in attention layers\nTypically better quality'
+        },
+        'calibration-mse': {
+          title: '📉 MSE Calibration',
+          content: 'Find scale that minimizes reconstruction error.',
+          formula: 'scale* = argmin Σ(x - dequant(quant(x)))²\nGrid search or analytical solution\nPer-tensor or per-channel',
+          benefit: 'Optimal in MSE sense\nSlower to compute\nBest for critical layers'
+        },
+
+        // GPTQ
+        'gptq-concept': {
+          title: '🔧 GPTQ',
+          content: 'Layer-wise quantization with second-order error correction. State-of-the-art quality.',
+          key: 'Optimal Brain Quantization (OBQ)\nQuantize one weight, update others to compensate\nUses Hessian (curvature) information',
+          performance: 'Best INT4 quality\n~3-4 hours for 70B\nGPU required for quantization'
+        },
+        'gptq-process': {
+          title: '⚙️ GPTQ Process',
+          content: 'Iteratively quantize weights while minimizing output error.',
+          steps: '1. Compute Hessian inverse per layer\n2. Quantize weights column by column\n3. Update remaining weights to compensate\n4. Repeat for all layers',
+          insight: 'Error compensation is key\nNot just rounding weights\nActively corrects for quantization error'
+        },
+        'gptq-hessian': {
+          title: '📐 Hessian in GPTQ',
+          content: 'Second-order information guides which weights matter most.',
+          formula: 'H = 2X^T X (for linear layer)\nInverse used to find optimal update\nWeights with high curvature quantized carefully',
+          intuition: 'Some weights matter more than others\nHessian tells us which ones\nUpdate important weights less'
+        },
+
+        // AWQ
+        'awq-concept': {
+          title: '🔧 AWQ (Activation-aware Weight Quantization)',
+          content: 'Protect salient weights based on activation magnitudes. Simpler than GPTQ.',
+          key: 'Key insight: 1% of weights matter most\nIdentify via activation magnitudes\nScale those weights up before quantizing',
+          performance: 'Comparable to GPTQ quality\nFaster to quantize (minutes)\nNo Hessian computation'
+        },
+        'awq-salience': {
+          title: '⭐ Weight Salience',
+          content: 'Weights connected to large activations matter more.',
+          mechanism: 'Salient weight = large |weight| × large |activation|\nKeep these precise\nScale up before quantization, scale down after',
+          formula: 'salience = |W| × mean(|X|)\nPer-channel scaling factors\nProtects important weights'
+        },
+        'awq-scaling': {
+          title: '📊 AWQ Scaling',
+          content: 'Scale salient channels to reduce their quantization error.',
+          process: '1. Compute activation magnitudes\n2. Find per-channel salience\n3. Scale up salient channels\n4. Quantize (now salient weights have more bits effectively)\n5. Scale down activations to compensate',
+          benefit: 'Salient weights get more precision\nMathematically equivalent after dequant\nSimple but effective'
+        },
+
+        // GGUF/GGML
+        'gguf-concept': {
+          title: '🔧 GGUF / GGML',
+          content: 'CPU-optimized format for local inference. Powers llama.cpp.',
+          origin: 'Created by Georgi Gerganov\nGGML: Tensor library for CPU\nGGUF: File format (replaced GGML files)',
+          benefit: 'Runs on CPU (no GPU needed!)\nAVX/AVX2/AVX512 optimized\nMac M1/M2 Metal support'
+        },
+        'gguf-formats': {
+          title: '📊 GGUF Quantization Types',
+          content: 'Many quantization options with different quality/size tradeoffs.',
+          types: 'Q4_0: Basic 4-bit (fast)\nQ4_K_M: 4-bit K-quant medium\nQ5_K_M: 5-bit K-quant medium\nQ6_K: 6-bit (high quality)\nQ8_0: 8-bit (best quality)',
+          recommend: 'Q4_K_M: Best balance\nQ5_K_M: Better quality\nQ8_0: Near-original quality'
+        },
+        'gguf-kquant': {
+          title: '🔑 K-Quants',
+          content: 'Improved quantization using different bit-widths per layer.',
+          mechanism: 'Not all layers quantize equally\nAttention layers: More bits\nFFN layers: Fewer bits OK\nSuper-blocks with mixed precision',
+          quality: 'Significant quality improvement\nSame file size as basic quants\nAlways prefer K-quant variants'
+        },
+
+        // bitsandbytes
+        'bnb-concept': {
+          title: '🔧 bitsandbytes',
+          content: 'Easy INT8/INT4 quantization for training and inference. HuggingFace integrated.',
+          features: 'LLM.int8(): 8-bit inference\n4-bit NF4/FP4 for QLoRA\nAuto mixed-precision\nCUDA kernels',
+          usage: 'model = AutoModel.from_pretrained(\n  "meta-llama/...",\n  load_in_4bit=True\n)'
+        },
+        'bnb-int8': {
+          title: '🔢 LLM.int8()',
+          content: 'INT8 with outlier handling. Keeps outlier dimensions in FP16.',
+          mechanism: 'Most dimensions: INT8\nOutlier dims (>6σ): Keep FP16\n~0.1% of dims are outliers\nPer-token outlier detection',
+          benefit: 'Handles attention outliers gracefully\nBetter than naive INT8\nGood quality, 2× compression'
+        },
+        'bnb-4bit': {
+          title: '🔢 4-bit (NF4/FP4)',
+          content: 'Aggressive quantization for QLoRA and inference.',
+          options: 'nf4: NormalFloat (better for Gaussian)\nfp4: Float4 (simpler)\nDouble quantization: Quantize the scales too!',
+          usage: 'BitsAndBytesConfig(\n  load_in_4bit=True,\n  bnb_4bit_quant_type="nf4"\n)'
+        },
+
+        // Quality
+        'quality-perplexity': {
+          title: '📊 PERPLEXITY IMPACT',
+          content: 'Measure quality degradation via perplexity increase.',
+          typical: 'INT8: +0.1-0.2 perplexity\nINT4 GPTQ: +0.2-0.5 perplexity\nINT4 naive: +1-3 perplexity\nINT3: Often unusable',
+          benchmark: 'Measure on WikiText-2, C4\nLower is better\nBigger models more robust to quantization'
+        },
+        'quality-tasks': {
+          title: '📋 TASK PERFORMANCE',
+          content: 'Some tasks more sensitive to quantization than others.',
+          sensitive: 'Math/reasoning: More sensitive\nCode generation: Moderate\nGeneral chat: Less sensitive\nClassification: Usually fine',
+          advice: 'Test on YOUR specific use case\nBenchmarks may not reflect your task\nWhen in doubt, use INT8'
+        },
+        'quality-size': {
+          title: '📏 MODEL SIZE EFFECT',
+          content: 'Larger models are more robust to quantization.',
+          pattern: '7B: INT4 noticeable degradation\n13B: INT4 usually fine\n70B: INT4 often great\n>100B: Can push to INT3',
+          why: 'More parameters = more redundancy\nQuantization error averages out\nSmall models need each bit'
+        },
+
+        // Deployment
+        'deploy-vllm': {
+          title: '🚀 vLLM Quantization',
+          content: 'vLLM supports GPTQ, AWQ, and Marlin for fast INT4 inference.',
+          marlin: 'Marlin: 4-bit kernel for GPUs\n3.5-4× faster than FP16\nNVIDIA GPUs with Tensor Cores',
+          usage: 'vllm serve model --quantization awq'
+        },
+        'deploy-trt': {
+          title: '🚀 TensorRT-LLM Quantization',
+          content: 'NVIDIA\'s optimized INT4/INT8/FP8 support.',
+          features: 'SmoothQuant: INT8 W8A8\nFP8 on H100/B200\nINT4 AWQ support\nFused kernels',
+          benefit: 'Fastest inference possible\nComplex setup\nProduction-grade'
+        },
+        'deploy-llamacpp': {
+          title: '🚀 llama.cpp Deployment',
+          content: 'CPU inference with GGUF models.',
+          platforms: 'Linux/Mac/Windows\nNo GPU required!\nMetal (Mac), CUDA (optional)\nAndroid/iOS possible',
+          usage: './main -m model.Q4_K_M.gguf -p "prompt"'
+        },
+
+        // Comparisons
+        'compare-methods': {
+          title: '📊 METHOD COMPARISON',
+          content: 'Different methods have different tradeoffs.',
+          comparison: 'GPTQ: Best quality, slow quant\nAWQ: Good quality, fast quant\nGGUF: CPU-focused, versatile\nbitsandbytes: Easy, training-friendly',
+          choose: 'GPU inference: GPTQ/AWQ\nCPU inference: GGUF\nFine-tuning: bitsandbytes'
+        },
+        'compare-bits': {
+          title: '📊 BITS COMPARISON',
+          content: 'More bits = better quality = larger size.',
+          tradeoffs: 'INT8: ~2% size, minimal quality loss\nINT6: ~2.5% size, small loss\nINT5: ~3% size, noticeable loss\nINT4: ~4% size, significant loss\nINT3: ~5% size, major loss',
+          sweet: 'INT4 with GPTQ/AWQ is sweet spot\nINT8 when quality critical\nINT5/6 emerging middle ground'
+        },
+
+        // Advanced
+        'advanced-mixed': {
+          title: '🔀 MIXED PRECISION',
+          content: 'Different layers get different bit-widths.',
+          strategy: 'Attention: More sensitive → more bits\nFFN: Less sensitive → fewer bits\nEmbeddings: Keep FP16/INT8\nFirst/last layers: Higher precision',
+          benefit: 'Better quality/size tradeoff\nK-quants use this\nSome tools auto-detect'
+        },
+        'advanced-smoothquant': {
+          title: '📏 SmoothQuant',
+          content: 'Migrate quantization difficulty from activations to weights.',
+          mechanism: 'Activations have outliers (hard to quantize)\nWeights are smooth (easy)\nMultiply activations by s, divide weights by s\nBalances the difficulty',
+          formula: 'Y = XW → Y = (X/s)(sW)\nChoose s to balance ranges\nNow both X/s and sW are easier'
+        },
+        'advanced-sparsity': {
+          title: '🕳️ SPARSITY + QUANTIZATION',
+          content: 'Combine pruning with quantization for even more compression.',
+          combo: '2:4 sparsity: 50% zeros\nPlus INT4: 4× compression\nTotal: 8× compression!',
+          status: 'Emerging area\nHardware support growing\nSparse Tensor Cores on A100+'
+        },
+      };
+
+      const Tooltip = () => {
+        if (!tooltip || !tooltips[tooltip]) return null;
+        const t = tooltips[tooltip];
+        
+        let left = mousePos.x + 15;
+        let top = mousePos.y + 15;
+        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
+        if (top + 350 > window.innerHeight) top = window.innerHeight - 360;
+        
+        return (
+          <div 
+            className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
+            style={{ left, top }}
+          >
+            <div className="text-lg font-black text-white mb-2">{t.title}</div>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
+            {t.formula && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">FORMULA</div>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.formula}</pre>
+              </div>
+            )}
+            {t.mechanism && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">MECHANISM</div>
+                <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap">{t.mechanism}</pre>
+              </div>
+            )}
+            {t.example && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">EXAMPLE</div>
+                <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">{t.example}</pre>
+              </div>
+            )}
+            {t.steps && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">STEPS</div>
+                <pre className="text-xs text-purple-300 font-mono whitespace-pre-wrap">{t.steps}</pre>
+              </div>
+            )}
+            {t.types && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">TYPES</div>
+                <pre className="text-xs text-orange-300 font-mono whitespace-pre-wrap">{t.types}</pre>
+              </div>
+            )}
+            {t.usage && (
+              <div className="bg-black/50 rounded-lg p-3 mb-3">
+                <div className="text-xs text-slate-500 font-bold mb-1">USAGE</div>
+                <pre className="text-xs text-blue-300 font-mono whitespace-pre-wrap">{t.usage}</pre>
+              </div>
+            )}
+            {t.benefit && (
+              <div className="text-xs text-green-400">
+                <span className="font-bold">✅ </span>{t.benefit}
+              </div>
+            )}
+            {t.tradeoff && (
+              <div className="text-xs text-yellow-400 mt-2">
+                <span className="font-bold">⚖️ </span>{t.tradeoff}
+              </div>
+            )}
+            {t.caveat && (
+              <div className="text-xs text-orange-400 mt-2">
+                <span className="font-bold">⚠️ </span>{t.caveat}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const Hoverable = ({ id, children }) => (
+        <div 
+          onMouseEnter={() => showTooltip(id)}
+          onMouseLeave={hideTooltip}
+          className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
+        >
+          {children}
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-black text-white p-8" onMouseMove={handleMouseMove}>
+          <Tooltip />
+          
+          {/* Background */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute w-[800px] h-[800px] -top-96 left-1/4 bg-teal-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] top-1/2 right-0 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="absolute w-[600px] h-[600px] bottom-0 left-0 bg-emerald-500/10 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative max-w-7xl mx-auto">
+            {/* Header */}
+            <header className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600/30 border border-teal-400 rounded-full mb-6">
+                <span className="text-teal-300 font-bold">QUANTIZATION</span>
+                <span className="text-white">•</span>
+                <span className="text-teal-200 font-medium">Hover for details</span>
+              </div>
+              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-cyan-400 to-emerald-400">
+                Quantization Deep Dive
+              </h1>
+              <p className="text-xl text-slate-200 max-w-3xl mx-auto leading-relaxed">
+                <span className="text-teal-300 font-bold">FP16 → INT4</span> — Compress models 4× with minimal quality loss.
+              </p>
+            </header>
+
+            {/* Key Insight */}
+            <div className="bg-gradient-to-r from-teal-900/50 to-cyan-900/50 border-2 border-teal-500/50 rounded-xl p-8 mb-12">
+              <div className="text-center">
+                <div className="text-2xl font-black text-white mb-4">🎯 THE QUANTIZATION INSIGHT</div>
+                <div className="inline-block bg-black/50 rounded-xl p-6 font-mono text-xl text-teal-300 border border-teal-500/50">
+                  70B × FP16 = 140GB → 70B × INT4 = 35GB (4× smaller!)
+                </div>
+                <div className="mt-4 text-slate-300">
+                  Neural network weights are <span className="text-cyan-400 font-bold">redundant</span> — lower precision retains most information
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 1: WHY QUANTIZE */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-teal-500/50">
+                  1
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-teal-300">WHY QUANTIZE?</h2>
+                  <p className="text-teal-200/80">Memory, speed, and cost benefits</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="why-memory">
+                  <div className="p-5 rounded-xl bg-teal-900/40 border-2 border-teal-500">
+                    <div className="text-3xl mb-2">💾</div>
+                    <div className="text-xl font-black text-teal-200">Memory</div>
+                    <div className="text-teal-100/70 text-sm mt-2">2-4× smaller model size</div>
+                    <div className="text-teal-300 text-xs mt-2">70B in 35GB VRAM</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="why-speed">
+                  <div className="p-5 rounded-xl bg-cyan-900/40 border-2 border-cyan-500">
+                    <div className="text-3xl mb-2">⚡</div>
+                    <div className="text-xl font-black text-cyan-200">Speed</div>
+                    <div className="text-cyan-100/70 text-sm mt-2">1.5-2× faster inference</div>
+                    <div className="text-cyan-300 text-xs mt-2">Memory-bound speedup</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="why-cost">
+                  <div className="p-5 rounded-xl bg-emerald-900/40 border-2 border-emerald-500">
+                    <div className="text-3xl mb-2">💰</div>
+                    <div className="text-xl font-black text-emerald-200">Cost</div>
+                    <div className="text-emerald-100/70 text-sm mt-2">2-4× cheaper inference</div>
+                    <div className="text-emerald-300 text-xs mt-2">Smaller GPUs work</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 2: PRECISION FORMATS */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-purple-500/50">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-purple-300">PRECISION FORMATS</h2>
+                  <p className="text-purple-200/80">From FP32 down to INT4</p>
+                </div>
+              </div>
+
+              {/* Precision Spectrum */}
+              <div className="bg-slate-900/80 border border-purple-500/30 rounded-xl p-6 mb-6">
+                <div className="text-center mb-4">
+                  <div className="text-lg font-bold text-purple-300">📊 Precision Spectrum</div>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  {[
+                    { name: 'FP32', bits: 32, color: 'slate', id: 'format-fp32' },
+                    { name: 'FP16', bits: 16, color: 'blue', id: 'format-fp16' },
+                    { name: 'BF16', bits: 16, color: 'indigo', id: 'format-bf16', star: true },
+                    { name: 'FP8', bits: 8, color: 'violet', id: 'format-fp8' },
+                    { name: 'INT8', bits: 8, color: 'purple', id: 'format-int8' },
+                    { name: 'INT4', bits: 4, color: 'pink', id: 'format-int4', star: true },
+                    { name: 'NF4', bits: 4, color: 'rose', id: 'format-nf4' },
+                  ].map((fmt, i) => (
+                    <Hoverable key={i} id={fmt.id}>
+                      <div className={`flex-1 p-3 rounded-lg bg-${fmt.color}-900/50 border border-${fmt.color}-500 text-center relative`}>
+                        {fmt.star && <span className="absolute -top-2 -right-2 text-yellow-400">⭐</span>}
+                        <div className={`text-${fmt.color}-200 font-bold`}>{fmt.name}</div>
+                        <div className={`text-${fmt.color}-300 text-xs`}>{fmt.bits}-bit</div>
+                      </div>
+                    </Hoverable>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-2 text-xs text-slate-500">
+                  <span>← More Precision</span>
+                  <span>More Compression →</span>
+                </div>
+              </div>
+
+              {/* Size Comparison */}
+              <div className="bg-slate-800/50 rounded-xl p-4">
+                <div className="text-center text-sm text-slate-400 mb-3">LLaMA-70B Memory Footprint</div>
+                <div className="flex items-end justify-center gap-4 h-24">
+                  {[
+                    { fmt: 'FP32', size: 280, pct: 100 },
+                    { fmt: 'FP16', size: 140, pct: 50 },
+                    { fmt: 'INT8', size: 70, pct: 25 },
+                    { fmt: 'INT4', size: 35, pct: 12.5 },
+                  ].map((d, i) => (
+                    <div key={i} className="text-center">
+                      <div 
+                        className={`w-16 mx-auto rounded-t-lg ${i === 3 ? 'bg-teal-500' : 'bg-slate-600'}`}
+                        style={{ height: `${d.pct}%` }}
+                      />
+                      <div className="text-white/80 text-xs font-bold mt-1">{d.fmt}</div>
+                      <div className="text-slate-500 text-xs">{d.size}GB</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 3: PTQ vs QAT */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-orange-500/50">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-orange-300">PTQ vs QAT</h2>
+                  <p className="text-orange-200/80">When to use each approach</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <Hoverable id="ptq-concept">
+                  <div className="p-5 rounded-xl bg-orange-900/40 border-2 border-orange-500">
+                    <div className="text-xl font-black text-orange-200 mb-3">📦 Post-Training Quantization</div>
+                    <div className="text-orange-100/70 text-sm mb-3">Quantize after training. Most common approach.</div>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Fast (minutes-hours)</div>
+                      <div className="flex items-center gap-2"><span className="text-green-400">✓</span> No training required</div>
+                      <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Works with any model</div>
+                      <div className="flex items-center gap-2"><span className="text-yellow-400">△</span> Needs calibration data</div>
+                    </div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="qat-concept">
+                  <div className="p-5 rounded-xl bg-amber-900/40 border-2 border-amber-500">
+                    <div className="text-xl font-black text-amber-200 mb-3">🎓 Quantization-Aware Training</div>
+                    <div className="text-amber-100/70 text-sm mb-3">Simulate quantization during training.</div>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Better quality</div>
+                      <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Model adapts to quant error</div>
+                      <div className="flex items-center gap-2"><span className="text-red-400">✗</span> Requires training access</div>
+                      <div className="flex items-center gap-2"><span className="text-red-400">✗</span> Expensive for large models</div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 4: CALIBRATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-blue-500/50">
+                  4
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-blue-300">CALIBRATION</h2>
+                  <p className="text-blue-200/80">Finding optimal quantization parameters</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <Hoverable id="calibration-concept">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">📊 Concept</div>
+                    <div className="text-blue-100/70 text-sm">Run samples, collect stats</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="calibration-minmax">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">📏 Min-Max</div>
+                    <div className="text-indigo-100/70 text-sm">Simple but outlier-sensitive</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="calibration-percentile">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">📊 Percentile</div>
+                    <div className="text-violet-100/70 text-sm">Clip outliers (99.9%)</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="calibration-mse">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">📉 MSE</div>
+                    <div className="text-purple-100/70 text-sm">Minimize reconstruction error</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 5: METHODS - GPTQ, AWQ, GGUF */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-green-500/50">
+                  5
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-green-300">QUANTIZATION METHODS</h2>
+                  <p className="text-green-200/80">GPTQ, AWQ, GGUF, bitsandbytes</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6 mb-6">
+                {/* GPTQ */}
+                <div className="bg-green-900/30 border border-green-500/50 rounded-xl p-5">
+                  <Hoverable id="gptq-concept">
+                    <div className="text-xl font-black text-green-300 mb-3">🔧 GPTQ</div>
+                  </Hoverable>
+                  <div className="text-green-100/70 text-sm mb-4">Layer-wise quantization with Hessian-based error correction</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Hoverable id="gptq-process">
+                      <div className="bg-green-900/50 rounded-lg p-2 text-center">
+                        <div className="text-green-200 text-xs font-bold">Process</div>
+                        <div className="text-green-100/60 text-xs">Column-by-column</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="gptq-hessian">
+                      <div className="bg-green-900/50 rounded-lg p-2 text-center">
+                        <div className="text-green-200 text-xs font-bold">Hessian</div>
+                        <div className="text-green-100/60 text-xs">Error compensation</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                  <div className="mt-3 text-xs text-green-400">✓ Best INT4 quality • 3-4hr for 70B</div>
+                </div>
+
+                {/* AWQ */}
+                <div className="bg-emerald-900/30 border border-emerald-500/50 rounded-xl p-5">
+                  <Hoverable id="awq-concept">
+                    <div className="text-xl font-black text-emerald-300 mb-3">🔧 AWQ</div>
+                  </Hoverable>
+                  <div className="text-emerald-100/70 text-sm mb-4">Activation-aware weight quantization</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Hoverable id="awq-salience">
+                      <div className="bg-emerald-900/50 rounded-lg p-2 text-center">
+                        <div className="text-emerald-200 text-xs font-bold">Salience</div>
+                        <div className="text-emerald-100/60 text-xs">Find important weights</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="awq-scaling">
+                      <div className="bg-emerald-900/50 rounded-lg p-2 text-center">
+                        <div className="text-emerald-200 text-xs font-bold">Scaling</div>
+                        <div className="text-emerald-100/60 text-xs">Protect salient channels</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                  <div className="mt-3 text-xs text-emerald-400">✓ Fast quant (minutes) • Similar quality</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* GGUF */}
+                <div className="bg-teal-900/30 border border-teal-500/50 rounded-xl p-5">
+                  <Hoverable id="gguf-concept">
+                    <div className="text-xl font-black text-teal-300 mb-3">🔧 GGUF / llama.cpp</div>
+                  </Hoverable>
+                  <div className="text-teal-100/70 text-sm mb-4">CPU-optimized quantization format</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Hoverable id="gguf-formats">
+                      <div className="bg-teal-900/50 rounded-lg p-2 text-center">
+                        <div className="text-teal-200 text-xs font-bold">Formats</div>
+                        <div className="text-teal-100/60 text-xs">Q4_K_M, Q5_K_M...</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="gguf-kquant">
+                      <div className="bg-teal-900/50 rounded-lg p-2 text-center">
+                        <div className="text-teal-200 text-xs font-bold">K-Quants</div>
+                        <div className="text-teal-100/60 text-xs">Mixed precision</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                  <div className="mt-3 text-xs text-teal-400">✓ CPU inference • No GPU needed!</div>
+                </div>
+
+                {/* bitsandbytes */}
+                <div className="bg-cyan-900/30 border border-cyan-500/50 rounded-xl p-5">
+                  <Hoverable id="bnb-concept">
+                    <div className="text-xl font-black text-cyan-300 mb-3">🔧 bitsandbytes</div>
+                  </Hoverable>
+                  <div className="text-cyan-100/70 text-sm mb-4">Easy quantization for HuggingFace models</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Hoverable id="bnb-int8">
+                      <div className="bg-cyan-900/50 rounded-lg p-2 text-center">
+                        <div className="text-cyan-200 text-xs font-bold">LLM.int8()</div>
+                        <div className="text-cyan-100/60 text-xs">Outlier handling</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="bnb-4bit">
+                      <div className="bg-cyan-900/50 rounded-lg p-2 text-center">
+                        <div className="text-cyan-200 text-xs font-bold">4-bit NF4</div>
+                        <div className="text-cyan-100/60 text-xs">QLoRA training</div>
+                      </div>
+                    </Hoverable>
+                  </div>
+                  <div className="mt-3 text-xs text-cyan-400">✓ One-liner integration • Training friendly</div>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 6: QUALITY */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-pink-500/50">
+                  6
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-pink-300">QUALITY IMPACT</h2>
+                  <p className="text-pink-200/80">Measuring and understanding degradation</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="quality-perplexity">
+                  <div className="p-4 rounded-xl bg-pink-900/50 border-2 border-pink-400">
+                    <div className="text-lg font-black text-pink-200 mb-2">📊 Perplexity</div>
+                    <div className="text-pink-100/70 text-sm">INT8: +0.1-0.2</div>
+                    <div className="text-pink-100/70 text-sm">INT4: +0.2-0.5</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="quality-tasks">
+                  <div className="p-4 rounded-xl bg-rose-900/50 border-2 border-rose-400">
+                    <div className="text-lg font-black text-rose-200 mb-2">📋 Task Sensitivity</div>
+                    <div className="text-rose-100/70 text-sm">Math: Sensitive</div>
+                    <div className="text-rose-100/70 text-sm">Chat: Robust</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="quality-size">
+                  <div className="p-4 rounded-xl bg-red-900/50 border-2 border-red-400">
+                    <div className="text-lg font-black text-red-200 mb-2">📏 Model Size</div>
+                    <div className="text-red-100/70 text-sm">Bigger = more robust</div>
+                    <div className="text-red-100/70 text-sm">70B INT4 often great</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 7: DEPLOYMENT */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-sky-500/50">
+                  7
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-sky-300">DEPLOYMENT</h2>
+                  <p className="text-sky-200/80">Serving quantized models</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="deploy-vllm">
+                  <div className="p-4 rounded-xl bg-sky-900/50 border-2 border-sky-400">
+                    <div className="text-lg font-black text-sky-200 mb-2">🚀 vLLM</div>
+                    <div className="text-sky-100/70 text-sm">GPTQ, AWQ, Marlin</div>
+                    <div className="text-sky-300 text-xs mt-2">GPU inference</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="deploy-trt">
+                  <div className="p-4 rounded-xl bg-blue-900/50 border-2 border-blue-400">
+                    <div className="text-lg font-black text-blue-200 mb-2">🚀 TensorRT-LLM</div>
+                    <div className="text-blue-100/70 text-sm">INT4/INT8/FP8</div>
+                    <div className="text-blue-300 text-xs mt-2">NVIDIA optimized</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="deploy-llamacpp">
+                  <div className="p-4 rounded-xl bg-indigo-900/50 border-2 border-indigo-400">
+                    <div className="text-lg font-black text-indigo-200 mb-2">🚀 llama.cpp</div>
+                    <div className="text-indigo-100/70 text-sm">GGUF models</div>
+                    <div className="text-indigo-300 text-xs mt-2">CPU + Metal + CUDA</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* SECTION 8: COMPARISON TABLE */}
+            <section className="mb-10">
+              <Hoverable id="compare-methods">
+                <div className="bg-slate-900/60 border border-teal-500/30 rounded-xl p-6">
+                  <div className="text-lg font-black text-teal-300 mb-4 text-center">📊 METHOD COMPARISON</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-slate-400 border-b border-slate-700">
+                          <th className="text-left p-2">Method</th>
+                          <th className="text-center p-2">Quality</th>
+                          <th className="text-center p-2">Quant Speed</th>
+                          <th className="text-center p-2">Inference</th>
+                          <th className="text-center p-2">Best For</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-slate-300">
+                        <tr className="border-b border-slate-800">
+                          <td className="p-2 font-bold text-green-300">GPTQ</td>
+                          <td className="text-center p-2">⭐⭐⭐⭐⭐</td>
+                          <td className="text-center p-2">Slow (hrs)</td>
+                          <td className="text-center p-2">GPU</td>
+                          <td className="text-center p-2">Best quality INT4</td>
+                        </tr>
+                        <tr className="border-b border-slate-800">
+                          <td className="p-2 font-bold text-emerald-300">AWQ</td>
+                          <td className="text-center p-2">⭐⭐⭐⭐</td>
+                          <td className="text-center p-2">Fast (min)</td>
+                          <td className="text-center p-2">GPU</td>
+                          <td className="text-center p-2">Fast quant, good quality</td>
+                        </tr>
+                        <tr className="border-b border-slate-800">
+                          <td className="p-2 font-bold text-teal-300">GGUF</td>
+                          <td className="text-center p-2">⭐⭐⭐⭐</td>
+                          <td className="text-center p-2">Fast</td>
+                          <td className="text-center p-2">CPU/GPU</td>
+                          <td className="text-center p-2">Local/CPU inference</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2 font-bold text-cyan-300">bitsandbytes</td>
+                          <td className="text-center p-2">⭐⭐⭐</td>
+                          <td className="text-center p-2">Instant</td>
+                          <td className="text-center p-2">GPU</td>
+                          <td className="text-center p-2">QLoRA training</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </Hoverable>
+            </section>
+
+            {/* SECTION 9: ADVANCED */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-violet-500/50">
+                  9
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-violet-300">ADVANCED TECHNIQUES</h2>
+                  <p className="text-violet-200/80">Mixed precision, SmoothQuant, sparsity</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <Hoverable id="advanced-mixed">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-lg font-black text-violet-200 mb-2">🔀 Mixed Precision</div>
+                    <div className="text-violet-100/70 text-sm">Different bits per layer</div>
+                    <div className="text-violet-300 text-xs mt-2">K-quants use this</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="advanced-smoothquant">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-lg font-black text-purple-200 mb-2">📏 SmoothQuant</div>
+                    <div className="text-purple-100/70 text-sm">Balance act/weight difficulty</div>
+                    <div className="text-purple-300 text-xs mt-2">INT8 W8A8</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="advanced-sparsity">
+                  <div className="p-4 rounded-xl bg-fuchsia-900/50 border-2 border-fuchsia-400">
+                    <div className="text-lg font-black text-fuchsia-200 mb-2">🕳️ Sparsity + Quant</div>
+                    <div className="text-fuchsia-100/70 text-sm">2:4 sparsity + INT4</div>
+                    <div className="text-fuchsia-300 text-xs mt-2">8× total compression</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+
+            {/* Summary */}
+            <div className="bg-gradient-to-r from-teal-900/50 to-cyan-900/50 border-2 border-teal-400/50 rounded-xl p-8 text-center">
+              <div className="text-2xl font-black text-white mb-4">
+                🎯 QUANTIZATION SUMMARY
+              </div>
+              <div className="text-slate-300 max-w-3xl mx-auto mb-6">
+                Quantization enables deploying large models on smaller hardware.
+                INT4 with GPTQ/AWQ is the sweet spot for most use cases.
+              </div>
+              
+              <div className="grid grid-cols-4 gap-4 mt-6 text-sm">
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-teal-300 font-bold">GPTQ</div>
+                  <div className="text-slate-400">Best quality</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-emerald-300 font-bold">AWQ</div>
+                  <div className="text-slate-400">Fast + good</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-cyan-300 font-bold">GGUF</div>
+                  <div className="text-slate-400">CPU inference</div>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3">
+                  <div className="text-blue-300 font-bold">INT4</div>
+                  <div className="text-slate-400">4× compression</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="mt-12 text-center text-slate-500 text-sm">
+              <p>Quantization Deep Dive • GPTQ • AWQ • GGUF • bitsandbytes</p>
+              <p className="text-xs mt-1 text-slate-600">FP16 → INT8 → INT4: Compress without compromise</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<QuantizationDiagram />);
+  </script>
+</body>
+</html>
