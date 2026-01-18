@@ -31,6 +31,12 @@
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
       const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
         setMousePos({ x: e.clientX, y: e.clientY });
       };
 
@@ -458,8 +464,8 @@
               
               {/* Cluster */}
               <g transform="translate(40, 70)" 
-                 onMouseEnter={() => setTooltip('cluster')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="cluster"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#infraGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -472,8 +478,8 @@
               
               {/* Environment */}
               <g transform="translate(190, 70)"
-                 onMouseEnter={() => setTooltip('environment')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="environment"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#infraGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -486,8 +492,8 @@
               
               {/* Config */}
               <g transform="translate(340, 70)"
-                 onMouseEnter={() => setTooltip('config')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="config"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#infraGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -502,8 +508,8 @@
               
               {/* Data Acquire */}
               <g transform="translate(340, 205)"
-                 onMouseEnter={() => setTooltip('data-acquire')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="data-acquire"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -516,8 +522,8 @@
               
               {/* Data Clean */}
               <g transform="translate(490, 205)"
-                 onMouseEnter={() => setTooltip('data-clean')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="data-clean"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -530,8 +536,8 @@
               
               {/* Data Tokenize */}
               <g transform="translate(640, 205)"
-                 onMouseEnter={() => setTooltip('data-tokenize')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="data-tokenize"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -546,8 +552,8 @@
               
               {/* Architecture */}
               <g transform="translate(340, 350)"
-                 onMouseEnter={() => setTooltip('architecture')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="architecture"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#modelGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -560,8 +566,8 @@
               
               {/* Weight Init */}
               <g transform="translate(490, 350)"
-                 onMouseEnter={() => setTooltip('weight-init')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="weight-init"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#modelGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -574,8 +580,8 @@
               
               {/* Sharding */}
               <g transform="translate(640, 350)"
-                 onMouseEnter={() => setTooltip('sharding')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="sharding"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#modelGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -590,8 +596,8 @@
               
               {/* Optimizer */}
               <g transform="translate(340, 495)"
-                 onMouseEnter={() => setTooltip('optimizer')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="optimizer"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="60" rx="12" fill="url(#optimGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="54" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -604,8 +610,8 @@
               
               {/* LR Schedule */}
               <g transform="translate(490, 495)"
-                 onMouseEnter={() => setTooltip('lr-schedule')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="lr-schedule"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="60" rx="12" fill="url(#optimGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="54" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -618,8 +624,8 @@
               
               {/* Grad Clip */}
               <g transform="translate(640, 495)"
-                 onMouseEnter={() => setTooltip('grad-clip')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="grad-clip"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="60" rx="12" fill="url(#optimGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="54" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -641,8 +647,8 @@
 
               {/* DataLoader */}
               <g transform="translate(780, 115)"
-                 onMouseEnter={() => setTooltip('dataloader')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="dataloader"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="130" height="70" rx="12" fill="url(#dataGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="124" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -661,8 +667,8 @@
                 
                 {/* Embedding */}
                 <g transform="translate(15, 35)"
-                   onMouseEnter={() => setTooltip('embedding')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="embedding"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="95" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="91" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
@@ -674,8 +680,8 @@
                 
                 {/* Attention */}
                 <g transform="translate(130, 35)"
-                   onMouseEnter={() => setTooltip('attention')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="attention"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="80" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="76" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
@@ -687,8 +693,8 @@
                 
                 {/* MLP */}
                 <g transform="translate(230, 35)"
-                   onMouseEnter={() => setTooltip('mlp')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="mlp"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="80" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="76" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
@@ -703,8 +709,8 @@
                 
                 {/* MoE Router (optional) */}
                 <g transform="translate(15, 145)"
-                   onMouseEnter={() => setTooltip('moe-router')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="moe-router"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="95" height="45" rx="8" fill="#8B5CF6" opacity="0.3" stroke="#8B5CF6" strokeWidth="1" strokeDasharray="3,2"/>
                   <rect x="2" y="2" width="91" height="41" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -714,8 +720,8 @@
                 
                 {/* Output Head */}
                 <g transform="translate(130, 145)"
-                   onMouseEnter={() => setTooltip('output-head')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="output-head"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="95" height="45" rx="8" fill="url(#forwardGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="91" height="41" rx="7" fill="#0a1a2e" opacity="0.95"/>
@@ -734,8 +740,8 @@
                 
                 {/* Cross Entropy */}
                 <g transform="translate(15, 35)"
-                   onMouseEnter={() => setTooltip('cross-entropy')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="cross-entropy"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="35" rx="8" fill="url(#lossGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="126" height="31" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -745,8 +751,8 @@
                 
                 {/* Aux Loss */}
                 <g transform="translate(15, 80)"
-                   onMouseEnter={() => setTooltip('aux-loss')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="aux-loss"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="35" rx="8" fill="#EF4444" opacity="0.3" stroke="#EF4444" strokeWidth="1" strokeDasharray="3,2"/>
                   <rect x="2" y="2" width="126" height="31" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -756,8 +762,8 @@
                 
                 {/* Loss Scale */}
                 <g transform="translate(55, 120)"
-                   onMouseEnter={() => setTooltip('loss-scale')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="loss-scale"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="50" height="20" rx="4" fill="#FBBF24" opacity="0.3"/>
                   <text x="25" y="14" textAnchor="middle" fill="#FCD34D" fontSize="7" fontWeight="bold">SCALE</text>
@@ -774,8 +780,8 @@
                 
                 {/* Autograd */}
                 <g transform="translate(15, 35)"
-                   onMouseEnter={() => setTooltip('autograd')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="autograd"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="32" rx="8" fill="url(#backwardGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="126" height="28" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -785,8 +791,8 @@
                 
                 {/* Activation Checkpoint */}
                 <g transform="translate(15, 75)"
-                   onMouseEnter={() => setTooltip('activation-ckpt')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="activation-ckpt"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="32" rx="8" fill="url(#backwardGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="126" height="28" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -796,8 +802,8 @@
                 
                 {/* Gradient Accumulation */}
                 <g transform="translate(15, 115)"
-                   onMouseEnter={() => setTooltip('gradient-acc')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="gradient-acc"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="22" rx="6" fill="#F97316" opacity="0.3" stroke="#F97316" strokeWidth="1" strokeDasharray="3,2"/>
                   <text x="65" y="15" textAnchor="middle" fill="#FB923C" fontSize="8">Grad Accumulation</text>
@@ -814,8 +820,8 @@
                 
                 {/* AllReduce */}
                 <g transform="translate(10, 35)"
-                   onMouseEnter={() => setTooltip('allreduce')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="allreduce"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="85" height="40" rx="8" fill="url(#syncGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -825,8 +831,8 @@
                 
                 {/* Reduce-Scatter */}
                 <g transform="translate(100, 35)"
-                   onMouseEnter={() => setTooltip('reduce-scatter')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="reduce-scatter"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="85" height="40" rx="8" fill="url(#syncGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -836,8 +842,8 @@
                 
                 {/* AllGather */}
                 <g transform="translate(10, 85)"
-                   onMouseEnter={() => setTooltip('allgather')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="allgather"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="85" height="40" rx="8" fill="url(#syncGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -847,8 +853,8 @@
                 
                 {/* All-to-All */}
                 <g transform="translate(100, 85)"
-                   onMouseEnter={() => setTooltip('all2all')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="all2all"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="85" height="40" rx="8" fill="#8B5CF6" opacity="0.3" stroke="#8B5CF6" strokeWidth="1" strokeDasharray="3,2"/>
                   <rect x="2" y="2" width="81" height="36" rx="7" fill="#1a1a2e" opacity="0.95"/>
@@ -874,8 +880,8 @@
                 
                 {/* Unscale */}
                 <g transform="translate(10, 35)"
-                   onMouseEnter={() => setTooltip('unscale')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="unscale"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="60" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="56" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
@@ -887,8 +893,8 @@
                 
                 {/* Clip */}
                 <g transform="translate(90, 35)"
-                   onMouseEnter={() => setTooltip('clip-grads')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="clip-grads"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="55" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="51" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
@@ -900,8 +906,8 @@
                 
                 {/* Weight Update */}
                 <g transform="translate(165, 35)"
-                   onMouseEnter={() => setTooltip('weight-update')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="weight-update"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="70" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="66" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
@@ -913,8 +919,8 @@
                 
                 {/* LR Step */}
                 <g transform="translate(255, 35)"
-                   onMouseEnter={() => setTooltip('lr-step')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="lr-step"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="60" height="35" rx="6" fill="url(#optimGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="56" height="31" rx="5" fill="#0a2e1a" opacity="0.95"/>
@@ -924,8 +930,8 @@
                 
                 {/* Zero Grad */}
                 <g transform="translate(135, 80)"
-                   onMouseEnter={() => setTooltip('zero-grad')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="zero-grad"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="60" height="25" rx="6" fill="#10B981" opacity="0.4"/>
                   <text x="30" y="17" textAnchor="middle" fill="#6EE7B7" fontSize="8" fontWeight="bold">ZERO GRAD</text>
@@ -946,8 +952,8 @@
 
               {/* Checkpoint Save */}
               <g transform="translate(1520, 115)"
-                 onMouseEnter={() => setTooltip('checkpoint-save')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="checkpoint-save"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="80" rx="12" fill="url(#ckptGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="74" rx="10" fill="#0a1a2e" opacity="0.95"/>
@@ -959,8 +965,8 @@
 
               {/* Evaluation */}
               <g transform="translate(1520, 210)"
-                 onMouseEnter={() => setTooltip('eval')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="eval"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="70" rx="12" fill="url(#ckptGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="64" rx="10" fill="#0a1a2e" opacity="0.95"/>
@@ -971,8 +977,8 @@
 
               {/* Logging */}
               <g transform="translate(1520, 295)"
-                 onMouseEnter={() => setTooltip('logging')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="logging"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="70" rx="12" fill="url(#ckptGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="64" rx="10" fill="#0a1a2e" opacity="0.95"/>
@@ -983,8 +989,8 @@
 
               {/* Resume */}
               <g transform="translate(1680, 115)"
-                 onMouseEnter={() => setTooltip('checkpoint-resume')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="checkpoint-resume"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="130" height="70" rx="12" fill="#64748B" opacity="0.2" stroke="#64748B" strokeWidth="1" strokeDasharray="4,4"/>
                 <text x="65" y="25" textAnchor="middle" fill="#94A3B8" fontSize="10" fontWeight="bold">🔄 RESUME</text>
@@ -994,40 +1000,40 @@
 
               {/* BOTTLENECK INDICATORS */}
               <g transform="translate(415, 280)"
-                 onMouseEnter={() => setTooltip('cpu-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="cpu-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="40" height="14" rx="4" fill="#3B82F6" opacity="0.8"/>
                 <text x="20" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">CPU</text>
               </g>
               
               <g transform="translate(955, 265)"
-                 onMouseEnter={() => setTooltip('gpu-compute')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="gpu-compute"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="70" height="14" rx="4" fill="#EF4444" opacity="0.8"/>
                 <text x="35" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">GPU COMPUTE</text>
               </g>
               
               <g transform="translate(1180, 575)"
-                 onMouseEnter={() => setTooltip('memory-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="memory-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="70" height="14" rx="4" fill="#F59E0B" opacity="0.8"/>
                 <text x="35" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">MEMORY</text>
               </g>
               
               <g transform="translate(975, 610)"
-                 onMouseEnter={() => setTooltip('network-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="network-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="60" height="14" rx="4" fill="#8B5CF6" opacity="0.8"/>
                 <text x="30" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">NETWORK</text>
               </g>
               
               <g transform="translate(1590, 380)"
-                 onMouseEnter={() => setTooltip('storage-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="storage-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="60" height="14" rx="4" fill="#0EA5E9" opacity="0.8"/>
                 <text x="30" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">STORAGE</text>

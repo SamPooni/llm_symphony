@@ -29,6 +29,12 @@
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
       const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
         setMousePos({ x: e.clientX, y: e.clientY });
       };
 
@@ -481,8 +487,8 @@
       const Hoverable = ({ id, children, className = '' }) => (
         <div
           className={`cursor-help transition-all hover:scale-[1.02] ${className}`}
-          onMouseEnter={() => showTooltip(id)}
-          onMouseLeave={hideTooltip}
+          data-tooltip-id={id}
+          
         >
           {children}
         </div>

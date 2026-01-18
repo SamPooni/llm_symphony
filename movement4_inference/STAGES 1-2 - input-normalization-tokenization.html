@@ -27,6 +27,12 @@
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
       const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
         setMousePos({ x: e.clientX, y: e.clientY });
       };
 
@@ -289,8 +295,8 @@
       const Hoverable = ({ id, children, className = '' }) => (
         <div
           className={`cursor-help transition-all hover:scale-[1.02] ${className}`}
-          onMouseEnter={() => setTooltip(id)}
-          onMouseLeave={() => setTooltip(null)}
+          data-tooltip-id={id}
+          
         >
           {children}
         </div>
@@ -759,6 +765,22 @@
 
             {/* Output */}
             <div className="mt-12 mb-8">
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Hoverable id="output-ids">
+                  <div className="bg-slate-800/80 border border-green-500 rounded-xl p-4">
+                    <div className="text-green-300 font-bold">📊 Token IDs Array</div>
+                    <div className="text-green-100/70 text-sm mt-1">Final integer array ready for model</div>
+                    <div className="text-green-100/50 text-xs mt-1">Shape: [batch, seq_len] → GPU</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="output-count">
+                  <div className="bg-slate-800/80 border border-emerald-500 rounded-xl p-4">
+                    <div className="text-emerald-300 font-bold">🔢 Token Count</div>
+                    <div className="text-emerald-100/70 text-sm mt-1">Determines context usage & billing</div>
+                    <div className="text-emerald-100/50 text-xs mt-1">Input + Output tokens tracked separately</div>
+                  </div>
+                </Hoverable>
+              </div>
               <div className="bg-gradient-to-r from-green-600 to-emerald-600 border-2 border-green-400 rounded-xl p-6 shadow-lg shadow-green-500/30">
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <div className="flex items-center gap-4">

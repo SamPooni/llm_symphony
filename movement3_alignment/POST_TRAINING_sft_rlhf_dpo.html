@@ -27,6 +27,12 @@
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
       const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
         setMousePos({ x: e.clientX, y: e.clientY });
       };
 
@@ -330,8 +336,8 @@
 
       const Hoverable = ({ id, children }) => (
         <div 
-          onMouseEnter={() => showTooltip(id)}
-          onMouseLeave={hideTooltip}
+          data-tooltip-id={id}
+          
           className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
         >
           {children}
@@ -761,6 +767,25 @@
                     <div className="text-xl font-black text-amber-200 mb-2">🗜️ QLoRA</div>
                     <div className="text-amber-100/80 text-sm">4-bit base + LoRA</div>
                     <div className="text-amber-100/60 text-xs mt-2">70B on single GPU</div>
+                  </div>
+                </Hoverable>
+              </div>
+              
+              {/* Training Infrastructure */}
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <Hoverable id="infra-full">
+                  <div className="p-4 rounded-xl bg-slate-800/50 border-2 border-slate-500">
+                    <div className="text-xl font-black text-slate-200 mb-2">🔧 Full Fine-Tuning</div>
+                    <div className="text-slate-100/80 text-sm">Update all parameters</div>
+                    <div className="text-slate-100/60 text-xs mt-2">Highest quality • Most expensive</div>
+                  </div>
+                </Hoverable>
+                
+                <Hoverable id="infra-efficient">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">⚡ Efficient Training</div>
+                    <div className="text-emerald-100/80 text-sm">LoRA/QLoRA for constrained settings</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">Cost savings • Faster iteration</div>
                   </div>
                 </Hoverable>
               </div>

@@ -27,7 +27,15 @@
       const [tooltip, setTooltip] = useState(null);
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
-      const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+      const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
+        setMousePos({ x: e.clientX, y: e.clientY });
+      };
 
       const tooltips = {
         // Key Metrics
@@ -91,7 +99,7 @@
       };
 
       const H = ({ id, children, className = '' }) => (
-        <div className={`cursor-help transition-all hover:scale-[1.02] ${className}`} onMouseEnter={() => setTooltip(id)} onMouseLeave={() => setTooltip(null)}>{children}</div>
+        <div className={`cursor-help transition-all hover:scale-[1.02] ${className}`} data-tooltip-id={id} >{children}</div>
       );
 
       return (

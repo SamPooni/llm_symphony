@@ -29,6 +29,12 @@
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
       const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
         setMousePos({ x: e.clientX, y: e.clientY });
       };
 
@@ -314,8 +320,8 @@
               
               {/* Client Request */}
               <g transform="translate(50, 80)" 
-                 onMouseEnter={() => setTooltip('client')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="client"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#intakeGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -329,8 +335,8 @@
               
               {/* API Gateway */}
               <g transform="translate(200, 80)"
-                 onMouseEnter={() => setTooltip('gateway')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="gateway"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#intakeGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -344,8 +350,8 @@
               
               {/* Router */}
               <g transform="translate(350, 80)"
-                 onMouseEnter={() => setTooltip('router')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="router"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#intakeGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -361,8 +367,8 @@
               
               {/* Normalize */}
               <g transform="translate(50, 215)"
-                 onMouseEnter={() => setTooltip('normalize')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="normalize"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#normalGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -376,8 +382,8 @@
               
               {/* Tokenize */}
               <g transform="translate(200, 215)"
-                 onMouseEnter={() => setTooltip('tokenize')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="tokenize"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#tokenGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -391,8 +397,8 @@
               
               {/* Prompt Assembly */}
               <g transform="translate(350, 215)"
-                 onMouseEnter={() => setTooltip('prompt')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="prompt"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="70" rx="12" fill="url(#promptGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="64" rx="10" fill="#1a1a2e" opacity="0.9"/>
@@ -412,8 +418,8 @@
               
               {/* Prefill */}
               <g transform="translate(510, 400)"
-                 onMouseEnter={() => setTooltip('prefill')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="prefill"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="90" rx="16" fill="url(#prefillGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="84" rx="14" fill="#0a1a2e" opacity="0.95"/>
@@ -428,8 +434,8 @@
               
               {/* KV Cache */}
               <g transform="translate(690, 400)"
-                 onMouseEnter={() => setTooltip('kv')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="kv"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="90" rx="16" fill="url(#kvGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="84" rx="14" fill="#0a2e1e" opacity="0.95"/>
@@ -449,8 +455,8 @@
                 
                 {/* Attention */}
                 <g transform="translate(15, 30)"
-                   onMouseEnter={() => setTooltip('attention')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="attention"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="40" rx="8" fill="url(#decodeGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="126" height="36" rx="7" fill="#1a2e1a" opacity="0.95"/>
@@ -463,8 +469,8 @@
                 
                 {/* MLP */}
                 <g transform="translate(15, 90)"
-                   onMouseEnter={() => setTooltip('mlp')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="mlp"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="40" rx="8" fill="url(#decodeGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="126" height="36" rx="7" fill="#1a2e1a" opacity="0.95"/>
@@ -477,8 +483,8 @@
                 
                 {/* Logits */}
                 <g transform="translate(15, 150)"
-                   onMouseEnter={() => setTooltip('logits')}
-                   onMouseLeave={() => setTooltip(null)}
+                   data-tooltip-id="logits"
+                   
                    style={{ cursor: 'pointer' }}>
                   <rect x="0" y="0" width="130" height="40" rx="8" fill="url(#decodeGrad)" opacity="0.9"/>
                   <rect x="2" y="2" width="126" height="36" rx="7" fill="#1a2e1a" opacity="0.95"/>
@@ -500,8 +506,8 @@
               
               {/* Sampling */}
               <g transform="translate(1075, 450)"
-                 onMouseEnter={() => setTooltip('sample')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="sample"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="90" rx="16" fill="url(#sampleGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="84" rx="14" fill="#2e2a0a" opacity="0.95"/>
@@ -516,8 +522,8 @@
               
               {/* Stop Check */}
               <g transform="translate(1320, 470)"
-                 onMouseEnter={() => setTooltip('stop')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="stop"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="85" rx="12" fill="#EF4444" opacity="0.2" stroke="#EF4444" strokeWidth="2"/>
                 <rect x="3" y="3" width="114" height="79" rx="10" fill="#1a1a2e" opacity="0.95"/>
@@ -534,8 +540,8 @@
               
               {/* Streaming */}
               <g transform="translate(1180, 250)"
-                 onMouseEnter={() => setTooltip('stream')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="stream"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="80" rx="12" fill="url(#streamGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="114" height="74" rx="10" fill="#0a2e2e" opacity="0.95"/>
@@ -550,8 +556,8 @@
               
               {/* Detokenize */}
               <g transform="translate(1035, 250)"
-                 onMouseEnter={() => setTooltip('detok')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="detok"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="80" rx="12" fill="#0EA5E9" opacity="0.8"/>
                 <rect x="3" y="3" width="114" height="74" rx="10" fill="#0a1a2e" opacity="0.95"/>
@@ -566,8 +572,8 @@
               
               {/* Post-Process */}
               <g transform="translate(890, 250)"
-                 onMouseEnter={() => setTooltip('postproc')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="postproc"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="120" height="80" rx="12" fill="#8B5CF6" opacity="0.8"/>
                 <rect x="3" y="3" width="114" height="74" rx="10" fill="#1a1a2e" opacity="0.95"/>
@@ -584,8 +590,8 @@
               
               {/* Response Box */}
               <g transform="translate(1470, 185)"
-                 onMouseEnter={() => setTooltip('response')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="response"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="140" height="100" rx="16" fill="url(#outputGrad)" opacity="0.9"/>
                 <rect x="3" y="3" width="134" height="94" rx="14" fill="#0a2e1a" opacity="0.95"/>
@@ -632,32 +638,32 @@
 
               {/* BOTTLENECK INDICATORS */}
               <g transform="translate(260, 295)"
-                 onMouseEnter={() => setTooltip('cpu-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="cpu-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="40" height="14" rx="4" fill="#3B82F6" opacity="0.8"/>
                 <text x="20" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">CPU</text>
               </g>
               
               <g transform="translate(545, 500)"
-                 onMouseEnter={() => setTooltip('gpu-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="gpu-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="70" height="14" rx="4" fill="#EF4444" opacity="0.8"/>
                 <text x="35" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">GPU COMPUTE</text>
               </g>
               
               <g transform="translate(720, 500)"
-                 onMouseEnter={() => setTooltip('memory-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="memory-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="75" height="14" rx="4" fill="#F59E0B" opacity="0.8"/>
                 <text x="37" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">MEMORY BW</text>
               </g>
               
               <g transform="translate(1210, 340)"
-                 onMouseEnter={() => setTooltip('network-bottleneck')}
-                 onMouseLeave={() => setTooltip(null)}
+                 data-tooltip-id="network-bottleneck"
+                 
                  style={{ cursor: 'pointer' }}>
                 <rect x="0" y="0" width="60" height="14" rx="4" fill="#8B5CF6" opacity="0.8"/>
                 <text x="30" y="10" textAnchor="middle" fill="white" fontSize="7" fontWeight="bold">NETWORK</text>

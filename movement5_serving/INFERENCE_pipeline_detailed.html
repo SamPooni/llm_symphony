@@ -27,6 +27,12 @@
       const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
       const handleMouseMove = (e) => {
+        const target = e.target.closest('[data-tooltip-id]');
+        if (target) {
+          setTooltip(target.getAttribute('data-tooltip-id'));
+        } else {
+          setTooltip(null);
+        }
         setMousePos({ x: e.clientX, y: e.clientY });
       };
 
@@ -357,8 +363,8 @@
 
       const Hoverable = ({ id, children }) => (
         <div 
-          onMouseEnter={() => showTooltip(id)}
-          onMouseLeave={hideTooltip}
+          data-tooltip-id={id}
+          
           className="cursor-pointer transition-all hover:scale-[1.02] hover:brightness-110"
         >
           {children}
@@ -632,6 +638,22 @@
                     <div className="text-xl font-black text-blue-200 mb-2">🔄 Continuous</div>
                     <div className="text-blue-100/80 text-sm">Dynamic batching</div>
                     <div className="text-blue-100/60 text-xs mt-2">No waiting</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="continuous-iteration">
+                  <div className="p-4 rounded-xl bg-cyan-900/50 border-2 border-cyan-400">
+                    <div className="text-xl font-black text-cyan-200 mb-2">⏭️ Iteration</div>
+                    <div className="text-cyan-100/80 text-sm">Per-step scheduling</div>
+                    <div className="text-cyan-100/60 text-xs mt-2">Max flexibility</div>
+                  </div>
+                </Hoverable>
+
+                <Hoverable id="continuous-preemption">
+                  <div className="p-4 rounded-xl bg-purple-900/50 border-2 border-purple-400">
+                    <div className="text-xl font-black text-purple-200 mb-2">⏸️ Preemption</div>
+                    <div className="text-purple-100/80 text-sm">Swap KV to CPU</div>
+                    <div className="text-purple-100/60 text-xs mt-2">Priority serving</div>
                   </div>
                 </Hoverable>
               </div>
