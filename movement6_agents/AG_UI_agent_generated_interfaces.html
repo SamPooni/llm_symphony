@@ -14,6 +14,35 @@
     function App() {
       const [activeSection, setActiveSection] = React.useState('overview');
       const [showCode, setShowCode] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+
+      const tips = {
+        'ag-ui': 'AG-UI: Agent-Generated UI. CopilotKit protocol for agents to dynamically create interfaces. Stream UI components alongside text.',
+        'copilotkit': 'CopilotKit: Framework for building AI copilots. React components, hooks, backend integration. AG-UI is their streaming protocol.',
+        'streaming-ui': 'Streaming UI: Components render progressively as agent generates. Better UX than waiting for complete response.',
+        'events': 'AG-UI Events: Lifecycle events for UI state. TEXT_DELTA, TOOL_CALL_START, STATE_DELTA, etc. Frontend reacts to events.',
+        'state-sync': 'State Sync: Agent and frontend share state. Agent updates via STATE_DELTA, frontend can send STATE_SNAPSHOT back.',
+        'tool-render': 'Tool Rendering: Custom React components for tool calls. Agent calls tool, frontend renders rich UI for results.',
+        'generative-ui': 'Generative UI: LLM creates UI structure, not just text. JSON component trees, streamed and rendered dynamically.',
+        'human-loop': 'Human-in-the-Loop: AG-UI supports user input mid-generation. Confirmations, choices, form inputs pause agent.',
+        'transport': 'Transport: HTTP + SSE or WebSocket. Agent streams events, client renders. Supports multiple concurrent tools.',
+        'a2ui': 'A2UI: Related concept - Agent-to-UI protocol. Direct agent control of interface elements. More ambitious than AG-UI.',
+      };
+
+      const Tip = ({id, children, className = ''}) => (
+        <span 
+          className={`relative cursor-help border-b border-dotted border-current ${className}`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          {children}
+          {hover === id && (
+            <span className="absolute z-50 w-72 p-3 mt-2 left-0 bg-slate-800 border border-pink-500 rounded-lg text-sm text-white shadow-xl normal-case font-normal">
+              {tips[id]}
+            </span>
+          )}
+        </span>
+      );
 
       const toggleCode = (id) => {
         setShowCode(prev => ({...prev, [id]: !prev[id]}));

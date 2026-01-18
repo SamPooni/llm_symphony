@@ -14,6 +14,35 @@
     function App() {
       const [activeSection, setActiveSection] = React.useState('overview');
       const [showCode, setShowCode] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+
+      const tips = {
+        'a2a': 'Agent-to-Agent Protocol: Google standard for agents to discover and communicate. Agents publish capabilities via Agent Cards, communicate via Tasks.',
+        'agentcard': 'Agent Card: JSON metadata at /.well-known/agent.json. Declares name, skills, endpoint, auth. Like a business card for agents.',
+        'task': 'Task: Unit of work between agents. Has lifecycle (submitted→working→completed). Contains messages, artifacts. Supports streaming.',
+        'message': 'Message: Communication in a task. Has role (user/agent), parts (text/file/data). Agents exchange messages to collaborate.',
+        'artifact': 'Artifact: Output file from task. Named, typed, can be streamed. Agent produces artifacts as work products.',
+        'skill': 'Skill: Capability an agent advertises. Has ID, name, description, input schema. Clients match tasks to skills.',
+        'streaming': 'Streaming: Real-time updates via SSE. Task status, partial results, artifacts can stream as generated.',
+        'pushnotif': 'Push Notifications: Webhook callbacks for async tasks. Agent notifies client when task state changes.',
+        'discovery': 'Discovery: Finding agents. Direct URL, registry lookup, or aggregator services. Agent Cards enable discovery.',
+        'security': 'Security: OAuth2, API keys, or custom auth. Agent Cards declare supported methods. Mutual authentication.',
+      };
+
+      const Tip = ({id, children, className = ''}) => (
+        <span 
+          className={`relative cursor-help border-b border-dotted border-current ${className}`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          {children}
+          {hover === id && (
+            <span className="absolute z-50 w-72 p-3 mt-2 left-0 bg-slate-800 border border-blue-500 rounded-lg text-sm text-white shadow-xl normal-case font-normal">
+              {tips[id]}
+            </span>
+          )}
+        </span>
+      );
 
       const toggleCode = (id) => {
         setShowCode(prev => ({...prev, [id]: !prev[id]}));

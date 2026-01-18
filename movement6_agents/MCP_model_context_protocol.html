@@ -15,6 +15,35 @@
       const [activeSection, setActiveSection] = React.useState('overview');
       const [expandedCard, setExpandedCard] = React.useState(null);
       const [showCode, setShowCode] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+
+      const tips = {
+        'host': 'Host Application: The LLM-powered app (Claude Desktop, IDE plugin). Manages security, displays UI, provides LLM access. Creates and manages client connections.',
+        'client': 'MCP Client: Protocol handler inside the host. Manages 1:1 connections with servers. Handles message routing, capability negotiation.',
+        'server': 'MCP Server: Lightweight programs exposing capabilities. Can be local (stdio) or remote (HTTP/SSE). Provides tools, resources, prompts.',
+        'tools': 'Tools: Functions the LLM can invoke. Server defines JSON schema, LLM decides when to call, server executes. Like function calling but standardized.',
+        'resources': 'Resources: Data the LLM can read. Files, DB records, API responses. URI-addressed. Can be static or dynamic. Read-only access.',
+        'prompts': 'Prompts: Reusable prompt templates. Server provides, user selects. Can include arguments. Like saved workflows.',
+        'sampling': 'Sampling: Server can request LLM completions from host. Enables agentic loops where server orchestrates multi-step reasoning.',
+        'stdio': 'Stdio Transport: Local communication via stdin/stdout. Server runs as subprocess. Simple, secure, no network. Best for local tools.',
+        'sse': 'SSE Transport: Server-Sent Events over HTTP. For remote servers. Client connects, server pushes updates. Good for cloud services.',
+        'security': 'Security Model: Servers are sandboxed. Must declare capabilities upfront. User approves connections. Hosts enforce policies.',
+      };
+
+      const Tip = ({id, children, className = ''}) => (
+        <span 
+          className={`cursor-help border-b border-dotted border-current ${className}`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          {children}
+          {hover === id && (
+            <span className="absolute z-50 w-72 p-3 mt-2 bg-slate-800 border border-violet-500 rounded-lg text-sm text-white shadow-xl normal-case font-normal">
+              {tips[id]}
+            </span>
+          )}
+        </span>
+      );
 
       const toggleCode = (id) => {
         setShowCode(prev => ({...prev, [id]: !prev[id]}));

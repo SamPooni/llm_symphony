@@ -14,6 +14,35 @@
     function App() {
       const [activeSection, setActiveSection] = React.useState('overview');
       const [showCode, setShowCode] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+
+      const tips = {
+        'multi-agent': 'Multi-Agent Systems: Multiple specialized agents collaborating. Each has role, tools, memory. Emergent capabilities from coordination.',
+        'orchestrator': 'Orchestrator Pattern: Central agent routes tasks to specialists. Decides who does what. Like a project manager.',
+        'supervisor': 'Supervisor: Monitors agent execution. Can interrupt, redirect, or terminate. Ensures quality and safety.',
+        'swarm': 'Swarm: Decentralized agents with local rules. No central control. Emergent behavior from simple interactions. OpenAI pattern.',
+        'handoff': 'Handoff: Agent transfers control to another. Passes context, state. Clean transition between specialists.',
+        'crew': 'CrewAI: Framework for multi-agent teams. Define roles, goals, tools. Agents collaborate on complex tasks.',
+        'autogen': 'AutoGen: Microsoft multi-agent framework. Conversational agents, group chat patterns. Research-focused.',
+        'langgraph': 'LangGraph: LangChain graph-based agents. Define states, transitions, cycles. Visual agent workflows.',
+        'debate': 'Debate Pattern: Agents argue different positions. Synthesis from adversarial discussion. Improves reasoning.',
+        'voting': 'Voting/Consensus: Multiple agents propose, vote on best. Reduces individual errors. Ensemble reasoning.',
+      };
+
+      const Tip = ({id, children, className = ''}) => (
+        <span 
+          className={`relative cursor-help border-b border-dotted border-current ${className}`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          {children}
+          {hover === id && (
+            <span className="absolute z-50 w-72 p-3 mt-2 left-0 bg-slate-800 border border-cyan-500 rounded-lg text-sm text-white shadow-xl normal-case font-normal">
+              {tips[id]}
+            </span>
+          )}
+        </span>
+      );
 
       const toggleCode = (id) => {
         setShowCode(prev => ({...prev, [id]: !prev[id]}));

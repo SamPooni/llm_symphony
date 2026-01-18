@@ -14,6 +14,35 @@
     function App() {
       const [activeSection, setActiveSection] = React.useState('overview');
       const [showCode, setShowCode] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+
+      const tips = {
+        'swe-agent': 'SWE-Agent: Software Engineering Agent. Autonomous coding assistant that reads code, makes edits, runs tests, iterates. Princeton research project.',
+        'devin': 'Devin: Cognition Labs AI software engineer. Plans, codes, debugs, deploys. First "AI software engineer" demo. Controversial benchmarks.',
+        'cursor': 'Cursor: AI-first code editor. VS Code fork with deep Copilot++ integration. Tab completion, chat, composer mode. Very popular.',
+        'aider': 'Aider: CLI coding assistant. Git-aware, makes commits. Supports multiple files. Open source. Works with GPT-4, Claude.',
+        'codegen': 'Code Generation: LLM writes code from description. Works best with clear specs, examples, tests. Temperature 0 for determinism.',
+        'edit': 'Code Editing: LLM modifies existing code. Search-replace, diff format, or full file. Context is critical.',
+        'debug': 'Debugging: LLM analyzes errors, suggests fixes. Feed error message + relevant code. Iterative refinement.',
+        'test': 'Test Generation: LLM writes unit tests. Provide function + expected behavior. Verify tests actually test the right things.',
+        'repo-context': 'Repository Context: Feed agent relevant files, not entire repo. Use embeddings or grep to find relevant code.',
+        'sandbox': 'Sandbox Execution: Run generated code in isolation. Docker, E2B, or Modal. Never run untrusted code directly.',
+      };
+
+      const Tip = ({id, children, className = ''}) => (
+        <span 
+          className={`relative cursor-help border-b border-dotted border-current ${className}`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          {children}
+          {hover === id && (
+            <span className="absolute z-50 w-72 p-3 mt-2 left-0 bg-slate-800 border border-emerald-500 rounded-lg text-sm text-white shadow-xl normal-case font-normal">
+              {tips[id]}
+            </span>
+          )}
+        </span>
+      );
 
       const toggleCode = (id) => {
         setShowCode(prev => ({...prev, [id]: !prev[id]}));

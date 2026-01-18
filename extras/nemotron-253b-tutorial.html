@@ -17,6 +17,8 @@
     .path-card { transition: all 0.3s ease; }
     .path-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
     .connector { width: 4px; background: linear-gradient(to bottom, #8b5cf6, #6366f1); margin-left: 22px; }
+    .tip { cursor: help; border-bottom: 1px dotted currentColor; position: relative; }
+    .tip:hover::after { content: attr(data-tip); position: absolute; left: 0; top: 100%; z-index: 50; width: 280px; padding: 12px; margin-top: 8px; background: #1e293b; border: 1px solid #8b5cf6; border-radius: 8px; font-size: 13px; color: #e2e8f0; white-space: normal; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
   </style>
 </head>
 <body class="text-white p-6">

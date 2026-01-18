@@ -14,6 +14,35 @@
     function App() {
       const [activeSection, setActiveSection] = React.useState('overview');
       const [showCode, setShowCode] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+
+      const tips = {
+        'computer-use': 'Computer Use: LLM controls mouse/keyboard via screenshots. See screen, decide action, execute, observe result. Anthropic pioneered.',
+        'screenshot': 'Screenshot Loop: Take screenshot → LLM analyzes → outputs coordinates/action → execute → repeat. Core interaction pattern.',
+        'browser-use': 'Browser Use: Specialized for web automation. DOM access, element selection, form filling. More reliable than raw pixels.',
+        'playwright': 'Playwright: Browser automation library. Headless Chrome/Firefox. Used by many browser agents. Microsoft project.',
+        'coordinates': 'Coordinate Prediction: LLM outputs click x,y from screenshot. Challenging - small targets, moving elements. Use bounding boxes.',
+        'dom-access': 'DOM Access: Extract page structure, not just pixels. Find elements by selector, get text content. Much more reliable.',
+        'vision': 'Vision Models: GPT-4V, Claude 3 can understand screenshots. Identify buttons, text, layout. Critical for computer use.',
+        'sandbox': 'Sandbox: Run browser in isolated container. Docker, VM, or cloud sandbox. Prevent agent from accessing real system.',
+        'e2b': 'E2B: Cloud sandbox service. Spin up isolated environments. Run code, browse web safely. Popular for agents.',
+        'anthropic-cu': 'Anthropic Computer Use: Claude API feature. Built-in screenshot analysis, action execution. First major LLM computer use.',
+      };
+
+      const Tip = ({id, children, className = ''}) => (
+        <span 
+          className={`relative cursor-help border-b border-dotted border-current ${className}`}
+          onMouseEnter={() => setHover(id)}
+          onMouseLeave={() => setHover(null)}
+        >
+          {children}
+          {hover === id && (
+            <span className="absolute z-50 w-72 p-3 mt-2 left-0 bg-slate-800 border border-amber-500 rounded-lg text-sm text-white shadow-xl normal-case font-normal">
+              {tips[id]}
+            </span>
+          )}
+        </span>
+      );
 
       const toggleCode = (id) => {
         setShowCode(prev => ({...prev, [id]: !prev[id]}));

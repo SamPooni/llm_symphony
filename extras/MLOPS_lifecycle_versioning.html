@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMOps — Lifecycle, Versioning & Experiment Tracking</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .gradient-text { background: linear-gradient(135deg, #4ade80, #22d3ee, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .tooltip { position: fixed; z-index: 100; padding: 12px 16px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(74, 222, 128, 0.5); border-radius: 12px; font-size: 13px; color: #e2e8f0; max-width: 400px; pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const Tooltip = ({ text, x, y }) => { if (!text) return null; return <div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 420), top: y + 15 }} dangerouslySetInnerHTML={{__html: text}}></div>; };
+    const GradientDefs = () => (<defs>
+      <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ade80" /><stop offset="100%" stopColor="#16a34a" /></linearGradient>
+      <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+      <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient>
+      <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#7c3aed" /></linearGradient>
+      <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f472b6" /><stop offset="100%" stopColor="#db2777" /></linearGradient>
+      <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+      <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient>
+      <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f87171" /><stop offset="100%" stopColor="#dc2626" /></linearGradient>
+      <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#64748b" /><stop offset="100%" stopColor="#475569" /></linearGradient>
+      <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4ade80" /></marker>
+      <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" /></marker>
+      <marker id="arrowPurple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#a78bfa" /></marker>
+      <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fb923c" /></marker>
+    </defs>);
+
+    // LLMOps Lifecycle
+    const LifecycleDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#4ade80" fontSize="12" fontWeight="bold">🔄 LLMOps Lifecycle — Continuous Improvement Loop</text>
+      
+      {/* Development */}
+      <g transform="translate(30, 50)" onMouseMove={(e) => onHover("<b>Development Phase:</b><br/>• Prompt engineering & iteration<br/>• Model selection & evaluation<br/>• RAG pipeline development<br/>• Agent design & testing<br/>• Local development environment<br/><br/>Tools: LangChain, LlamaIndex, DSPy", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="100" rx="10" fill="url(#blueGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">1. Develop</text>
+        <text x="60" y="42" textAnchor="middle" fill="white" fontSize="8">Prompts</text>
+        <text x="60" y="57" textAnchor="middle" fill="white" fontSize="8">Models</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="8">RAG/Agents</text>
+        <text x="60" y="90" textAnchor="middle" fill="#93c5fd" fontSize="7">LangChain, DSPy</text>
+      </g>
+      
+      <path d="M155 100 L180 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" className="flow-line" strokeDasharray="6 3" />
+      
+      {/* Evaluate */}
+      <g transform="translate(185, 50)" onMouseMove={(e) => onHover("<b>Evaluation Phase:</b><br/>• Automated test suites<br/>• LLM-as-judge scoring<br/>• Human evaluation sampling<br/>• Benchmark comparison<br/>• A/B test analysis<br/><br/>Tools: Promptfoo, Ragas, DeepEval", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="100" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">2. Evaluate</text>
+        <text x="60" y="42" textAnchor="middle" fill="white" fontSize="8">Test suites</text>
+        <text x="60" y="57" textAnchor="middle" fill="white" fontSize="8">LLM-as-judge</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="8">Benchmarks</text>
+        <text x="60" y="90" textAnchor="middle" fill="#c4b5fd" fontSize="7">Promptfoo, Ragas</text>
+      </g>
+      
+      <path d="M310 100 L335 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" className="flow-line" strokeDasharray="6 3" />
+      
+      {/* Deploy */}
+      <g transform="translate(340, 50)" onMouseMove={(e) => onHover("<b>Deployment Phase:</b><br/>• CI/CD pipeline automation<br/>• Canary deployments<br/>• Feature flags for prompts<br/>• A/B testing infrastructure<br/>• Rollback mechanisms<br/><br/>Tools: GitHub Actions, ArgoCD", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="100" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">3. Deploy</text>
+        <text x="60" y="42" textAnchor="middle" fill="white" fontSize="8">CI/CD</text>
+        <text x="60" y="57" textAnchor="middle" fill="white" fontSize="8">Canary</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="8">Feature flags</text>
+        <text x="60" y="90" textAnchor="middle" fill="#86efac" fontSize="7">GitHub Actions</text>
+      </g>
+      
+      <path d="M465 100 L490 100" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" className="flow-line" strokeDasharray="6 3" />
+      
+      {/* Monitor */}
+      <g transform="translate(495, 50)" onMouseMove={(e) => onHover("<b>Monitoring Phase:</b><br/>• Latency & throughput metrics<br/>• Cost tracking per request<br/>• Quality scoring (LLM-as-judge)<br/>• Error rate monitoring<br/>• Drift detection<br/><br/>Tools: LangSmith, Langfuse, Arize", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="100" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">4. Monitor</text>
+        <text x="60" y="42" textAnchor="middle" fill="white" fontSize="8">Metrics</text>
+        <text x="60" y="57" textAnchor="middle" fill="white" fontSize="8">Cost tracking</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="8">Quality scores</text>
+        <text x="60" y="90" textAnchor="middle" fill="#67e8f9" fontSize="7">LangSmith, Arize</text>
+      </g>
+      
+      {/* Feedback loop */}
+      <path d="M615 100 L640 100 L640 180 L90 180 L90 155" stroke="#fb923c" strokeWidth="2" markerEnd="url(#arrowOrange)" strokeDasharray="6 3" />
+      <text x="350" y="195" textAnchor="middle" fill="#fb923c" fontSize="9">Feedback Loop → Iterate & Improve</text>
+      
+      {/* Center: Version Control */}
+      <g transform="translate(270, 160)">
+        <rect width="160" height="45" rx="8" fill="rgba(250,204,21,0.2)" stroke="#facc15" strokeWidth="2" />
+        <text x="80" y="18" textAnchor="middle" fill="#facc15" fontSize="9" fontWeight="bold">📦 Version Everything</text>
+        <text x="80" y="35" textAnchor="middle" fill="white" fontSize="7">Prompts • Models • Configs • Data</text>
+      </g>
+    </svg>);
+
+    // Version Control for LLMs
+    const VersioningDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#facc15" fontSize="12" fontWeight="bold">📦 Version Control — What to Track</text>
+      
+      {/* Prompts */}
+      <g transform="translate(30, 45)" onMouseMove={(e) => onHover("<b>Prompt Versioning:</b><br/>• Store prompts in git (prompts/*.txt)<br/>• Semantic versioning (v1.2.3)<br/>• Change history with rationale<br/>• Template variables tracked<br/>• A/B test variants<br/><br/>Format: YAML/JSON with metadata", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="160" rx="10" fill="url(#blueGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📝 Prompts</text>
+        <rect x="10" y="35" width="130" height="110" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="75" y="55" textAnchor="middle" fill="#93c5fd" fontSize="7" fontFamily="monospace">prompts/</text>
+        <text x="75" y="70" textAnchor="middle" fill="#93c5fd" fontSize="7" fontFamily="monospace">  ├── system_v1.2.txt</text>
+        <text x="75" y="85" textAnchor="middle" fill="#93c5fd" fontSize="7" fontFamily="monospace">  ├── rag_v2.0.txt</text>
+        <text x="75" y="100" textAnchor="middle" fill="#93c5fd" fontSize="7" fontFamily="monospace">  └── agent_v1.5.txt</text>
+        <text x="75" y="120" textAnchor="middle" fill="white" fontSize="7">+ metadata.yaml</text>
+        <text x="75" y="135" textAnchor="middle" fill="white" fontSize="7">+ changelog.md</text>
+        <text x="75" y="155" textAnchor="middle" fill="#93c5fd" fontSize="6">Git + Promptfoo</text>
+      </g>
+      
+      {/* Models */}
+      <g transform="translate(200, 45)" onMouseMove={(e) => onHover("<b>Model Versioning:</b><br/>• Pin exact model versions<br/>• Track provider + model ID<br/>• Document performance baselines<br/>• Migration plans for deprecation<br/>• Fallback model configs<br/><br/>Example: gpt-4-turbo-2024-04-09", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="160" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🤖 Models</text>
+        <rect x="10" y="35" width="130" height="110" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="75" y="55" textAnchor="middle" fill="#c4b5fd" fontSize="7" fontFamily="monospace">models.yaml:</text>
+        <text x="75" y="70" textAnchor="middle" fill="#c4b5fd" fontSize="7" fontFamily="monospace">primary: gpt-4-turbo</text>
+        <text x="75" y="85" textAnchor="middle" fill="#c4b5fd" fontSize="7" fontFamily="monospace">version: 2024-04-09</text>
+        <text x="75" y="100" textAnchor="middle" fill="#c4b5fd" fontSize="7" fontFamily="monospace">fallback: gpt-3.5</text>
+        <text x="75" y="120" textAnchor="middle" fill="white" fontSize="7">Pin exact versions!</text>
+        <text x="75" y="135" textAnchor="middle" fill="white" fontSize="7">Document baselines</text>
+        <text x="75" y="155" textAnchor="middle" fill="#c4b5fd" fontSize="6">MLflow, W&B</text>
+      </g>
+      
+      {/* Configs */}
+      <g transform="translate(370, 45)" onMouseMove={(e) => onHover("<b>Configuration Versioning:</b><br/>• Temperature, max_tokens, top_p<br/>• RAG parameters (chunk size, k)<br/>• Tool definitions & schemas<br/>• Feature flags<br/>• Environment-specific overrides<br/><br/>Format: YAML with environment overlays", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="160" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">⚙️ Configs</text>
+        <rect x="10" y="35" width="130" height="110" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="75" y="55" textAnchor="middle" fill="#86efac" fontSize="7" fontFamily="monospace">config/</text>
+        <text x="75" y="70" textAnchor="middle" fill="#86efac" fontSize="7" fontFamily="monospace">  ├── base.yaml</text>
+        <text x="75" y="85" textAnchor="middle" fill="#86efac" fontSize="7" fontFamily="monospace">  ├── prod.yaml</text>
+        <text x="75" y="100" textAnchor="middle" fill="#86efac" fontSize="7" fontFamily="monospace">  └── staging.yaml</text>
+        <text x="75" y="120" textAnchor="middle" fill="white" fontSize="7">temp, tokens, top_p</text>
+        <text x="75" y="135" textAnchor="middle" fill="white" fontSize="7">RAG params, tools</text>
+        <text x="75" y="155" textAnchor="middle" fill="#86efac" fontSize="6">Hydra, OmegaConf</text>
+      </g>
+      
+      {/* Data/Evals */}
+      <g transform="translate(540, 45)" onMouseMove={(e) => onHover("<b>Data & Eval Versioning:</b><br/>• Golden test datasets<br/>• Evaluation benchmarks<br/>• RAG knowledge base snapshots<br/>• Fine-tuning datasets<br/>• User feedback data<br/><br/>Tools: DVC, Delta Lake, HuggingFace", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="130" height="160" rx="10" fill="url(#orangeGrad)" opacity="0.9" />
+        <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📊 Data/Evals</text>
+        <rect x="10" y="35" width="110" height="110" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="65" y="55" textAnchor="middle" fill="#fed7aa" fontSize="7" fontFamily="monospace">data/</text>
+        <text x="65" y="70" textAnchor="middle" fill="#fed7aa" fontSize="7" fontFamily="monospace">├── evals/</text>
+        <text x="65" y="85" textAnchor="middle" fill="#fed7aa" fontSize="7" fontFamily="monospace">├── golden/</text>
+        <text x="65" y="100" textAnchor="middle" fill="#fed7aa" fontSize="7" fontFamily="monospace">└── kb/</text>
+        <text x="65" y="120" textAnchor="middle" fill="white" fontSize="7">Test datasets</text>
+        <text x="65" y="135" textAnchor="middle" fill="white" fontSize="7">KB snapshots</text>
+        <text x="65" y="155" textAnchor="middle" fill="#fed7aa" fontSize="6">DVC, Delta Lake</text>
+      </g>
+    </svg>);
+
+    // Experiment Tracking
+    const ExperimentTrackingDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#22d3ee" fontSize="12" fontWeight="bold">🔬 Experiment Tracking — Compare & Iterate</text>
+      
+      <g transform="translate(30, 45)">
+        <rect width="640" height="160" rx="12" fill="rgba(15,23,42,0.8)" stroke="#334155" strokeWidth="2" />
+        <text x="320" y="22" textAnchor="middle" fill="#94a3b8" fontSize="9">Experiment Comparison Dashboard</text>
+        
+        {/* Headers */}
+        <text x="60" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Experiment</text>
+        <text x="160" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Prompt</text>
+        <text x="250" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Model</text>
+        <text x="340" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Temp</text>
+        <text x="420" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Accuracy</text>
+        <text x="500" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Latency</text>
+        <text x="580" y="48" textAnchor="middle" fill="#64748b" fontSize="8">Cost</text>
+        
+        {/* Experiment rows */}
+        <g onMouseMove={(e) => onHover("<b>Baseline Experiment:</b><br/>• Standard prompt v1.0<br/>• GPT-4 Turbo<br/>• Default temperature 0.7<br/><br/>Results: 78% accuracy, 2.1s latency, $0.045/req", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect x="10" y="55" width="620" height="28" rx="4" fill="rgba(100,116,139,0.2)" />
+          <text x="60" y="73" textAnchor="middle" fill="white" fontSize="8">baseline</text>
+          <text x="160" y="73" textAnchor="middle" fill="white" fontSize="8">v1.0</text>
+          <text x="250" y="73" textAnchor="middle" fill="white" fontSize="8">gpt-4-turbo</text>
+          <text x="340" y="73" textAnchor="middle" fill="white" fontSize="8">0.7</text>
+          <text x="420" y="73" textAnchor="middle" fill="white" fontSize="8">78%</text>
+          <text x="500" y="73" textAnchor="middle" fill="white" fontSize="8">2.1s</text>
+          <text x="580" y="73" textAnchor="middle" fill="white" fontSize="8">$0.045</text>
+        </g>
+        
+        <g onMouseMove={(e) => onHover("<b>CoT Experiment:</b><br/>• Added chain-of-thought<br/>• Same model<br/>• Lower temperature 0.3<br/><br/>Results: +7% accuracy, +0.8s latency, +$0.02 cost", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect x="10" y="88" width="620" height="28" rx="4" fill="rgba(167,139,250,0.2)" />
+          <text x="60" y="106" textAnchor="middle" fill="white" fontSize="8">cot-v1</text>
+          <text x="160" y="106" textAnchor="middle" fill="#a78bfa" fontSize="8">v1.1-cot</text>
+          <text x="250" y="106" textAnchor="middle" fill="white" fontSize="8">gpt-4-turbo</text>
+          <text x="340" y="106" textAnchor="middle" fill="#a78bfa" fontSize="8">0.3</text>
+          <text x="420" y="106" textAnchor="middle" fill="#4ade80" fontSize="8">85% ▲</text>
+          <text x="500" y="106" textAnchor="middle" fill="#fb923c" fontSize="8">2.9s ▲</text>
+          <text x="580" y="106" textAnchor="middle" fill="#fb923c" fontSize="8">$0.065 ▲</text>
+        </g>
+        
+        <g onMouseMove={(e) => onHover("<b>Claude Experiment:</b><br/>• Same CoT prompt<br/>• Claude 3.5 Sonnet<br/>• Temperature 0.3<br/><br/>Results: Best accuracy, fast, but different cost", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect x="10" y="121" width="620" height="28" rx="4" fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth="1" />
+          <text x="60" y="139" textAnchor="middle" fill="#4ade80" fontSize="8" fontWeight="bold">claude-cot ⭐</text>
+          <text x="160" y="139" textAnchor="middle" fill="white" fontSize="8">v1.1-cot</text>
+          <text x="250" y="139" textAnchor="middle" fill="#4ade80" fontSize="8">claude-3.5</text>
+          <text x="340" y="139" textAnchor="middle" fill="white" fontSize="8">0.3</text>
+          <text x="420" y="139" textAnchor="middle" fill="#4ade80" fontSize="8" fontWeight="bold">89% ▲▲</text>
+          <text x="500" y="139" textAnchor="middle" fill="#4ade80" fontSize="8">1.8s ▼</text>
+          <text x="580" y="139" textAnchor="middle" fill="white" fontSize="8">$0.058</text>
+        </g>
+      </g>
+      
+      <g transform="translate(30, 170)">
+        <rect width="200" height="30" rx="6" fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth="1" />
+        <text x="100" y="20" textAnchor="middle" fill="#4ade80" fontSize="8">✓ Winner: claude-cot (best accuracy + speed)</text>
+      </g>
+      
+      <g transform="translate(250, 170)">
+        <rect width="420" height="30" rx="6" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" strokeWidth="1" />
+        <text x="210" y="20" textAnchor="middle" fill="#22d3ee" fontSize="8">Tools: Weights & Biases, MLflow, LangSmith, Braintrust, Promptfoo</text>
+      </g>
+    </svg>);
+
+    // CI/CD Pipeline for LLMs
+    const CICDPipelineDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#a78bfa" fontSize="12" fontWeight="bold">🚀 CI/CD Pipeline for LLM Applications</text>
+      
+      {/* PR/Commit */}
+      <g transform="translate(30, 45)" onMouseMove={(e) => onHover("<b>Code Change:</b><br/>• Prompt update<br/>• Config change<br/>• Model switch<br/>• RAG update<br/><br/>Trigger: Git push / PR", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="80" height="100" rx="8" fill="url(#slateGrad)" opacity="0.9" />
+        <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">PR</text>
+        <text x="40" y="50" textAnchor="middle" fill="white" fontSize="20">📝</text>
+        <text x="40" y="75" textAnchor="middle" fill="white" fontSize="7">Prompt</text>
+        <text x="40" y="90" textAnchor="middle" fill="white" fontSize="7">Config</text>
+      </g>
+      
+      <path d="M115 95 L135 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      {/* Lint/Validate */}
+      <g transform="translate(140, 45)" onMouseMove={(e) => onHover("<b>Validation Stage:</b><br/>• Prompt syntax check<br/>• Schema validation<br/>• Config lint<br/>• Injection pattern check<br/><br/>Fast fail on obvious errors", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="80" height="100" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+        <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Validate</text>
+        <text x="40" y="50" textAnchor="middle" fill="white" fontSize="20">✓</text>
+        <text x="40" y="75" textAnchor="middle" fill="white" fontSize="7">Lint</text>
+        <text x="40" y="90" textAnchor="middle" fill="white" fontSize="7">Schema</text>
+      </g>
+      
+      <path d="M225 95 L245 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      {/* Unit Tests */}
+      <g transform="translate(250, 45)" onMouseMove={(e) => onHover("<b>Unit Tests:</b><br/>• Prompt template tests<br/>• Mock LLM responses<br/>• Function schema tests<br/>• Parser tests<br/><br/>Fast, no real API calls", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="80" height="100" rx="8" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Unit</text>
+        <text x="40" y="50" textAnchor="middle" fill="white" fontSize="20">🧪</text>
+        <text x="40" y="75" textAnchor="middle" fill="white" fontSize="7">Mocked</text>
+        <text x="40" y="90" textAnchor="middle" fill="white" fontSize="7">Fast</text>
+      </g>
+      
+      <path d="M335 95 L355 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      {/* Eval Tests */}
+      <g transform="translate(360, 45)" onMouseMove={(e) => onHover("<b>Evaluation Tests:</b><br/>• Golden dataset tests<br/>• LLM-as-judge scoring<br/>• Regression detection<br/>• Accuracy thresholds<br/><br/>Real API calls, slower", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="80" height="100" rx="8" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Eval</text>
+        <text x="40" y="50" textAnchor="middle" fill="white" fontSize="20">📊</text>
+        <text x="40" y="75" textAnchor="middle" fill="white" fontSize="7">Real LLM</text>
+        <text x="40" y="90" textAnchor="middle" fill="white" fontSize="7">Thresholds</text>
+      </g>
+      
+      <path d="M445 95 L465 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      {/* Deploy Staging */}
+      <g transform="translate(470, 45)" onMouseMove={(e) => onHover("<b>Staging Deploy:</b><br/>• Deploy to staging env<br/>• Integration tests<br/>• Load testing<br/>• Shadow traffic<br/><br/>Validate in prod-like env", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="80" height="100" rx="8" fill="url(#orangeGrad)" opacity="0.9" />
+        <text x="40" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Stage</text>
+        <text x="40" y="50" textAnchor="middle" fill="white" fontSize="20">🎭</text>
+        <text x="40" y="75" textAnchor="middle" fill="white" fontSize="7">Integration</text>
+        <text x="40" y="90" textAnchor="middle" fill="white" fontSize="7">Load test</text>
+      </g>
+      
+      <path d="M555 95 L575 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      {/* Deploy Prod */}
+      <g transform="translate(580, 45)" onMouseMove={(e) => onHover("<b>Production Deploy:</b><br/>• Canary deployment (5%)<br/>• Monitor metrics<br/>• Auto-rollback on errors<br/>• Gradual rollout<br/><br/>Safe production release", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="90" height="100" rx="8" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="45" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Prod</text>
+        <text x="45" y="50" textAnchor="middle" fill="white" fontSize="20">🚀</text>
+        <text x="45" y="75" textAnchor="middle" fill="white" fontSize="7">Canary 5%</text>
+        <text x="45" y="90" textAnchor="middle" fill="white" fontSize="7">Auto-rollback</text>
+      </g>
+      
+      {/* Tools bar */}
+      <g transform="translate(30, 155)">
+        <rect width="640" height="30" rx="6" fill="rgba(167,139,250,0.1)" stroke="#a78bfa" strokeWidth="1" />
+        <text x="320" y="20" textAnchor="middle" fill="#a78bfa" fontSize="8">Tools: GitHub Actions • ArgoCD • Promptfoo • pytest • Locust • LaunchDarkly (feature flags)</text>
+      </g>
+    </svg>);
+
+    // A/B Testing for LLMs
+    const ABTestingDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f472b6" fontSize="12" fontWeight="bold">🔀 A/B Testing for Prompts & Models</text>
+      
+      <g transform="translate(30, 40)">
+        <rect width="100" height="80" rx="8" fill="url(#blueGrad)" opacity="0.9" />
+        <text x="50" y="25" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Traffic</text>
+        <text x="50" y="50" textAnchor="middle" fill="white" fontSize="20">👥</text>
+        <text x="50" y="70" textAnchor="middle" fill="white" fontSize="7">100% users</text>
+      </g>
+      
+      <path d="M135 80 L165 60" stroke="#22d3ee" strokeWidth="2" />
+      <path d="M135 80 L165 100" stroke="#a78bfa" strokeWidth="2" />
+      
+      {/* Variant A */}
+      <g transform="translate(170, 35)" onMouseMove={(e) => onHover("<b>Variant A (Control):</b><br/>• Current production prompt<br/>• 50% of traffic<br/>• Baseline for comparison<br/><br/>Key: Don't change during test!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="130" height="50" rx="8" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="65" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Variant A (Control)</text>
+        <text x="65" y="38" textAnchor="middle" fill="white" fontSize="8">prompt_v1.0 • 50%</text>
+      </g>
+      
+      {/* Variant B */}
+      <g transform="translate(170, 95)" onMouseMove={(e) => onHover("<b>Variant B (Treatment):</b><br/>• New prompt/model to test<br/>• 50% of traffic<br/>• Hypothesis: Better accuracy<br/><br/>One change at a time!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="130" height="50" rx="8" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="65" y="20" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">Variant B (Test)</text>
+        <text x="65" y="38" textAnchor="middle" fill="white" fontSize="8">prompt_v2.0 • 50%</text>
+      </g>
+      
+      <path d="M305 60 L335 80" stroke="#22d3ee" strokeWidth="2" />
+      <path d="M305 120 L335 100" stroke="#a78bfa" strokeWidth="2" />
+      
+      {/* Metrics Collection */}
+      <g transform="translate(340, 50)" onMouseMove={(e) => onHover("<b>Metrics to Track:</b><br/>• Task success rate<br/>• User satisfaction (thumbs)<br/>• Latency (TTFT, total)<br/>• Cost per request<br/>• Error rate<br/>• Engagement metrics", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="90" rx="10" fill="url(#orangeGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📊 Metrics</text>
+        <text x="75" y="42" textAnchor="middle" fill="white" fontSize="8">Success rate</text>
+        <text x="75" y="57" textAnchor="middle" fill="white" fontSize="8">User satisfaction</text>
+        <text x="75" y="72" textAnchor="middle" fill="white" fontSize="8">Latency, Cost</text>
+        <text x="75" y="87" textAnchor="middle" fill="#fed7aa" fontSize="7">Per-variant tracking</text>
+      </g>
+      
+      <path d="M495 95 L525 95" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      {/* Statistical Analysis */}
+      <g transform="translate(530, 45)" onMouseMove={(e) => onHover("<b>Statistical Analysis:</b><br/>• Sample size calculation<br/>• Confidence intervals (95%)<br/>• P-value threshold (0.05)<br/>• Effect size estimation<br/>• Run until significant<br/><br/>Avoid: Peeking, early stopping", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="140" height="100" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="70" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📈 Analysis</text>
+        <text x="70" y="45" textAnchor="middle" fill="white" fontSize="8">Statistical significance</text>
+        <text x="70" y="62" textAnchor="middle" fill="white" fontSize="8">p &lt; 0.05</text>
+        <text x="70" y="79" textAnchor="middle" fill="white" fontSize="8">95% confidence</text>
+        <text x="70" y="95" textAnchor="middle" fill="#86efac" fontSize="7">Winner → Promote</text>
+      </g>
+      
+      {/* Tools */}
+      <g transform="translate(30, 155)">
+        <rect width="640" height="30" rx="6" fill="rgba(244,114,182,0.1)" stroke="#f472b6" strokeWidth="1" />
+        <text x="320" y="20" textAnchor="middle" fill="#f472b6" fontSize="8">Tools: LaunchDarkly • Statsig • Eppo • PostHog • Custom (feature flags + metrics)</text>
+      </g>
+    </svg>);
+
+    // Observability Stack
+    const ObservabilityStackDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#22d3ee" fontSize="12" fontWeight="bold">👁️ LLM Observability Stack</text>
+      
+      {/* LLM App */}
+      <g transform="translate(30, 50)">
+        <rect width="100" height="140" rx="10" fill="url(#blueGrad)" opacity="0.9" />
+        <text x="50" y="25" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">LLM App</text>
+        <text x="50" y="50" textAnchor="middle" fill="white" fontSize="8">Prompts</text>
+        <text x="50" y="68" textAnchor="middle" fill="white" fontSize="8">Models</text>
+        <text x="50" y="86" textAnchor="middle" fill="white" fontSize="8">RAG</text>
+        <text x="50" y="104" textAnchor="middle" fill="white" fontSize="8">Agents</text>
+        <text x="50" y="130" textAnchor="middle" fill="#93c5fd" fontSize="7">Instrumented</text>
+      </g>
+      
+      <path d="M135 120 L175 120" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      
+      {/* Tracing */}
+      <g transform="translate(180, 45)" onMouseMove={(e) => onHover("<b>Distributed Tracing:</b><br/>• Trace ID per request<br/>• Span per LLM call<br/>• Parent-child relationships<br/>• Timing for each step<br/><br/>See: Full request journey", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="150" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔍 Tracing</text>
+        <rect x="10" y="35" width="100" height="100" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="60" y="55" textAnchor="middle" fill="white" fontSize="7">trace_id: abc123</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="7">├─ embed: 45ms</text>
+        <text x="60" y="89" textAnchor="middle" fill="white" fontSize="7">├─ retrieve: 120ms</text>
+        <text x="60" y="106" textAnchor="middle" fill="white" fontSize="7">└─ llm: 1.8s</text>
+        <text x="60" y="123" textAnchor="middle" fill="#67e8f9" fontSize="7">total: 1.97s</text>
+        <text x="60" y="143" textAnchor="middle" fill="#67e8f9" fontSize="6">OpenTelemetry</text>
+      </g>
+      
+      {/* Metrics */}
+      <g transform="translate(320, 45)" onMouseMove={(e) => onHover("<b>Metrics Collection:</b><br/>• Latency histograms (P50/95/99)<br/>• Token counts (in/out)<br/>• Cost per request<br/>• Error rates by type<br/>• Throughput (RPM/TPM)<br/><br/>Export: Prometheus format", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="150" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📊 Metrics</text>
+        <rect x="10" y="35" width="100" height="100" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="60" y="55" textAnchor="middle" fill="white" fontSize="7">latency_p95: 2.1s</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="7">tokens_in: 1.2K</text>
+        <text x="60" y="89" textAnchor="middle" fill="white" fontSize="7">tokens_out: 450</text>
+        <text x="60" y="106" textAnchor="middle" fill="white" fontSize="7">cost: $0.045</text>
+        <text x="60" y="123" textAnchor="middle" fill="#86efac" fontSize="7">error_rate: 0.3%</text>
+        <text x="60" y="143" textAnchor="middle" fill="#86efac" fontSize="6">Prometheus</text>
+      </g>
+      
+      {/* Logging */}
+      <g transform="translate(460, 45)" onMouseMove={(e) => onHover("<b>Structured Logging:</b><br/>• Prompt templates used<br/>• Model responses<br/>• Tool calls & results<br/>• Errors with context<br/>• User feedback<br/><br/>Important: PII masking!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="120" height="150" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="60" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📝 Logging</text>
+        <rect x="10" y="35" width="100" height="100" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="60" y="55" textAnchor="middle" fill="white" fontSize="7">prompt_template: qa</text>
+        <text x="60" y="72" textAnchor="middle" fill="white" fontSize="7">model: gpt-4</text>
+        <text x="60" y="89" textAnchor="middle" fill="white" fontSize="7">response: [logged]</text>
+        <text x="60" y="106" textAnchor="middle" fill="white" fontSize="7">tools: [search]</text>
+        <text x="60" y="123" textAnchor="middle" fill="#c4b5fd" fontSize="7">feedback: 👍</text>
+        <text x="60" y="143" textAnchor="middle" fill="#c4b5fd" fontSize="6">LangSmith, Langfuse</text>
+      </g>
+      
+      {/* Dashboards */}
+      <g transform="translate(600, 50)">
+        <rect width="80" height="140" rx="10" fill="url(#orangeGrad)" opacity="0.9" />
+        <text x="40" y="22" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">📈</text>
+        <text x="40" y="40" textAnchor="middle" fill="white" fontSize="8">Grafana</text>
+        <text x="40" y="60" textAnchor="middle" fill="white" fontSize="8">Datadog</text>
+        <text x="40" y="80" textAnchor="middle" fill="white" fontSize="8">Arize</text>
+        <text x="40" y="100" textAnchor="middle" fill="white" fontSize="8">LangSmith</text>
+        <text x="40" y="130" textAnchor="middle" fill="#fed7aa" fontSize="7">Dashboards</text>
+      </g>
+    </svg>);
+
+    const patterns = [
+      { id: 1, title: '🔄 LLMOps Lifecycle', subtitle: 'Develop → Evaluate → Deploy → Monitor → Iterate', Diagram: LifecycleDiagram, badges: ['Continuous', 'Feedback Loop', 'Iterate'] },
+      { id: 2, title: '📦 Version Control', subtitle: 'Version prompts, models, configs, and data', Diagram: VersioningDiagram, badges: ['Git', 'Semantic Ver', 'Reproducible'] },
+      { id: 3, title: '🔬 Experiment Tracking', subtitle: 'Compare experiments, find winners', Diagram: ExperimentTrackingDiagram, badges: ['Compare', 'Metrics', 'W&B/MLflow'] },
+      { id: 4, title: '🚀 CI/CD Pipeline', subtitle: 'Automated testing and deployment', Diagram: CICDPipelineDiagram, badges: ['Validate', 'Test', 'Canary'] },
+      { id: 5, title: '🔀 A/B Testing', subtitle: 'Statistically valid prompt/model comparison', Diagram: ABTestingDiagram, badges: ['Split Traffic', 'Significance', 'Winner'] },
+      { id: 6, title: '👁️ Observability Stack', subtitle: 'Tracing, metrics, and logging for LLMs', Diagram: ObservabilityStackDiagram, badges: ['Traces', 'Metrics', 'Logs'] },
+    ];
+
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      const handleHover = (text, x, y) => setTooltip(text ? { text, x, y } : { text: null, x: 0, y: 0 });
+
+      return (
+        <div className="min-h-screen p-8">
+          <Tooltip {...tooltip} />
+          <div className="max-w-5xl mx-auto">
+            <header className="text-center mb-12">
+              <div className="inline-block px-4 py-1 bg-green-500/20 border border-green-500/30 rounded-full mb-4">
+                <span className="text-green-300 font-semibold text-sm tracking-wide">LLMOPS GUIDE</span>
+              </div>
+              <h1 className="text-4xl font-black gradient-text mb-4">LLMOps Lifecycle & Versioning</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">End-to-end operations for LLM applications.
+                <span className="block mt-2 text-green-400 text-base">🔄 6 Key Practices • ✨ Hover for details</span>
+              </p>
+            </header>
+
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-blue-400">📝</div><div className="text-slate-400 text-sm">Version</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-purple-400">🔬</div><div className="text-slate-400 text-sm">Experiment</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-green-400">🚀</div><div className="text-slate-400 text-sm">Deploy</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-cyan-400">👁️</div><div className="text-slate-400 text-sm">Monitor</div></div>
+            </div>
+
+            {patterns.map(p => (
+              <section key={p.id} className="glass rounded-2xl p-8 mb-8 hover:border-green-500/30 transition-colors">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{p.title}</h2>
+                    <p className="text-slate-400">{p.subtitle}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {p.badges.map(b => (<span key={b} className="px-3 py-1 bg-green-500/20 border border-green-500/30 rounded-full text-xs text-green-300">{b}</span>))}
+                  </div>
+                </div>
+                <p.Diagram onHover={handleHover} />
+              </section>
+            ))}
+
+            <footer className="text-center text-slate-500 text-sm mt-12">
+              <p>LLMOps Guide • Ship faster, iterate smarter 🚀</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

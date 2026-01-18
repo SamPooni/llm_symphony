@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Production Troubleshooting Guide — Visual Reference</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; min-height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .flow-line { animation: flowDash 1s linear infinite; }
+    .pulse-bg { animation: pulse 3s ease-in-out infinite; }
+    .gradient-text { background: linear-gradient(135deg, #f87171, #fb923c, #facc15); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .tooltip { position: fixed; z-index: 100; padding: 12px 16px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(248, 113, 113, 0.5); border-radius: 12px; font-size: 13px; color: #e2e8f0; max-width: 380px; pointer-events: none; animation: fadeIn 0.2s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const Tooltip = ({ text, x, y }) => { if (!text) return null; return <div className="tooltip" style={{ left: Math.min(x, window.innerWidth - 400), top: y + 15 }} dangerouslySetInnerHTML={{__html: text}}></div>; };
+    const GradientDefs = () => (<defs>
+      <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f87171" /><stop offset="100%" stopColor="#dc2626" /></linearGradient>
+      <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#fb923c" /><stop offset="100%" stopColor="#ea580c" /></linearGradient>
+      <linearGradient id="yellowGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#facc15" /><stop offset="100%" stopColor="#ca8a04" /></linearGradient>
+      <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ade80" /><stop offset="100%" stopColor="#16a34a" /></linearGradient>
+      <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#22d3ee" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+      <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#60a5fa" /><stop offset="100%" stopColor="#2563eb" /></linearGradient>
+      <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#7c3aed" /></linearGradient>
+      <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#f472b6" /><stop offset="100%" stopColor="#db2777" /></linearGradient>
+      <linearGradient id="slateGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#64748b" /><stop offset="100%" stopColor="#475569" /></linearGradient>
+      <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f87171" /></marker>
+      <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#4ade80" /></marker>
+      <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#22d3ee" /></marker>
+      <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fb923c" /></marker>
+    </defs>);
+
+    // Issue 1: High Latency
+    const HighLatencyDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f87171" fontSize="12" fontWeight="bold">🐌 SYMPTOM: High Latency (P95 &gt; 5s)</text>
+      
+      <g transform="translate(30, 40)">
+        <rect width="140" height="140" rx="10" fill="url(#redGrad)" opacity="0.9" />
+        <text x="70" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Common Causes</text>
+        <text x="70" y="45" textAnchor="middle" fill="white" fontSize="8">• Long prompts</text>
+        <text x="70" y="62" textAnchor="middle" fill="white" fontSize="8">• High max_tokens</text>
+        <text x="70" y="79" textAnchor="middle" fill="white" fontSize="8">• No streaming</text>
+        <text x="70" y="96" textAnchor="middle" fill="white" fontSize="8">• Cold starts</text>
+        <text x="70" y="113" textAnchor="middle" fill="white" fontSize="8">• Network hops</text>
+        <text x="70" y="130" textAnchor="middle" fill="white" fontSize="8">• Queue backup</text>
+      </g>
+      
+      <path d="M175 110 L215 110" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      <g transform="translate(220, 35)" onMouseMove={(e) => onHover("<b>Diagnosis Steps:</b><br/>1. Check metrics: TTFT vs TBT vs total<br/>2. Profile: Is it prefill or decode?<br/>3. Check queue depth and batch size<br/>4. Measure network RTT to API<br/>5. Check for prompt bloat", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="130" height="150" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔍 Diagnose</text>
+        <rect x="10" y="35" width="110" height="25" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="65" y="52" textAnchor="middle" fill="white" fontSize="7">TTFT (Time to First)</text>
+        <rect x="10" y="65" width="110" height="25" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="65" y="82" textAnchor="middle" fill="white" fontSize="7">TBT (Time Between)</text>
+        <rect x="10" y="95" width="110" height="25" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="65" y="112" textAnchor="middle" fill="white" fontSize="7">Queue Wait Time</text>
+        <rect x="10" y="125" width="110" height="20" rx="4" fill="rgba(74,222,128,0.3)" />
+        <text x="65" y="139" textAnchor="middle" fill="#4ade80" fontSize="6">Profile each stage</text>
+      </g>
+      
+      <path d="M355 110 L395 110" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      <g transform="translate(400, 35)" onMouseMove={(e) => onHover("<b>Solutions:</b><br/>• Enable streaming (perceived latency)<br/>• Prompt caching (repeat prefixes)<br/>• Speculative decoding (2-3x speedup)<br/>• Smaller model + routing<br/>• KV cache optimization<br/>• Pre-warm instances<br/>• Edge deployment", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="140" height="150" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="70" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">✅ Solutions</text>
+        <text x="70" y="45" textAnchor="middle" fill="white" fontSize="8">Enable streaming</text>
+        <text x="70" y="62" textAnchor="middle" fill="white" fontSize="8">Prompt caching</text>
+        <text x="70" y="79" textAnchor="middle" fill="white" fontSize="8">Speculative decode</text>
+        <text x="70" y="96" textAnchor="middle" fill="white" fontSize="8">Model routing</text>
+        <text x="70" y="113" textAnchor="middle" fill="white" fontSize="8">Pre-warm pools</text>
+        <text x="70" y="130" textAnchor="middle" fill="#86efac" fontSize="7">KV cache tuning</text>
+      </g>
+      
+      <g transform="translate(560, 50)">
+        <rect width="110" height="130" rx="8" fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth="2" />
+        <text x="55" y="20" textAnchor="middle" fill="#4ade80" fontSize="9" fontWeight="bold">Target Metrics</text>
+        <text x="55" y="45" textAnchor="middle" fill="white" fontSize="8">TTFT &lt; 500ms</text>
+        <text x="55" y="65" textAnchor="middle" fill="white" fontSize="8">P95 &lt; 3s</text>
+        <text x="55" y="85" textAnchor="middle" fill="white" fontSize="8">P99 &lt; 5s</text>
+        <text x="55" y="105" textAnchor="middle" fill="#facc15" fontSize="7">Stream for UX</text>
+        <text x="55" y="120" textAnchor="middle" fill="#22d3ee" fontSize="6">Cache hit &gt; 60%</text>
+      </g>
+    </svg>);
+
+    // Issue 2: High Error Rates
+    const HighErrorsDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f87171" fontSize="12" fontWeight="bold">💥 SYMPTOM: High Error Rates (&gt;1%)</text>
+      
+      <g transform="translate(30, 35)">
+        <rect width="200" height="150" rx="10" fill="url(#redGrad)" opacity="0.9" />
+        <text x="100" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Error Types</text>
+        
+        <g transform="translate(10, 35)" onMouseMove={(e) => onHover("<b>Rate Limit (429):</b><br/>• RPM/TPM exceeded<br/>• Fix: Implement backoff, request quota increase, use queue", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="85" height="35" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="42" y="15" textAnchor="middle" fill="#fca5a5" fontSize="8" fontWeight="bold">429</text>
+          <text x="42" y="28" textAnchor="middle" fill="white" fontSize="6">Rate Limited</text>
+        </g>
+        
+        <g transform="translate(105, 35)" onMouseMove={(e) => onHover("<b>Timeout (504/408):</b><br/>• Request too slow<br/>• Fix: Reduce prompt, stream, increase timeout", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="85" height="35" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="42" y="15" textAnchor="middle" fill="#fca5a5" fontSize="8" fontWeight="bold">504</text>
+          <text x="42" y="28" textAnchor="middle" fill="white" fontSize="6">Timeout</text>
+        </g>
+        
+        <g transform="translate(10, 78)" onMouseMove={(e) => onHover("<b>Context Length (400):</b><br/>• Input + output > max_context<br/>• Fix: Truncate, summarize, use longer-context model", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="85" height="35" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="42" y="15" textAnchor="middle" fill="#fca5a5" fontSize="8" fontWeight="bold">400</text>
+          <text x="42" y="28" textAnchor="middle" fill="white" fontSize="6">Context Overflow</text>
+        </g>
+        
+        <g transform="translate(105, 78)" onMouseMove={(e) => onHover("<b>Server Error (500/503):</b><br/>• Provider issues<br/>• Fix: Retry with backoff, fallback provider", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="85" height="35" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="42" y="15" textAnchor="middle" fill="#fca5a5" fontSize="8" fontWeight="bold">500</text>
+          <text x="42" y="28" textAnchor="middle" fill="white" fontSize="6">Server Error</text>
+        </g>
+        
+        <rect x="10" y="120" width="180" height="22" rx="4" fill="rgba(251,146,60,0.3)" />
+        <text x="100" y="135" textAnchor="middle" fill="#fb923c" fontSize="7">+ Content Filter, Invalid JSON, Auth</text>
+      </g>
+      
+      <path d="M235 110 L275 110" stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowCyan)" />
+      
+      <g transform="translate(280, 35)" onMouseMove={(e) => onHover("<b>Retry Strategy (Exponential Backoff):</b><br/>base_delay = 1s<br/>max_delay = 60s<br/>delay = min(base * 2^attempt, max)<br/>Add jitter: delay * (0.5 + random())", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="180" height="150" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="90" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Retry Pattern</text>
+        <rect x="10" y="35" width="160" height="60" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="90" y="52" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">attempt = 0</text>
+        <text x="90" y="66" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">delay = 1 * 2^attempt</text>
+        <text x="90" y="80" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">+ random jitter</text>
+        
+        <text x="90" y="108" textAnchor="middle" fill="white" fontSize="8">Max retries: 3-5</text>
+        <text x="90" y="125" textAnchor="middle" fill="white" fontSize="8">Retry: 429, 500, 503</text>
+        <text x="90" y="142" textAnchor="middle" fill="#fca5a5" fontSize="7">Don't retry: 400, 401</text>
+      </g>
+      
+      <path d="M465 110 L505 110" stroke="#4ade80" strokeWidth="2" markerEnd="url(#arrowGreen)" />
+      
+      <g transform="translate(510, 35)">
+        <rect width="160" height="150" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="80" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Resilience Stack</text>
+        <text x="80" y="48" textAnchor="middle" fill="white" fontSize="8">🔄 Retry + Backoff</text>
+        <text x="80" y="68" textAnchor="middle" fill="white" fontSize="8">⚡ Circuit Breaker</text>
+        <text x="80" y="88" textAnchor="middle" fill="white" fontSize="8">🔀 Fallback Models</text>
+        <text x="80" y="108" textAnchor="middle" fill="white" fontSize="8">📊 Rate Limiter</text>
+        <text x="80" y="128" textAnchor="middle" fill="white" fontSize="8">🚦 Load Shedding</text>
+        <text x="80" y="145" textAnchor="middle" fill="#86efac" fontSize="7">Queue + Bulkhead</text>
+      </g>
+    </svg>);
+
+    // Issue 3: Quality Degradation
+    const QualityDegradationDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f87171" fontSize="12" fontWeight="bold">📉 SYMPTOM: Quality Degradation (Sudden or Gradual)</text>
+      
+      <g transform="translate(30, 40)">
+        <rect width="150" height="160" rx="10" fill="url(#orangeGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Potential Causes</text>
+        <text x="75" y="48" textAnchor="middle" fill="white" fontSize="8">🔄 Model version change</text>
+        <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8">📝 Prompt drift</text>
+        <text x="75" y="88" textAnchor="middle" fill="white" fontSize="8">📊 Data distribution shift</text>
+        <text x="75" y="108" textAnchor="middle" fill="white" fontSize="8">🌡️ Temperature changes</text>
+        <text x="75" y="128" textAnchor="middle" fill="white" fontSize="8">✂️ Context truncation</text>
+        <text x="75" y="148" textAnchor="middle" fill="white" fontSize="8">🔧 Config changes</text>
+      </g>
+      
+      <g transform="translate(200, 40)" onMouseMove={(e) => onHover("<b>Detection Methods:</b><br/>• LLM-as-judge scoring<br/>• Embedding drift detection<br/>• Human eval sampling (5%)<br/>• Regression test suite<br/>• User feedback signals", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="160" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔍 Detection</text>
+        <rect x="10" y="35" width="130" height="30" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="75" y="55" textAnchor="middle" fill="white" fontSize="8">LLM-as-Judge</text>
+        <rect x="10" y="70" width="130" height="30" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="75" y="90" textAnchor="middle" fill="white" fontSize="8">Embedding Drift</text>
+        <rect x="10" y="105" width="130" height="30" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="75" y="125" textAnchor="middle" fill="white" fontSize="8">Human Eval (5%)</text>
+        <rect x="10" y="140" width="130" height="18" rx="4" fill="rgba(167,139,250,0.3)" />
+        <text x="75" y="153" textAnchor="middle" fill="#c4b5fd" fontSize="7">Regression tests</text>
+      </g>
+      
+      <g transform="translate(370, 40)" onMouseMove={(e) => onHover("<b>Root Cause Analysis:</b><br/>1. Check model version (API changelog)<br/>2. Diff prompts (git history)<br/>3. Sample input distribution<br/>4. Compare config snapshots<br/>5. Check upstream dependencies", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="160" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔬 Root Cause</text>
+        <text x="75" y="48" textAnchor="middle" fill="white" fontSize="8">1. Model version check</text>
+        <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8">2. Prompt diff (git)</text>
+        <text x="75" y="88" textAnchor="middle" fill="white" fontSize="8">3. Input distribution</text>
+        <text x="75" y="108" textAnchor="middle" fill="white" fontSize="8">4. Config snapshots</text>
+        <text x="75" y="128" textAnchor="middle" fill="white" fontSize="8">5. Dependency audit</text>
+        <text x="75" y="148" textAnchor="middle" fill="#67e8f9" fontSize="7">6. A/B test isolation</text>
+      </g>
+      
+      <g transform="translate(540, 40)">
+        <rect width="130" height="160" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="65" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">✅ Fixes</text>
+        <text x="65" y="48" textAnchor="middle" fill="white" fontSize="8">Pin model version</text>
+        <text x="65" y="68" textAnchor="middle" fill="white" fontSize="8">Version prompts</text>
+        <text x="65" y="88" textAnchor="middle" fill="white" fontSize="8">Input validation</text>
+        <text x="65" y="108" textAnchor="middle" fill="white" fontSize="8">Config as code</text>
+        <text x="65" y="128" textAnchor="middle" fill="white" fontSize="8">Canary deploys</text>
+        <text x="65" y="148" textAnchor="middle" fill="#86efac" fontSize="7">Auto-rollback</text>
+      </g>
+    </svg>);
+
+    // Issue 4: Cost Explosion
+    const CostExplosionDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f87171" fontSize="12" fontWeight="bold">💸 SYMPTOM: Cost Explosion (Budget Exceeded)</text>
+      
+      <g transform="translate(30, 35)">
+        <rect width="150" height="150" rx="10" fill="url(#yellowGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="#000" fontSize="10" fontWeight="bold">Cost Drivers</text>
+        <text x="75" y="48" textAnchor="middle" fill="#000" fontSize="8">📈 Traffic spike</text>
+        <text x="75" y="68" textAnchor="middle" fill="#000" fontSize="8">📝 Prompt bloat</text>
+        <text x="75" y="88" textAnchor="middle" fill="#000" fontSize="8">🔄 Retry storms</text>
+        <text x="75" y="108" textAnchor="middle" fill="#000" fontSize="8">🤖 Agent loops</text>
+        <text x="75" y="128" textAnchor="middle" fill="#000" fontSize="8">❌ No caching</text>
+        <text x="75" y="145" textAnchor="middle" fill="#000" fontSize="7">Wrong model tier</text>
+      </g>
+      
+      <g transform="translate(200, 35)" onMouseMove={(e) => onHover("<b>Cost Breakdown Formula:</b><br/>Cost = (input_tokens × input_price) + (output_tokens × output_price)<br/><br/>GPT-4o: $2.50/$10.00 per 1M<br/>Claude 3.5: $3.00/$15.00 per 1M<br/>GPT-4o-mini: $0.15/$0.60 per 1M<br/><br/>Output costs 4-5x more than input!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="150" rx="10" fill="url(#blueGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">📊 Cost Analysis</text>
+        <rect x="10" y="35" width="130" height="50" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="75" y="52" textAnchor="middle" fill="white" fontSize="7">input × $price_in</text>
+        <text x="75" y="66" textAnchor="middle" fill="white" fontSize="7">+ output × $price_out</text>
+        <text x="75" y="80" textAnchor="middle" fill="#fca5a5" fontSize="6">Output = 4-5x input cost!</text>
+        
+        <rect x="10" y="92" width="130" height="48" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="75" y="108" textAnchor="middle" fill="#67e8f9" fontSize="7">Track per-request</text>
+        <text x="75" y="122" textAnchor="middle" fill="#67e8f9" fontSize="7">Alert on anomalies</text>
+        <text x="75" y="136" textAnchor="middle" fill="#67e8f9" fontSize="7">Budget caps</text>
+      </g>
+      
+      <g transform="translate(370, 35)" onMouseMove={(e) => onHover("<b>Cost Optimization Strategies:</b><br/>1. Model routing (cheap → expensive)<br/>2. Prompt compression (-30% tokens)<br/>3. Response caching (semantic)<br/>4. Batch requests<br/>5. Limit max_tokens<br/>6. Fine-tune smaller model", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="150" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">💰 Optimize</text>
+        <text x="75" y="48" textAnchor="middle" fill="white" fontSize="8">🔀 Model routing</text>
+        <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8">📦 Prompt compress</text>
+        <text x="75" y="88" textAnchor="middle" fill="white" fontSize="8">💾 Semantic cache</text>
+        <text x="75" y="108" textAnchor="middle" fill="white" fontSize="8">📊 Batch requests</text>
+        <text x="75" y="128" textAnchor="middle" fill="white" fontSize="8">✂️ Limit output</text>
+        <text x="75" y="145" textAnchor="middle" fill="#86efac" fontSize="7">Fine-tune small</text>
+      </g>
+      
+      <g transform="translate(540, 35)">
+        <rect width="130" height="150" rx="8" fill="rgba(74,222,128,0.2)" stroke="#4ade80" strokeWidth="2" />
+        <text x="65" y="22" textAnchor="middle" fill="#4ade80" fontSize="9" fontWeight="bold">Savings Potential</text>
+        <text x="65" y="50" textAnchor="middle" fill="white" fontSize="8">Caching: 30-60%</text>
+        <text x="65" y="70" textAnchor="middle" fill="white" fontSize="8">Routing: 40-70%</text>
+        <text x="65" y="90" textAnchor="middle" fill="white" fontSize="8">Compression: 20-30%</text>
+        <text x="65" y="110" textAnchor="middle" fill="white" fontSize="8">Batching: 10-20%</text>
+        <text x="65" y="135" textAnchor="middle" fill="#facc15" fontSize="9" fontWeight="bold">Total: 50-80%</text>
+      </g>
+    </svg>);
+
+    // Issue 5: Memory/OOM Issues
+    const MemoryOOMDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f87171" fontSize="12" fontWeight="bold">💾 SYMPTOM: OOM / Memory Issues (Self-Hosted)</text>
+      
+      <g transform="translate(30, 40)">
+        <rect width="200" height="140" rx="10" fill="url(#redGrad)" opacity="0.9" />
+        <text x="100" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Memory Culprits</text>
+        
+        <g onMouseMove={(e) => onHover("<b>KV Cache Memory:</b><br/>Memory = 2 × layers × heads × head_dim × seq_len × batch × precision<br/><br/>7B model @ 4K context = ~1GB per request<br/>70B model @ 4K context = ~10GB per request<br/><br/>Scales linearly with batch size!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect x="10" y="35" width="180" height="35" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="100" y="52" textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">KV Cache (biggest!)</text>
+          <text x="100" y="66" textAnchor="middle" fill="#fca5a5" fontSize="7">~1GB per req @ 7B/4K</text>
+        </g>
+        
+        <rect x="10" y="78" width="85" height="28" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="52" y="96" textAnchor="middle" fill="white" fontSize="7">Model weights</text>
+        
+        <rect x="105" y="78" width="85" height="28" rx="4" fill="rgba(0,0,0,0.2)" />
+        <text x="147" y="96" textAnchor="middle" fill="white" fontSize="7">Activations</text>
+        
+        <rect x="10" y="112" width="180" height="22" rx="4" fill="rgba(251,146,60,0.3)" />
+        <text x="100" y="127" textAnchor="middle" fill="#fb923c" fontSize="7">Batch size × context = memory explosion</text>
+      </g>
+      
+      <g transform="translate(250, 40)" onMouseMove={(e) => onHover("<b>vLLM PagedAttention:</b><br/>• Treats KV cache like virtual memory<br/>• Allocates in small blocks (pages)<br/>• Shares pages across requests<br/>• Near-zero memory waste<br/><br/>Result: 2-4x more throughput!", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="180" height="140" rx="10" fill="url(#purpleGrad)" opacity="0.9" />
+        <text x="90" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">PagedAttention</text>
+        <rect x="10" y="38" width="160" height="85" rx="6" fill="rgba(0,0,0,0.3)" />
+        <text x="90" y="55" textAnchor="middle" fill="white" fontSize="8">Virtual memory for KV</text>
+        <text x="90" y="72" textAnchor="middle" fill="white" fontSize="8">Block-based allocation</text>
+        <text x="90" y="89" textAnchor="middle" fill="white" fontSize="8">Share across requests</text>
+        <text x="90" y="106" textAnchor="middle" fill="white" fontSize="8">Near-zero waste</text>
+        <text x="90" y="133" textAnchor="middle" fill="#c4b5fd" fontSize="8" fontWeight="bold">→ 2-4x throughput</text>
+      </g>
+      
+      <g transform="translate(450, 40)">
+        <rect width="220" height="140" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="110" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Memory Management</text>
+        <text x="110" y="48" textAnchor="middle" fill="white" fontSize="8">✅ Use vLLM/TensorRT-LLM</text>
+        <text x="110" y="68" textAnchor="middle" fill="white" fontSize="8">✅ Quantize (AWQ/GPTQ)</text>
+        <text x="110" y="88" textAnchor="middle" fill="white" fontSize="8">✅ Limit max batch size</text>
+        <text x="110" y="108" textAnchor="middle" fill="white" fontSize="8">✅ Set max_model_len</text>
+        <text x="110" y="128" textAnchor="middle" fill="#86efac" fontSize="8">✅ Monitor GPU memory</text>
+      </g>
+    </svg>);
+
+    // Issue 6: Hallucination / Wrong Answers
+    const HallucinationDiagram = ({ onHover }) => (<svg viewBox="0 0 700 200" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#f87171" fontSize="12" fontWeight="bold">🎭 SYMPTOM: Hallucinations / Incorrect Outputs</text>
+      
+      <g transform="translate(30, 40)">
+        <rect width="150" height="140" rx="10" fill="url(#pinkGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">Hallucination Types</text>
+        <text x="75" y="48" textAnchor="middle" fill="white" fontSize="8">🔢 Factual errors</text>
+        <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8">📚 Citation fabrication</text>
+        <text x="75" y="88" textAnchor="middle" fill="white" fontSize="8">🔗 Logic inconsistency</text>
+        <text x="75" y="108" textAnchor="middle" fill="white" fontSize="8">📝 Instruction drift</text>
+        <text x="75" y="128" textAnchor="middle" fill="white" fontSize="8">🎯 Off-topic responses</text>
+      </g>
+      
+      <g transform="translate(200, 40)" onMouseMove={(e) => onHover("<b>Detection Methods:</b><br/>• Self-consistency (sample N times, check agreement)<br/>• Entailment verification (NLI model)<br/>• RAG grounding check (citation verification)<br/>• Fact-checking against knowledge base<br/>• Confidence calibration", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="140" rx="10" fill="url(#cyanGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">🔍 Detection</text>
+        <text x="75" y="48" textAnchor="middle" fill="white" fontSize="8">Self-consistency</text>
+        <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8">NLI verification</text>
+        <text x="75" y="88" textAnchor="middle" fill="white" fontSize="8">Citation check</text>
+        <text x="75" y="108" textAnchor="middle" fill="white" fontSize="8">KB fact-check</text>
+        <text x="75" y="128" textAnchor="middle" fill="#67e8f9" fontSize="7">Confidence scores</text>
+      </g>
+      
+      <g transform="translate(370, 40)" onMouseMove={(e) => onHover("<b>Mitigation Strategies:</b><br/>• RAG for grounding (always cite sources)<br/>• Lower temperature (0.0-0.3)<br/>• Chain-of-thought prompting<br/>• Explicit 'I don't know' instruction<br/>• Multi-step verification<br/>• Human-in-the-loop for high stakes", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+        <rect width="150" height="140" rx="10" fill="url(#greenGrad)" opacity="0.9" />
+        <text x="75" y="22" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">✅ Mitigate</text>
+        <text x="75" y="48" textAnchor="middle" fill="white" fontSize="8">📚 RAG grounding</text>
+        <text x="75" y="68" textAnchor="middle" fill="white" fontSize="8">🌡️ Low temperature</text>
+        <text x="75" y="88" textAnchor="middle" fill="white" fontSize="8">🔗 Chain-of-thought</text>
+        <text x="75" y="108" textAnchor="middle" fill="white" fontSize="8">❓ "IDK" instruction</text>
+        <text x="75" y="128" textAnchor="middle" fill="#86efac" fontSize="7">👤 Human review</text>
+      </g>
+      
+      <g transform="translate(540, 40)">
+        <rect width="130" height="140" rx="8" fill="rgba(34,211,238,0.2)" stroke="#22d3ee" strokeWidth="2" />
+        <text x="65" y="22" textAnchor="middle" fill="#22d3ee" fontSize="9" fontWeight="bold">Best Practices</text>
+        <text x="65" y="48" textAnchor="middle" fill="white" fontSize="7">temp=0 for facts</text>
+        <text x="65" y="68" textAnchor="middle" fill="white" fontSize="7">Always use RAG</text>
+        <text x="65" y="88" textAnchor="middle" fill="white" fontSize="7">Cite sources</text>
+        <text x="65" y="108" textAnchor="middle" fill="white" fontSize="7">Verify outputs</text>
+        <text x="65" y="128" textAnchor="middle" fill="#facc15" fontSize="7">Never trust blindly</text>
+      </g>
+    </svg>);
+
+    // Monitoring Dashboard Reference
+    const MonitoringDashboardDiagram = ({ onHover }) => (<svg viewBox="0 0 700 220" className="w-full h-auto"><GradientDefs />
+      <text x="350" y="20" textAnchor="middle" fill="#22d3ee" fontSize="12" fontWeight="bold">📊 Production Monitoring Dashboard (Prometheus + Grafana)</text>
+      
+      <g transform="translate(30, 35)">
+        <rect width="640" height="170" rx="12" fill="rgba(15,23,42,0.8)" stroke="#334155" strokeWidth="2" />
+        <text x="320" y="22" textAnchor="middle" fill="#94a3b8" fontSize="9">LLM Service Health Dashboard</text>
+        
+        {/* Latency Panel */}
+        <g transform="translate(15, 35)" onMouseMove={(e) => onHover("<b>Latency Metrics:</b><br/>• llm_request_duration_seconds (histogram)<br/>• Labels: model, endpoint, status<br/>• Buckets: 0.1, 0.5, 1, 2, 5, 10, 30s<br/><br/>Alerts: P95 > 5s for 5min", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="145" height="120" rx="6" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" strokeWidth="1" />
+          <text x="72" y="18" textAnchor="middle" fill="#22d3ee" fontSize="8" fontWeight="bold">⏱️ Latency</text>
+          <text x="72" y="40" textAnchor="middle" fill="#4ade80" fontSize="10">P50: 1.2s</text>
+          <text x="72" y="58" textAnchor="middle" fill="#facc15" fontSize="10">P95: 3.4s</text>
+          <text x="72" y="76" textAnchor="middle" fill="#fb923c" fontSize="10">P99: 5.1s</text>
+          <rect x="10" y="85" width="125" height="25" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="72" y="102" textAnchor="middle" fill="#94a3b8" fontSize="7">TTFT: 450ms avg</text>
+        </g>
+        
+        {/* Throughput Panel */}
+        <g transform="translate(170, 35)" onMouseMove={(e) => onHover("<b>Throughput Metrics:</b><br/>• llm_requests_total (counter)<br/>• llm_tokens_total (counter)<br/>• Rate: requests/sec, tokens/sec<br/><br/>Alerts: RPM drop > 50%", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="145" height="120" rx="6" fill="rgba(74,222,128,0.1)" stroke="#4ade80" strokeWidth="1" />
+          <text x="72" y="18" textAnchor="middle" fill="#4ade80" fontSize="8" fontWeight="bold">📈 Throughput</text>
+          <text x="72" y="40" textAnchor="middle" fill="white" fontSize="10">1,234 RPM</text>
+          <text x="72" y="58" textAnchor="middle" fill="white" fontSize="10">45K TPM</text>
+          <text x="72" y="76" textAnchor="middle" fill="#94a3b8" fontSize="8">Batch: 8 avg</text>
+          <rect x="10" y="85" width="125" height="25" rx="4" fill="rgba(0,0,0,0.3)" />
+          <text x="72" y="102" textAnchor="middle" fill="#4ade80" fontSize="7">▲ 12% vs yesterday</text>
+        </g>
+        
+        {/* Error Panel */}
+        <g transform="translate(325, 35)" onMouseMove={(e) => onHover("<b>Error Metrics:</b><br/>• llm_errors_total{code='429|500|...'}<br/>• Error rate = errors / requests<br/><br/>Alerts: Error rate > 1% for 5min", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="145" height="120" rx="6" fill="rgba(248,113,113,0.1)" stroke="#f87171" strokeWidth="1" />
+          <text x="72" y="18" textAnchor="middle" fill="#f87171" fontSize="8" fontWeight="bold">⚠️ Errors</text>
+          <text x="72" y="40" textAnchor="middle" fill="#4ade80" fontSize="10">0.3% rate</text>
+          <text x="35" y="58" textAnchor="middle" fill="#facc15" fontSize="8">429: 12</text>
+          <text x="110" y="58" textAnchor="middle" fill="#f87171" fontSize="8">500: 3</text>
+          <text x="72" y="76" textAnchor="middle" fill="#94a3b8" fontSize="8">Timeouts: 5</text>
+          <rect x="10" y="85" width="125" height="25" rx="4" fill="rgba(74,222,128,0.2)" />
+          <text x="72" y="102" textAnchor="middle" fill="#4ade80" fontSize="7">✓ Within SLO</text>
+        </g>
+        
+        {/* Cost Panel */}
+        <g transform="translate(480, 35)" onMouseMove={(e) => onHover("<b>Cost Metrics:</b><br/>• llm_cost_dollars (gauge)<br/>• Labels: model, endpoint<br/>• Calculate from token counts × prices<br/><br/>Alerts: Daily spend > budget", e.clientX, e.clientY)} onMouseLeave={() => onHover(null)}>
+          <rect width="145" height="120" rx="6" fill="rgba(250,204,21,0.1)" stroke="#facc15" strokeWidth="1" />
+          <text x="72" y="18" textAnchor="middle" fill="#facc15" fontSize="8" fontWeight="bold">💰 Cost</text>
+          <text x="72" y="40" textAnchor="middle" fill="white" fontSize="10">$127.45/hr</text>
+          <text x="72" y="58" textAnchor="middle" fill="white" fontSize="10">$2,847/day</text>
+          <text x="72" y="76" textAnchor="middle" fill="#94a3b8" fontSize="8">Budget: $3,000/day</text>
+          <rect x="10" y="85" width="125" height="25" rx="4" fill="rgba(74,222,128,0.2)" />
+          <text x="72" y="102" textAnchor="middle" fill="#4ade80" fontSize="7">95% of budget</text>
+        </g>
+      </g>
+    </svg>);
+
+    const patterns = [
+      { id: 1, title: '🐌 High Latency', subtitle: 'P95 > 5s, slow responses, user complaints', Diagram: HighLatencyDiagram, badges: ['TTFT', 'Streaming', 'Caching'] },
+      { id: 2, title: '💥 High Error Rates', subtitle: '429, 500, timeouts, context overflow', Diagram: HighErrorsDiagram, badges: ['Retry', 'Circuit Breaker', 'Fallback'] },
+      { id: 3, title: '📉 Quality Degradation', subtitle: 'Worse outputs, user complaints, metric drops', Diagram: QualityDegradationDiagram, badges: ['Evals', 'Drift Detection', 'Rollback'] },
+      { id: 4, title: '💸 Cost Explosion', subtitle: 'Budget exceeded, unexpected bills', Diagram: CostExplosionDiagram, badges: ['Routing', 'Caching', 'Limits'] },
+      { id: 5, title: '💾 Memory/OOM', subtitle: 'Self-hosted GPU memory issues', Diagram: MemoryOOMDiagram, badges: ['PagedAttention', 'Quantization', 'Batching'] },
+      { id: 6, title: '🎭 Hallucinations', subtitle: 'Wrong facts, fabricated citations', Diagram: HallucinationDiagram, badges: ['RAG', 'Verification', 'Temperature'] },
+      { id: 7, title: '📊 Monitoring Setup', subtitle: 'Prometheus + Grafana dashboard reference', Diagram: MonitoringDashboardDiagram, badges: ['Prometheus', 'Grafana', 'Alerts'] },
+    ];
+
+    function App() {
+      const [tooltip, setTooltip] = useState({ text: null, x: 0, y: 0 });
+      const handleHover = (text, x, y) => setTooltip(text ? { text, x, y } : { text: null, x: 0, y: 0 });
+
+      return (
+        <div className="min-h-screen p-8">
+          <Tooltip {...tooltip} />
+          <div className="max-w-5xl mx-auto">
+            <header className="text-center mb-12">
+              <div className="inline-block px-4 py-1 bg-red-500/20 border border-red-500/30 rounded-full mb-4">
+                <span className="text-red-300 font-semibold text-sm tracking-wide">TROUBLESHOOTING GUIDE</span>
+              </div>
+              <h1 className="text-4xl font-black gradient-text mb-4">LLM Production Issues</h1>
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto">Common problems, diagnosis, and solutions.
+                <span className="block mt-2 text-red-400 text-base">🔥 7 Critical Issues • ✨ Hover for details</span>
+              </p>
+            </header>
+
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-red-400">⏱️</div><div className="text-slate-400 text-sm">Latency</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-orange-400">💥</div><div className="text-slate-400 text-sm">Errors</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-yellow-400">💰</div><div className="text-slate-400 text-sm">Cost</div></div>
+              <div className="glass rounded-xl p-4 text-center"><div className="text-3xl font-bold text-green-400">📊</div><div className="text-slate-400 text-sm">Quality</div></div>
+            </div>
+
+            {patterns.map(p => (
+              <section key={p.id} className="glass rounded-2xl p-8 mb-8 hover:border-red-500/30 transition-colors">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{p.title}</h2>
+                    <p className="text-slate-400">{p.subtitle}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {p.badges.map(b => (<span key={b} className="px-3 py-1 bg-red-500/20 border border-red-500/30 rounded-full text-xs text-red-300">{b}</span>))}
+                  </div>
+                </div>
+                <p.Diagram onHover={handleHover} />
+              </section>
+            ))}
+
+            <footer className="text-center text-slate-500 text-sm mt-12">
+              <p>LLM Production Troubleshooting Guide • Debug faster, ship safer 🚀</p>
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

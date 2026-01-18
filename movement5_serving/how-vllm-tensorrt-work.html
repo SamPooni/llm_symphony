@@ -19,6 +19,8 @@
     .memory-block { transition: all 0.3s ease; }
     .arrow { position: relative; }
     .arrow::after { content: '→'; position: absolute; right: -20px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+    .tip { cursor: help; border-bottom: 1px dotted currentColor; position: relative; }
+    .tip:hover::after { content: attr(data-tip); position: absolute; left: 0; top: 100%; z-index: 50; width: 280px; padding: 12px; margin-top: 8px; background: #1e293b; border: 1px solid #3b82f6; border-radius: 8px; font-size: 13px; color: #e2e8f0; white-space: normal; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
   </style>
 </head>
 <body class="text-white p-6">
