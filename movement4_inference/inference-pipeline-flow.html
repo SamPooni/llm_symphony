@@ -175,22 +175,18 @@
         if (!tooltip || !tooltips[tooltip]) return null;
         const t = tooltips[tooltip];
         
-        let left = mousePos.x + 15;
-        let top = mousePos.y + 15;
-        if (left + 420 > window.innerWidth) left = mousePos.x - 420;
-        if (top + 280 > window.innerHeight) top = window.innerHeight - 290;
         
         return (
           <div 
             className="fixed z-50 w-[400px] p-5 bg-slate-900 border-2 border-white/20 rounded-xl shadow-2xl"
-            style={{ left, top }}
+            style={{ right: 20, bottom: 20 }}
           >
             <div className="text-lg font-black text-white mb-2">{t.title}</div>
             <p className="text-slate-300 text-sm leading-relaxed mb-3">{t.content}</p>
             {t.details && (
               <div className="bg-black/50 rounded-lg p-3 mb-3">
                 <div className="text-xs text-slate-500 font-bold mb-1">DETAILS</div>
-                <p className="text-xs text-cyan-300">{t.details}</p>
+                <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">{t.details}</pre>
               </div>
             )}
             {t.example && (

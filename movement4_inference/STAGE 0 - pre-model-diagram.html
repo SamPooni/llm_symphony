@@ -405,13 +405,9 @@
         // Calculate position to keep tooltip on screen
         const tooltipWidth = 400;
         const tooltipHeight = 300;
-        let left = mousePos.x + 15;
-        let top = mousePos.y + 15;
         
-        if (left + tooltipWidth > window.innerWidth) {
           left = mousePos.x - tooltipWidth - 15;
         }
-        if (top + tooltipHeight > window.innerHeight) {
           top = window.innerHeight - tooltipHeight - 20;
         }
         
