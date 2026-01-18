@@ -651,6 +651,27 @@
                   </div>
                 </Hoverable>
               </div>
+              
+              {/* Numerical Safety */}
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <Hoverable id="num-overflow">
+                  <div className="bg-orange-900/50 border-2 border-orange-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-orange-200 mb-2">💥 Overflow Detection</div>
+                    <div className="text-orange-100/80 text-sm">Check for Inf/NaN in loss</div>
+                    <div className="text-orange-100/60 text-xs mt-2">Skip step if detected</div>
+                    <div className="text-orange-100/60 text-xs">Reduce loss scale (dynamic)</div>
+                  </div>
+                </Hoverable>
+                
+                <Hoverable id="num-clipping">
+                  <div className="bg-purple-900/50 border-2 border-purple-400 rounded-xl p-5">
+                    <div className="text-xl font-black text-purple-200 mb-2">✂️ Grad Clipping Preview</div>
+                    <div className="text-purple-100/80 text-sm">Clip grads to prevent explosions</div>
+                    <div className="text-purple-100/60 text-xs mt-2">max_norm = 1.0 typical</div>
+                    <div className="text-purple-100/60 text-xs">Detailed in Stage 6</div>
+                  </div>
+                </Hoverable>
+              </div>
 
               {/* Typical Loss Curve */}
               <div className="mt-6 bg-slate-900/80 border border-cyan-500/30 rounded-xl p-4">

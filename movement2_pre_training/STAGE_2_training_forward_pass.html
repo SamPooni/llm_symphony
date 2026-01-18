@@ -611,6 +611,16 @@
                   
                   <div className="text-cyan-400">→</div>
                   
+                  {/* Initial Norm (optional) */}
+                  <Hoverable id="embed-norm">
+                    <div className="bg-slate-800/50 border border-slate-600 rounded-xl p-4">
+                      <div className="text-slate-300 font-bold">📊 Init Norm</div>
+                      <div className="text-slate-400 text-xs mt-1">Optional • Not universal</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <div className="text-cyan-400">→</div>
+                  
                   {/* Output */}
                   <div className="text-center">
                     <div className="bg-slate-800 rounded-lg p-3 border border-cyan-500">
@@ -683,6 +693,13 @@
                     </div>
                   </Hoverable>
                   
+                  <Hoverable id="attn-qkv-split">
+                    <div className="bg-blue-800/50 border border-blue-300 rounded-lg p-2 text-center">
+                      <div className="text-blue-200 font-bold text-xs">Split Heads</div>
+                      <div className="text-blue-100/50 text-xs">→ [B,H,S,d]</div>
+                    </div>
+                  </Hoverable>
+                  
                   <div className="text-green-400 text-center">→</div>
                   
                   {/* RoPE */}
@@ -701,6 +718,12 @@
                       <div className="bg-yellow-900/50 border-2 border-yellow-400 rounded-lg p-2 text-center">
                         <div className="text-yellow-200 font-bold text-xs">⚡ FlashAttn</div>
                         <div className="text-yellow-100/50 text-xs">O(n) memory</div>
+                      </div>
+                    </Hoverable>
+                    <Hoverable id="flash-tiling">
+                      <div className="bg-yellow-800/50 border border-yellow-300 rounded-lg p-2 text-center mt-1">
+                        <div className="text-yellow-200 font-bold text-xs">🧱 Tiling</div>
+                        <div className="text-yellow-100/50 text-xs">SRAM blocks</div>
                       </div>
                     </Hoverable>
                   </div>
@@ -732,10 +755,22 @@
                       <div className="text-slate-400 text-xs">Output</div>
                     </div>
                   </Hoverable>
+                  <Hoverable id="attn-concat">
+                    <div className="bg-slate-800/50 border border-slate-400 rounded p-2 text-center">
+                      <div className="text-slate-300 text-xs">🔗 Concat</div>
+                      <div className="text-slate-400 text-xs">Heads</div>
+                    </div>
+                  </Hoverable>
                   <Hoverable id="attn-output-proj">
                     <div className="bg-cyan-900/50 border border-cyan-400 rounded p-2 text-center">
                       <div className="text-cyan-300 text-xs">Output</div>
                       <div className="text-cyan-400 text-xs">Proj</div>
+                    </div>
+                  </Hoverable>
+                  <Hoverable id="attn-dropout">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded p-2 text-center">
+                      <div className="text-slate-300 text-xs">💧 Drop</div>
+                      <div className="text-slate-400 text-xs">0.0</div>
                     </div>
                   </Hoverable>
                 </div>
@@ -799,6 +834,13 @@
                     <div className="bg-teal-900/50 border border-teal-400 rounded-lg p-2 text-center">
                       <div className="text-teal-200 font-bold text-xs">⬇️ Down</div>
                       <div className="text-teal-100/50 text-xs">→ hidden</div>
+                    </div>
+                  </Hoverable>
+                  
+                  <Hoverable id="mlp-dropout">
+                    <div className="bg-slate-800/50 border border-slate-500 rounded-lg p-2 text-center">
+                      <div className="text-slate-300 font-bold text-xs">💧 Drop</div>
+                      <div className="text-slate-100/50 text-xs">0.0</div>
                     </div>
                   </Hoverable>
                 </div>
