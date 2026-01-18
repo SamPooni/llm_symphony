@@ -431,6 +431,9 @@
                       <Hoverable id="llama-3">
                         <div className="text-xs bg-purple-900/50 rounded p-1 text-purple-200">LLaMA 3.1: 128K ctx, 15T tokens</div>
                       </Hoverable>
+                      <Hoverable id="llama-training">
+                        <div className="text-xs bg-purple-900/50 rounded p-1 text-purple-200">Training: 1.7M GPU hours (70B)</div>
+                      </Hoverable>
                     </div>
                   </ModelCard>
                 </div>
@@ -439,6 +442,9 @@
                 <div className="space-y-3">
                   <ModelCard id="mistral-overview" name="🌀 Mistral" org="Mistral AI" color="cyan" sizes="7B → Large 2" open={true}>
                     <div className="mt-2 space-y-1">
+                      <Hoverable id="mistral-7b">
+                        <div className="text-xs bg-cyan-900/50 rounded p-1 text-cyan-200">Mistral 7B: Beats LLaMA 13B</div>
+                      </Hoverable>
                       <Hoverable id="mistral-swa">
                         <div className="text-xs bg-cyan-900/50 rounded p-1 text-cyan-200">Sliding Window Attention</div>
                       </Hoverable>
@@ -686,17 +692,23 @@
                 </Hoverable>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <Hoverable id="context-extension">
                   <div className="p-3 rounded-lg bg-indigo-900/30 border border-indigo-500/50">
                     <div className="text-indigo-200 font-bold text-sm">🔧 Context Extension</div>
-                    <div className="text-indigo-100/60 text-xs">RoPE scaling • NTK • YaRN • Ring Attention</div>
+                    <div className="text-indigo-100/60 text-xs">RoPE scaling • NTK • YaRN</div>
                   </div>
                 </Hoverable>
                 <Hoverable id="train-chinchilla">
                   <div className="p-3 rounded-lg bg-violet-900/30 border border-violet-500/50">
                     <div className="text-violet-200 font-bold text-sm">📊 Scaling Laws</div>
-                    <div className="text-violet-100/60 text-xs">Chinchilla: Tokens ≈ 20 × Params • LLaMA 3: Over-trained</div>
+                    <div className="text-violet-100/60 text-xs">Tokens ≈ 20 × Params</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="train-data-mix">
+                  <div className="p-3 rounded-lg bg-purple-900/30 border border-purple-500/50">
+                    <div className="text-purple-200 font-bold text-sm">📚 Training Data</div>
+                    <div className="text-purple-100/60 text-xs">Web • Books • Code • Wiki</div>
                   </div>
                 </Hoverable>
               </div>

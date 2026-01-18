@@ -581,6 +581,21 @@
                   </Hoverable>
                 </div>
               </div>
+              
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <Hoverable id="viz-lossplot">
+                  <div className="p-3 rounded-lg bg-cyan-900/30 border border-cyan-500/50">
+                    <div className="text-cyan-200 font-bold text-sm">📉 Loss vs Compute</div>
+                    <div className="text-cyan-100/60 text-xs">Log-log plot shows power law — linear trend</div>
+                  </div>
+                </Hoverable>
+                <Hoverable id="viz-frontier">
+                  <div className="p-3 rounded-lg bg-teal-900/30 border border-teal-500/50">
+                    <div className="text-teal-200 font-bold text-sm">🎯 Pareto Frontier</div>
+                    <div className="text-teal-100/60 text-xs">Optimal trade-off curve for N vs D</div>
+                  </div>
+                </Hoverable>
+              </div>
             </section>
 
             {/* SECTION 6: EMERGING */}

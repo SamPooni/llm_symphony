@@ -479,6 +479,14 @@
                     <div className="text-blue-100/60 text-xs mt-2">Code, lang, math</div>
                   </div>
                 </Hoverable>
+                
+                <Hoverable id="expert-ffn">
+                  <div className="p-4 rounded-xl bg-violet-900/50 border-2 border-violet-400">
+                    <div className="text-xl font-black text-violet-200 mb-2">🔧 Expert FFN</div>
+                    <div className="text-violet-100/80 text-sm">SwiGLU structure</div>
+                    <div className="text-violet-100/60 text-xs mt-2">Same as dense FFN</div>
+                  </div>
+                </Hoverable>
               </div>
             </section>
 
@@ -587,6 +595,13 @@
                   <p className="text-green-200/80">Distributing experts across GPUs</p>
                 </div>
               </div>
+              
+              <Hoverable id="ep-concept">
+                <div className="bg-green-900/30 border border-green-500/50 rounded-lg p-4 mb-6">
+                  <div className="text-green-200 font-bold text-center">🔄 Expert Parallelism (EP)</div>
+                  <div className="text-green-100/60 text-sm text-center mt-1">Distribute experts across GPUs — each GPU holds subset of experts</div>
+                </div>
+              </Hoverable>
 
               <div className="bg-slate-900/80 border border-green-500/30 rounded-xl p-6 mb-6">
                 <div className="text-lg font-black text-green-300 mb-4 text-center">🔄 Expert Parallel Communication</div>
@@ -664,6 +679,53 @@
                     <div className="text-slate-400 text-sm">8× ~200B experts</div>
                     <div className="text-slate-500 text-xs mt-2">~1.7T total (unconfirmed)</div>
                     <div className="text-slate-600 text-xs mt-1">Closed</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+            
+            {/* SECTION 7: IMPLEMENTATION */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-yellow-500 to-amber-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-yellow-500/50">
+                  7
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-yellow-300">IMPLEMENTATION & CHALLENGES</h2>
+                  <p className="text-yellow-200/80">Efficient MoE training and inference</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Hoverable id="impl-megablocks">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">🧱 Megablocks</div>
+                    <div className="text-yellow-100/80 text-sm">Block-sparse operations</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">Efficient GPU batching</div>
+                  </div>
+                </Hoverable>
+                
+                <Hoverable id="impl-dropless">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">🎯 Dropless MoE</div>
+                    <div className="text-amber-100/80 text-sm">No token dropping</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Dynamic capacity</div>
+                  </div>
+                </Hoverable>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="challenge-training">
+                  <div className="p-4 rounded-xl bg-red-900/30 border border-red-500/50">
+                    <div className="text-red-200 font-bold">⚠️ Training Challenges</div>
+                    <div className="text-red-100/60 text-sm mt-1">Load imbalance • Expert collapse • High memory</div>
+                  </div>
+                </Hoverable>
+                
+                <Hoverable id="challenge-inference">
+                  <div className="p-4 rounded-xl bg-orange-900/30 border border-orange-500/50">
+                    <div className="text-orange-200 font-bold">⚠️ Inference Challenges</div>
+                    <div className="text-orange-100/60 text-sm mt-1">All experts in memory • Variable compute • Batching</div>
                   </div>
                 </Hoverable>
               </div>

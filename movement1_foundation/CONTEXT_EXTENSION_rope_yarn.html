@@ -616,6 +616,94 @@
                   </div>
                 </div>
               </Hoverable>
+              
+              <div className="mt-4">
+                <Hoverable id="compare-models">
+                  <div className="bg-slate-800/50 border border-slate-600 rounded-lg p-4">
+                    <div className="text-slate-300 font-bold text-center mb-2">🔷 Model Implementations</div>
+                    <div className="grid grid-cols-4 gap-2 text-xs text-center">
+                      <div className="bg-purple-900/30 rounded p-2">
+                        <div className="text-purple-300 font-bold">LLaMA 2</div>
+                        <div className="text-purple-100/60">PI + fine-tune</div>
+                      </div>
+                      <div className="bg-orange-900/30 rounded p-2">
+                        <div className="text-orange-300 font-bold">Mistral</div>
+                        <div className="text-orange-100/60">Sliding + NTK</div>
+                      </div>
+                      <div className="bg-indigo-900/30 rounded p-2">
+                        <div className="text-indigo-300 font-bold">Yi-34B</div>
+                        <div className="text-indigo-100/60">YaRN variant</div>
+                      </div>
+                      <div className="bg-green-900/30 rounded p-2">
+                        <div className="text-green-300 font-bold">Claude</div>
+                        <div className="text-green-100/60">Native long</div>
+                      </div>
+                    </div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+            
+            {/* SECTION 8: PRACTICAL */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-teal-500/50">
+                  8
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-teal-300">PRACTICAL CONSIDERATIONS</h2>
+                  <p className="text-teal-200/80">Fine-tuning and evaluating context extension</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="practical-finetune">
+                  <div className="p-4 rounded-xl bg-teal-900/50 border-2 border-teal-400">
+                    <div className="text-xl font-black text-teal-200 mb-2">🔧 Fine-tuning</div>
+                    <div className="text-teal-100/80 text-sm">Adapt model for longer context</div>
+                    <div className="text-teal-100/60 text-xs mt-2">1K-10K steps, low LR</div>
+                  </div>
+                </Hoverable>
+                
+                <Hoverable id="practical-eval">
+                  <div className="p-4 rounded-xl bg-emerald-900/50 border-2 border-emerald-400">
+                    <div className="text-xl font-black text-emerald-200 mb-2">📊 Evaluation</div>
+                    <div className="text-emerald-100/80 text-sm">Test context extension quality</div>
+                    <div className="text-emerald-100/60 text-xs mt-2">Needle-in-haystack, PPL</div>
+                  </div>
+                </Hoverable>
+              </div>
+            </section>
+            
+            {/* SECTION 9: EMERGING */}
+            <section className="mb-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-yellow-600 flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-amber-500/50">
+                  9
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-amber-300">EMERGING APPROACHES</h2>
+                  <p className="text-amber-200/80">Native training and infinite context research</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Hoverable id="emerging-native">
+                  <div className="p-4 rounded-xl bg-amber-900/50 border-2 border-amber-400">
+                    <div className="text-xl font-black text-amber-200 mb-2">🌟 Native Long Context</div>
+                    <div className="text-amber-100/80 text-sm">Train from scratch with long context</div>
+                    <div className="text-amber-100/60 text-xs mt-2">Claude 200K, Gemini 1M+</div>
+                  </div>
+                </Hoverable>
+                
+                <Hoverable id="emerging-infinite">
+                  <div className="p-4 rounded-xl bg-yellow-900/50 border-2 border-yellow-400">
+                    <div className="text-xl font-black text-yellow-200 mb-2">♾️ Infinite Context?</div>
+                    <div className="text-yellow-100/80 text-sm">Research into unbounded context</div>
+                    <div className="text-yellow-100/60 text-xs mt-2">RAG, memory tokens, Infini-attn</div>
+                  </div>
+                </Hoverable>
+              </div>
             </section>
 
             {/* Summary */}
